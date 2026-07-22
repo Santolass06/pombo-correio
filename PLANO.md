@@ -208,7 +208,7 @@ cifra e blocos que o Linux.
 ## Sprints
 
 - [x] **S1 — Primitivas do núcleo**
-- [ ] **S2 — Cifra e identidade em disco**
+- [x] **S2 — Cifra e identidade em disco**
 - [ ] **S3 — Transferência sobre HTTPS**
 - [ ] **S4 — Descoberta e emparelhamento**
 - [ ] **S5 — Interface e desktop**
@@ -257,13 +257,47 @@ Identidade e endereçamento por conteúdo. 18 testes.
   pasta-mãe de vários projetos. Desfeito e refeito dentro de `pombo-correio/`.
   Nada se perdeu — não havia commits.
 
-### S2 — Cifra e identidade em disco
+### S2 — Cifra e identidade em disco ✅
 
-- [ ] `core/src/crypto.rs`: chave aleatória por transferência, selagem
-      XChaCha20-Poly1305, envelope para a chave X25519 do destinatário.
-- [ ] Cifra por bloco, para não obrigar a ter o ficheiro todo em memória.
-- [ ] Persistir a identidade em disco com permissões `0600`.
-- [ ] Testes: decifra correta, chave errada falha, bloco adulterado falha.
+Selagem de blocos, envelope para o destinatário, identidade persistida.
+35 testes no total.
+
+`core/src/crypto.rs` · `core/src/identity.rs`
+
+**Feito**
+- Chave aleatória por transferência, com bytes do CSPRNG do sistema.
+- Selagem de blocos com XChaCha20-Poly1305, nonce aleatório por bloco e o
+  índice como dados associados.
+- Envelope com par efémero, à maneira do `age`.
+- Identidade gravada em disco a `0600`, com `load_or_create`.
+
+**Dificuldades e detalhes**
+
+- **Par efémero em vez de DH estático-estático.** Quem envia gera um par novo
+  para cada envelope e destrói-o a seguir. Isto dá sigilo futuro: quem venha a
+  roubar a chave estática do destinatário mais tarde não reabre o que já passou
+  pelo relay. Custou dez linhas e é o desenho do `age`.
+- **Nonce aleatório por bloco, e não um contador.** É a decisão que mais
+  interage com a retoma. Um contador obrigaria a persistir o seu estado entre
+  sessões, e retomar uma transferência ao fim de dias com o contador errado
+  repetiria um nonce — falha catastrófica num AEAD. Os 192 bits do nonce do
+  XChaCha20 tornam a escolha aleatória segura e eliminam o estado por completo.
+  É esta a razão de ser XChaCha20 e não ChaCha20 simples.
+- **O índice do bloco entra como dados associados**, autenticado sem ser
+  cifrado. É o que impede trocar de posição blocos já selados, sem os conseguir
+  abrir. Teste: `indice_errado_nao_abre`.
+- **As permissões são postas na criação, não depois.** `OpenOptions::mode(0o600)`
+  em vez de gravar e fazer `chmod` a seguir — a segunda ordem deixaria uma
+  janela em que o material secreto esteve legível a toda a gente. Teste:
+  `ficheiro_de_identidade_fica_0600`.
+- **Formato da identidade em disco:** 32 bytes de assinatura, 32 de cifra, e o
+  nome a seguir em bruto. Sem serializador nem cabeçalho — dois campos fixos e
+  um resto. Há teste com acentos, porque o nome real é "Telemóvel do avô".
+- **API da `chacha20poly1305` 0.11 mudou.** `generate_nonce` e
+  `XNonce::from_slice` deixaram de existir, e a `rand` 0.10 tirou o `OsRng` de
+  `rand::rngs`. Resolvido chamando `getrandom::fill` diretamente: é o CSPRNG do
+  sistema sem camadas pelo meio, e deixa de haver acoplamento entre as versões
+  da `rand` e da `aead`.
 
 ### S3 — Transferência sobre HTTPS
 

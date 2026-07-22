@@ -117,12 +117,81 @@ impl Identity {
         self.signing.sign(msg).to_bytes()
     }
 
+    /// Grava a identidade em disco.
+    ///
+    /// Formato: 32 bytes de assinatura, 32 de cifra, e o nome a seguir. Sem
+    /// serializador nem cabeçalho — são dois campos de tamanho fixo e um resto.
+    ///
+    /// Em Unix o ficheiro fica `0600` antes de levar o segredo. A ordem importa:
+    /// criar primeiro e restringir depois deixaria uma janela em que o material
+    /// esteve legível a toda a gente.
+    pub fn save(&self, path: &std::path::Path) -> Result<()> {
+        let (s, e) = self.secret_bytes();
+        let mut bytes = Vec::with_capacity(64 + self.label.len());
+        bytes.extend_from_slice(&s);
+        bytes.extend_from_slice(&e);
+        bytes.extend_from_slice(self.label.as_bytes());
+
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+
+        use std::io::Write;
+        opts.open(path)?.write_all(&bytes)?;
+        Ok(())
+    }
+
+    /// Lê a identidade gravada por [`Identity::save`].
+    pub fn load(path: &std::path::Path) -> Result<Self> {
+        let bytes = std::fs::read(path)?;
+        if bytes.len() < 64 {
+            return Err(Error::InvalidKey(format!(
+                "ficheiro de identidade tem {} bytes, precisa de pelo menos 64",
+                bytes.len()
+            )));
+        }
+
+        let signing: [u8; 32] = bytes[..32].try_into().expect("fatia de 32");
+        let secret: [u8; 32] = bytes[32..64].try_into().expect("fatia de 32");
+        let label = String::from_utf8(bytes[64..].to_vec())
+            .map_err(|_| Error::InvalidKey("o nome não é UTF-8 válido".into()))?;
+
+        Ok(Self::from_secret_bytes(signing, secret, label))
+    }
+
+    /// Lê a identidade se existir; gera-a e grava-a se não existir.
+    pub fn load_or_create(path: &std::path::Path, label: impl Into<String>) -> Result<Self> {
+        match Self::load(path) {
+            Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                let id = Self::generate(label);
+                if let Some(dir) = path.parent() {
+                    std::fs::create_dir_all(dir)?;
+                }
+                id.save(path)?;
+                Ok(id)
+            }
+            outro => outro,
+        }
+    }
+
     /// Segredo partilhado Diffie-Hellman com outro dispositivo.
     ///
     /// O resultado bruto nunca deve ser usado como chave — passa sempre por
     /// [`Identity::shared_key`], que aplica derivação.
     fn dh(&self, peer: &XPublicKey) -> [u8; 32] {
         self.secret.diffie_hellman(peer).to_bytes()
+    }
+
+    /// Diffie-Hellman com uma chave pública avulsa.
+    ///
+    /// Usado pelo envelope, onde o outro lado é uma chave efémera que não
+    /// pertence a nenhuma identidade conhecida.
+    pub(crate) fn dh_with(&self, peer: &XPublicKey) -> [u8; 32] {
+        self.dh(peer)
     }
 
     /// Chave simétrica derivada, ligada a um contexto específico.
@@ -206,6 +275,95 @@ mod tests {
         let groups: Vec<_> = n.split(' ').collect();
         assert_eq!(groups.len(), 6);
         assert!(groups.iter().all(|g| g.len() == 5 && g.chars().all(|c| c.is_ascii_digit())));
+    }
+
+    /// Diretório temporário que se apaga sozinho no fim do teste.
+    struct Temp(std::path::PathBuf);
+
+    impl Temp {
+        fn novo(nome: &str) -> Self {
+            let d = std::env::temp_dir().join(format!("pombo-teste-{nome}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(&d).unwrap();
+            Self(d)
+        }
+        fn join(&self, n: &str) -> std::path::PathBuf {
+            self.0.join(n)
+        }
+    }
+
+    impl Drop for Temp {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn identidade_sobrevive_a_ida_ao_disco() {
+        let dir = Temp::novo("disco");
+        let path = dir.join("id");
+
+        let original = Identity::generate("PC da sala");
+        original.save(&path).unwrap();
+
+        let lida = Identity::load(&path).unwrap();
+        assert_eq!(original.public(), lida.public());
+        assert_eq!(lida.label, "PC da sala");
+    }
+
+    #[test]
+    fn nome_com_acentos_sobrevive() {
+        // O nome vai em bruto no fim do ficheiro; se o corte fosse por bytes
+        // mal contados, um acento partia a leitura.
+        let dir = Temp::novo("acentos");
+        let path = dir.join("id");
+
+        Identity::generate("Telemóvel do avô").save(&path).unwrap();
+        assert_eq!(Identity::load(&path).unwrap().label, "Telemóvel do avô");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ficheiro_de_identidade_fica_0600() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = Temp::novo("perms");
+        let path = dir.join("id");
+        Identity::generate("x").save(&path).unwrap();
+
+        let modo = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(modo, 0o600, "material secreto legível por terceiros");
+    }
+
+    #[test]
+    fn load_or_create_gera_a_primeira_vez_e_reusa_depois() {
+        let dir = Temp::novo("criar");
+        let path = dir.join("sub/dir/id");
+
+        let primeira = Identity::load_or_create(&path, "novo").unwrap();
+        let segunda = Identity::load_or_create(&path, "ignorado").unwrap();
+
+        assert_eq!(primeira.public(), segunda.public(), "gerou uma identidade nova");
+        assert_eq!(segunda.label, "novo", "o nome gravado devia ganhar");
+    }
+
+    #[test]
+    fn ficheiro_truncado_e_recusado() {
+        let dir = Temp::novo("truncado");
+        let path = dir.join("id");
+        std::fs::write(&path, b"demasiado curto").unwrap();
+
+        assert!(matches!(Identity::load(&path), Err(Error::InvalidKey(_))));
+    }
+
+    #[test]
+    fn ficheiro_inexistente_da_erro_de_io() {
+        // load_or_create depende de distinguir este caso dos outros erros.
+        let dir = Temp::novo("ausente");
+        assert!(matches!(
+            Identity::load(&dir.join("nao-existe")),
+            Err(Error::Io(_))
+        ));
     }
 
     #[test]

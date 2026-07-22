@@ -6,6 +6,7 @@
 //! permite que o iPhone corra exatamente a mesma lógica que o Linux.
 
 pub mod chunk;
+pub mod crypto;
 pub mod error;
 pub mod identity;
 
