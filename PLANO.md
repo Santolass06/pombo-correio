@@ -90,6 +90,35 @@ QUIC fica de fora até haver medição que o justifique. Traria multiplexação 
 melhor comportamento em ligações com perdas, mas custa um segundo formato de
 fio e não é falado por browsers. O LocalSend usa HTTP simples e chega-lhe.
 
+**Os blocos são a unidade de verificação e retoma, não de pedidos.** Um pedido
+HTTP por bloco seria o desenho ingénuo e mataria o débito pela internet: a 1 MiB
+por bloco e gigabit são ~125 pedidos por segundo, e com 30 ms de latência
+sequencialmente não passa de ~33 Mbps. Em vez disso pede-se um `Range` grande e
+lê-se a resposta em streaming, deixando o TCP encher o tubo; os blocos vão sendo
+verificados à medida que chegam. Retomar é voltar a pedir a partir da fronteira
+do primeiro bloco por verificar.
+
+### Onde está mesmo o gargalo
+
+Por ordem, do mais apertado ao mais folgado:
+
+1. **Upload de casa** nos caminhos pela internet (~50–500 Mbps).
+2. **Disco.** No Pi 5, um cartão microSD faz ~50–100 MB/s e é o teto real; um
+   NVMe pelo HAT PCIe passa dos 800 MB/s.
+3. **LAN gigabit** — 125 MB/s.
+4. **Cifra e hash** — BLAKE3 e ChaCha20 andam nos 500+ MB/s, 4 a 40× acima do
+   fio. Nunca é o gargalo.
+
+A RAM não entra na lista. O Pi tem 15 GB, o que não altera nada do desenho: o
+que sobra vai para page cache do Linux, que é melhor uso do que bufferizar em
+espaço de utilizador. Encher memória com ficheiros inteiros só tiraria cache ao
+sistema e serializaria ler → cifrar → enviar, em vez de os sobrepor.
+
+Nota sobre a escolha da cifra: com aceleração por hardware o AES-GCM bate o
+ChaCha20 nas duas máquinas de casa, mas ambos estão muito acima do débito da
+rede, por isso é indiferente. O desempate é o iOS — em WASM não há acesso às
+instruções AES, e aí o ChaCha20 ganha com folga. Daí XChaCha20-Poly1305.
+
 ### Modelo de segurança
 
 - Por dispositivo: um par **Ed25519** (assinar) e um par **X25519** (cifrar).
