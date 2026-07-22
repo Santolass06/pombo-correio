@@ -38,25 +38,47 @@ enum Comando {
     Identidade,
 }
 
+/// Onde ficam a identidade e os ficheiros recebidos.
+///
+/// Cada sistema tem a sua convenção e nenhuma delas é adivinhável a partir das
+/// outras: o Windows não define `HOME`, e o Unix não tem `APPDATA`.
 fn pasta_dados(escolhida: Option<std::path::PathBuf>) -> Result<std::path::PathBuf> {
     if let Some(d) = escolhida {
         return Ok(d);
     }
+
+    #[cfg(windows)]
+    let base = std::env::var_os("APPDATA")
+        .map(std::path::PathBuf::from)
+        .context("APPDATA não está definido")?;
+
+    #[cfg(not(windows))]
     let base = std::env::var_os("XDG_DATA_HOME")
         .map(std::path::PathBuf::from)
         .or_else(|| {
             std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/share"))
         })
         .context("nem XDG_DATA_HOME nem HOME estão definidos")?;
+
     Ok(base.join("pombo"))
 }
 
 /// Nome por omissão deste dispositivo, para não obrigar a configurar nada antes
 /// da primeira utilização.
+///
+/// Não vale a pena uma dependência para isto: são duas fontes, uma por sistema.
+/// Sem a variante do Windows, todas as máquinas Windows apareceriam com o mesmo
+/// nome na lista de dispositivos — que é precisamente o que torna a lista
+/// inútil.
 fn nome_do_dispositivo() -> String {
-    std::fs::read_to_string("/etc/hostname")
+    #[cfg(windows)]
+    let bruto = std::env::var("COMPUTERNAME").ok();
+
+    #[cfg(not(windows))]
+    let bruto = std::fs::read_to_string("/etc/hostname").ok();
+
+    bruto
         .map(|s| s.trim().to_string())
-        .ok()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "dispositivo".into())
 }
