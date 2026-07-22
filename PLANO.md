@@ -299,15 +299,75 @@ Selagem de blocos, envelope para o destinatário, identidade persistida.
   sistema sem camadas pelo meio, e deixa de haver acoplamento entre as versões
   da `rand` e da `aead`.
 
-### S3 — Transferência sobre HTTPS
+### S3 — Transferência sobre HTTP ⚠️ falta validar em rede real
 
-- [ ] Servidor `axum` embutido no cliente: manifesto, blocos, `Range`.
-- [ ] CLI: `pombo enviar <ficheiro> <ip>` e `pombo receber`.
-- [ ] TLS com certificado auto-assinado, fixado pela impressão digital.
-- [ ] Retoma: continuar de onde ia após interrupção.
-- [ ] **Validar Linux↔Linux, LAN e Tailscale, x86-64↔ARM64 no Pi 5.**
-- [ ] Critério: ficheiro grande atravessa com hash idêntico e sobrevive a um
-      corte de rede a meio.
+Código completo e testado em localhost. **Falta o critério de aceitação**, que
+exige máquinas na rede de casa.
+
+`cli/src/protocolo.rs` · `cli/src/receber.rs` · `cli/src/enviar.rs` ·
+`cli/src/main.rs` · `cli/tests/e2e.rs`
+
+**Feito**
+- [x] Servidor `axum` no lado de quem recebe: `/identidade`, `/transferencia`,
+      `/transferencia/{id}/blocos`.
+- [x] CLI: `pombo receber`, `pombo enviar <ficheiro> <destino>`,
+      `pombo identidade`.
+- [x] Retoma, com o identificador da transferência a ser a raiz de Merkle.
+- [x] Teste de integração com dois processos e um socket.
+- [ ] **Validar em rede real: LAN, Tailscale, e x86-64↔ARM64 no Pi 5.**
+
+**Medido em localhost:** 200 MB em 2,1 s (~100 MB/s, já com selagem, abertura e
+verificação). 1,5 GB cortado no bloco 153 de 1431, retomado, byte a byte
+idêntico.
+
+**Desvios ao plano, e porquê**
+
+- **Empurrar em vez de puxar com `Range`.** O plano previa quem recebe a puxar
+  com pedidos `Range`. Ficou ao contrário: só quem recebe tem servidor, e quem
+  envia empurra num `PUT` único com o corpo em fluxo. A retoma faz-se com um
+  parâmetro `?de=N` em vez de um cabeçalho `Range`.
+  A razão é que empurrar é necessário de qualquer maneira — no caminho do relay
+  quem envia também empurra — enquanto puxar só é preciso do relay para quem
+  recebe. Fazer primeiro a metade que serve os dois casos evita escrever dois
+  servidores. O `GET` com `Range` entra em S7, para a descida do relay.
+  O princípio que interessava mantém-se: **um pedido só, com o corpo em fluxo**,
+  em vez de um pedido por bloco.
+- **Sem TLS nesta fase.** O conteúdo já vai selado ponta-a-ponta desde S2, o
+  Tailscale já cifra por WireGuard, e a LAN é a rede de casa. TLS aqui só
+  acrescentaria gestão de certificados sem tapar nenhum buraco real. Entra em
+  S7, onde o relay fica exposto à internet e existe um certificado a sério.
+- **O manifesto passou a ir selado.** Consequência direta de dispensar o TLS:
+  sem isso, o nome do ficheiro viajaria em claro mesmo com os blocos cifrados —
+  e o nome costuma dizer mais sobre o conteúdo do que os próprios bytes. O
+  envelope continua em claro, porque é a chave embrulhada e só o destinatário a
+  abre.
+
+**Dificuldades e detalhes**
+
+- **O nome do ficheiro é reduzido ao último componente.** Vem de outra máquina,
+  e um `..` ou uma barra à frente escreveriam fora da pasta de destino.
+- **A assinatura é verificada antes de abrir seja o que for.** A oferta traz
+  uma assinatura Ed25519 sobre o manifesto selado; sem a validar primeiro, o
+  servidor estaria a decifrar material de qualquer um.
+- **O fluxo não chega alinhado com os blocos.** Os pedaços que saem do corpo
+  HTTP têm tamanhos arbitrários e não coincidem com as fronteiras dos blocos
+  selados. O recetor acumula até ter um bloco inteiro antes de tentar abri-lo —
+  o mesmo problema do `read` curto, noutra camada.
+- **A retoma é keyed pela raiz de Merkle**, não pelo nome. Duas tentativas do
+  mesmo ficheiro reencontram o trabalho a meio mesmo que o nome mude, e
+  ficheiros diferentes com o mesmo nome não se misturam.
+- **Blocos completos contam-se pelo tamanho do ficheiro parcial**
+  (`tamanho / chunk_size`), sem ficheiro de estado à parte. Só é correto porque
+  os blocos se escrevem em ordem e todos têm tamanho fixo menos o último.
+- **`plain_len` no múltiplo exato.** Com um ficheiro de tamanho múltiplo exato
+  do bloco, `size % chunk_size` dá zero mas o último bloco está cheio, não
+  vazio. Teste: `multiplo_exato_do_bloco_nao_da_ultimo_vazio`.
+- **Teste a fechar o tubo do stdout.** A primeira versão do teste lia a saída do
+  recetor até encontrar a porta e largava o leitor. O `println!` seguinte do
+  recetor apanhava EPIPE e o processo morria a meio da transferência. O teste
+  passou a drenar a saída numa thread.
+- **`try_stream!` não aceita anotação de tipos** e o `wrap_stream` da `reqwest`
+  é genérico demais para os inferir. Resolvido com uma função identidade tipada.
 
 ### S4 — Descoberta e emparelhamento
 

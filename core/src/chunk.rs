@@ -161,6 +161,28 @@ impl Manifest {
         self.size.div_ceil(self.chunk_size as u64) as u32
     }
 
+    /// Tamanho em claro do bloco `index`.
+    ///
+    /// Todos os blocos têm `chunk_size` menos o último, que leva o resto. Quem
+    /// recebe precisa disto para enquadrar o fluxo: sem saber onde acaba cada
+    /// bloco selado, não consegue separá-los para os abrir.
+    pub fn plain_len(&self, index: u32) -> Option<usize> {
+        let n = self.expected_chunks();
+        if index >= n {
+            return None;
+        }
+        Some(if index + 1 < n {
+            self.chunk_size as usize
+        } else {
+            // O último bloco leva o que sobra; se o tamanho for múltiplo exato
+            // do bloco, sobra um bloco inteiro e não zero.
+            match self.size % self.chunk_size as u64 {
+                0 => self.chunk_size as usize,
+                resto => resto as usize,
+            }
+        })
+    }
+
     /// Confirma que o manifesto é internamente coerente.
     ///
     /// Deve correr-se em **todo** o manifesto recebido pela rede antes de se
@@ -297,6 +319,25 @@ mod tests {
             m.verify_chunk(99, b"abc"),
             Err(Error::ChunkMismatch { index: 99 })
         ));
+    }
+
+    #[test]
+    fn plain_len_soma_ao_tamanho_total() {
+        for tamanho in [1, 5000, CHUNK_SIZE, CHUNK_SIZE + 1, CHUNK_SIZE * 3 + 77] {
+            let m = Manifest::from_bytes("x", &dados(tamanho));
+            let soma: usize = (0..m.expected_chunks()).map(|i| m.plain_len(i).unwrap()).sum();
+            assert_eq!(soma as u64, m.size, "falhou com {tamanho} bytes");
+        }
+    }
+
+    #[test]
+    fn multiplo_exato_do_bloco_nao_da_ultimo_vazio() {
+        // O caso que o `%` apanha mal: com tamanho múltiplo exato, o resto é
+        // zero mas o último bloco está cheio, não vazio.
+        let m = Manifest::from_bytes("x", &dados(CHUNK_SIZE * 2));
+        assert_eq!(m.expected_chunks(), 2);
+        assert_eq!(m.plain_len(1), Some(CHUNK_SIZE));
+        assert_eq!(m.plain_len(2), None);
     }
 
     #[test]

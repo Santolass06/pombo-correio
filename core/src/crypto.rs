@@ -104,18 +104,19 @@ impl Envelope {
     }
 }
 
-/// Sela um bloco.
-///
-/// O índice entra como dados associados: autentica-o sem o cifrar, e é o que
-/// impede que blocos selados sejam trocados de posição. O nonce vai à frente do
-/// texto cifrado; com o nonce de 192 bits do XChaCha20 gerá-lo ao acaso é
-/// seguro, o que dispensa gerir contadores e o risco de os repetir.
-pub fn seal_chunk(key: &TransferKey, index: u32, plaintext: &[u8]) -> Vec<u8> {
+/// Quanto é que selar acrescenta: 24 de nonce + 16 de autenticação.
+pub const SEAL_OVERHEAD: usize = 24 + 16;
+
+/// O nonce vai à frente do texto cifrado. Com os 192 bits do XChaCha20, gerá-lo
+/// ao acaso é seguro, o que dispensa gerir contadores e o risco de os repetir —
+/// risco que a retoma tornaria real, porque o contador teria de sobreviver
+/// entre sessões.
+fn seal_with(key: &TransferKey, aad: &[u8], plaintext: &[u8]) -> Vec<u8> {
     let nonce: [u8; 24] = random_bytes();
     let ct = key
         .cipher()
-        .encrypt(&XNonce::from(nonce), Payload { msg: plaintext, aad: &index.to_le_bytes() })
-        .expect("selar um bloco não pode falhar");
+        .encrypt(&XNonce::from(nonce), Payload { msg: plaintext, aad })
+        .expect("selar não pode falhar");
 
     let mut out = Vec::with_capacity(24 + ct.len());
     out.extend_from_slice(&nonce);
@@ -123,11 +124,7 @@ pub fn seal_chunk(key: &TransferKey, index: u32, plaintext: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Quanto é que selar acrescenta a um bloco: 24 de nonce + 16 de autenticação.
-pub const SEAL_OVERHEAD: usize = 24 + 16;
-
-/// Abre um bloco selado, verificando que corresponde ao índice indicado.
-pub fn open_chunk(key: &TransferKey, index: u32, sealed: &[u8]) -> Result<Vec<u8>> {
+fn open_with(key: &TransferKey, aad: &[u8], sealed: &[u8]) -> Result<Vec<u8>> {
     if sealed.len() < SEAL_OVERHEAD {
         return Err(Error::Decrypt);
     }
@@ -135,8 +132,38 @@ pub fn open_chunk(key: &TransferKey, index: u32, sealed: &[u8]) -> Result<Vec<u8
     let nonce: [u8; 24] = nonce.try_into().expect("fatia de 24 já verificada");
 
     key.cipher()
-        .decrypt(&XNonce::from(nonce), Payload { msg: ct, aad: &index.to_le_bytes() })
+        .decrypt(&XNonce::from(nonce), Payload { msg: ct, aad })
         .map_err(|_| Error::Decrypt)
+}
+
+/// Sela um bloco, ligando-o ao seu índice.
+///
+/// O índice entra como dados associados: fica autenticado sem ser cifrado, e é
+/// o que impede trocar de posição blocos já selados sem os conseguir abrir.
+pub fn seal_chunk(key: &TransferKey, index: u32, plaintext: &[u8]) -> Vec<u8> {
+    seal_with(key, &index.to_le_bytes(), plaintext)
+}
+
+/// Abre um bloco selado, verificando que corresponde ao índice indicado.
+pub fn open_chunk(key: &TransferKey, index: u32, sealed: &[u8]) -> Result<Vec<u8>> {
+    open_with(key, &index.to_le_bytes(), sealed)
+}
+
+/// Dados associados do manifesto. Distintos de qualquer índice de bloco, para
+/// que um manifesto selado nunca possa ser aceite no lugar de um bloco.
+const AAD_MANIFEST: &[u8] = b"pombo-manifest-v1";
+
+/// Sela o manifesto.
+///
+/// O manifesto traz o nome do ficheiro. Sem o selar, o nome viajaria em claro
+/// mesmo com os blocos cifrados — e o nome costuma dizer mais sobre o conteúdo
+/// do que os próprios bytes.
+pub fn seal_manifest(key: &TransferKey, plaintext: &[u8]) -> Vec<u8> {
+    seal_with(key, AAD_MANIFEST, plaintext)
+}
+
+pub fn open_manifest(key: &TransferKey, sealed: &[u8]) -> Result<Vec<u8>> {
+    open_with(key, AAD_MANIFEST, sealed)
 }
 
 #[cfg(test)]
@@ -221,6 +248,21 @@ mod tests {
         let a = Envelope::seal(&TransferKey::generate(), &d);
         let b = Envelope::seal(&TransferKey::generate(), &d);
         assert_ne!(a.ephemeral, b.ephemeral);
+    }
+
+    #[test]
+    fn manifesto_selado_reabre_igual() {
+        let k = TransferKey::generate();
+        let m = b"{\"name\":\"ferias.mp4\"}";
+        assert_eq!(open_manifest(&k, &seal_manifest(&k, m)).unwrap(), m);
+    }
+
+    #[test]
+    fn manifesto_nao_passa_por_bloco_nem_o_contrario() {
+        // Domínios separados: nenhum dos dois pode ser aceite no lugar do outro.
+        let k = TransferKey::generate();
+        assert!(open_chunk(&k, 0, &seal_manifest(&k, b"x")).is_err());
+        assert!(open_manifest(&k, &seal_chunk(&k, 0, b"x")).is_err());
     }
 
     #[test]
