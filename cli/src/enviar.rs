@@ -37,12 +37,14 @@ async fn ler_bloco<R: AsyncReadExt + Unpin>(r: &mut R, buf: &mut [u8]) -> std::i
     Ok(cheio)
 }
 
-pub async fn enviar(eu: &Identity, ficheiro: &std::path::Path, destino: &str) -> Result<()> {
-    let base = if destino.starts_with("http") {
-        destino.trim_end_matches('/').to_string()
-    } else {
-        format!("http://{destino}")
-    };
+pub async fn enviar(
+    eu: &Identity,
+    ficheiro: &std::path::Path,
+    destino: std::net::SocketAddr,
+) -> Result<()> {
+    // O `Display` de um endereço IPv6 já traz os parênteses retos que o URL
+    // exige, por isso não é preciso tratá-lo à parte.
+    let base = format!("http://{destino}");
 
     let nome = ficheiro
         .file_name()

@@ -19,6 +19,7 @@ use pombo_correio_core::{
 use tokio::io::AsyncWriteExt;
 
 use crate::{
+    conhecidos::Conhecidos,
     progresso::Progresso,
     protocolo::{Aceite, Oferta},
 };
@@ -32,6 +33,7 @@ struct Estado {
     eu: Identity,
     destino: std::path::PathBuf,
     em_curso: tokio::sync::Mutex<HashMap<String, EmCurso>>,
+    conhecidos: tokio::sync::Mutex<Conhecidos>,
 }
 
 /// Reduz o nome recebido ao seu último componente.
@@ -157,7 +159,24 @@ async fn propor(
         manifesto.name,
         manifesto.size as f64 / 1e6
     );
-    println!("  Número de segurança: {}", oferta.de.safety_number());
+
+    // O número de segurança só interessa quando há algo a verificar. Repeti-lo
+    // a cada ficheiro de um dispositivo já conhecido ensinaria a ignorá-lo, que
+    // é a pior coisa que se pode fazer a uma verificação de segurança.
+    let mut registo = estado.conhecidos.lock().await;
+    match registo.nome_anterior(&oferta.de) {
+        Some(antes) if antes == oferta.de.label => {}
+        Some(antes) => println!("  (este dispositivo chamava-se \"{antes}\")"),
+        None => {
+            println!("  DISPOSITIVO NOVO — confirma este número com quem enviou:");
+            println!("    {}", oferta.de.safety_number());
+        }
+    }
+    if let Err(e) = registo.registar(&oferta.de) {
+        println!("  (não consegui memorizar este dispositivo: {e})");
+    }
+    drop(registo);
+
     if ja > 0 {
         println!("  A retomar: já tenho {ja} de {} blocos", manifesto.expected_chunks());
     }
@@ -245,13 +264,19 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
     Ok("ok".into())
 }
 
-pub async fn servir(eu: Identity, destino: std::path::PathBuf, porta: u16) -> Result<()> {
+pub async fn servir(
+    eu: Identity,
+    destino: std::path::PathBuf,
+    conhecidos: std::path::PathBuf,
+    porta: u16,
+) -> Result<()> {
     tokio::fs::create_dir_all(&destino).await?;
 
     let estado = Arc::new(Estado {
         eu,
         destino: destino.clone(),
         em_curso: Default::default(),
+        conhecidos: Conhecidos::carregar(conhecidos).into(),
     });
 
     let app = Router::new()
@@ -261,12 +286,27 @@ pub async fn servir(eu: Identity, destino: std::path::PathBuf, porta: u16) -> Re
         .with_state(estado.clone());
 
     let escuta = tokio::net::TcpListener::bind(("0.0.0.0", porta)).await?;
+    let porta_real = escuta.local_addr()?.port();
 
     println!("Pombo-Correio — à espera");
     println!("  Este dispositivo: {}", estado.eu.label);
     println!("  Número de segurança: {}", estado.eu.public().safety_number());
-    println!("  A escutar na porta {}", escuta.local_addr()?.port());
+    println!("  A escutar na porta {porta_real}");
     println!("  A guardar em {}", destino.display());
+
+    // O anúncio vive enquanto esta variável existir. Falhar a anunciar não é
+    // motivo para não receber: numa rede que bloqueie multicast, escrever o
+    // endereço à mão continua a funcionar.
+    let _anuncio = match crate::descoberta::anunciar(&estado.eu.public(), porta_real) {
+        Ok(a) => {
+            println!("  Visível na rede local como \"{}\"", estado.eu.label);
+            Some(a)
+        }
+        Err(e) => {
+            println!("  Sem anúncio na rede local ({e}) — usa o endereço directamente");
+            None
+        }
+    };
 
     axum::serve(escuta, app).await?;
     Ok(())

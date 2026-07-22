@@ -217,7 +217,7 @@ cifra e blocos que o Linux.
 - [x] **S1 — Primitivas do núcleo**
 - [x] **S2 — Cifra e identidade em disco**
 - [x] **S3 — Transferência sobre HTTP**
-- [ ] **S4 — Descoberta e emparelhamento**
+- [x] **S4 — Descoberta e dispositivos conhecidos**
 - [ ] **S5 — Interface e desktop**
 - [ ] **S6 — Android**
 - [ ] **S7 — Relay e link sem instalação**
@@ -421,11 +421,58 @@ linha a linha.
 - **`try_stream!` não aceita anotação de tipos** e o `wrap_stream` da `reqwest`
   é genérico demais para os inferir. Resolvido com uma função identidade tipada.
 
-### S4 — Descoberta e emparelhamento
+### S4 — Descoberta e dispositivos conhecidos ✅
 
-- [ ] mDNS (`mdns-sd`): anunciar e descobrir na LAN.
-- [ ] Emparelhamento por QR e por número de segurança.
-- [ ] Registo de dispositivos de confiança, persistido.
+Acabaram-se os endereços escritos à mão na rede local.
+
+`cli/src/descoberta.rs` · `cli/src/conhecidos.rs`
+
+**Feito**
+- [x] mDNS: anunciar ao receber, descobrir ao enviar.
+- [x] `pombo dispositivos` lista quem está à espera.
+- [x] `pombo enviar <ficheiro> "Nome do dispositivo"` — sem endereço.
+- [x] Registo de dispositivos conhecidos, com aviso na primeira vez.
+- [ ] QR — adiado para S5, onde há ecrã para o mostrar.
+
+**Decisões**
+
+- **O endereço literal continua a funcionar e nem toca no mDNS.** É o caminho do
+  Tailscale e de tudo o que esteja fora da rede local — o mDNS é multicast e não
+  atravessa routers. Só se procura na rede quando o que o utilizador escreveu
+  não se parece com um endereço, o que também evita esperar três segundos à toa.
+- **O número de segurança só aparece na primeira vez.** Mostrá-lo a cada
+  ficheiro de um dispositivo já conhecido ensinaria a ignorá-lo, que é a pior
+  coisa que se pode fazer a uma verificação. Se o nome mudar, diz-se qual era
+  antes; se a identidade for outra, volta a ser um dispositivo novo.
+- **O registo é indexado pela impressão digital, nunca pelo nome.** O nome é
+  escolhido pelo dono e muda quando lhe apetecer; a impressão digital deriva das
+  chaves e só muda se o aparelho for realmente outro — que é o caso a detetar.
+  Teste: `a_identidade_manda_e_nao_o_nome`.
+- **Falhar a anunciar não impede receber.** Numa rede que bloqueie multicast,
+  escrever o endereço continua a funcionar; abortar seria trocar uma comodidade
+  perdida por uma falha total.
+- **A impressão digital anunciada no TXT não serve para autenticar** — qualquer
+  um pode anunciar o que quiser. Serve para distinguir dois dispositivos com o
+  mesmo nome. Quem autentica é o envelope, que só o dono da chave abre.
+
+**Dificuldades e detalhes**
+
+- **O conjunto de endereços não tem ordem.** Uma máquina com Wi-Fi, cabo e
+  Tailscale anuncia vários, e a biblioteca entrega-os num `HashSet`. Pegar no
+  primeiro dava endereços diferentes a cada execução — na primeira corrida saiu
+  um IPv6 global, na seguinte podia sair outro. Agora escolhe-se IPv4 primeiro,
+  com desempate textual: numa rede doméstica o IPv4 funciona sempre, enquanto o
+  IPv6 depende do router e da firewall. O `loopback` é descartado, porque um
+  dispositivo que anuncie `127.0.0.1` está a falar de si próprio.
+  Teste: `a_escolha_nao_depende_da_ordem_de_entrada`.
+- **O nome de anfitrião mDNS tem de ser único na rede**, e o nome legível não
+  serve porque pode repetir-se. Usa-se `pombo-<16 dígitos da impressão>.local.`,
+  que além de único não tem caracteres a escapar.
+- **O anúncio é retirado ao sair** (`Drop`). Sem isso, um dispositivo desligado
+  continuaria a aparecer na lista dos outros durante minutos, e quem lhe
+  enviasse falhava sem perceber porquê.
+- **Um ficheiro de conhecidos corrompido não impede receber.** Perde-se a
+  memória de quem já cá passou, o que é um incómodo e não uma falha.
 
 ### S5 — Interface e desktop
 

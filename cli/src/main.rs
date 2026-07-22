@@ -1,3 +1,5 @@
+mod conhecidos;
+mod descoberta;
 mod enviar;
 mod progresso;
 mod protocolo;
@@ -31,9 +33,12 @@ enum Comando {
     /// Envia um ficheiro para outro dispositivo.
     Enviar {
         ficheiro: std::path::PathBuf,
-        /// Endereço do destino, por exemplo `192.168.1.50:53318`.
+        /// Nome do dispositivo na rede local, ou endereço como
+        /// `192.168.1.50:53318` para fora dela.
         destino: String,
     },
+    /// Lista os dispositivos à espera na rede local.
+    Dispositivos,
     /// Mostra a identidade deste dispositivo.
     Identidade,
 }
@@ -90,8 +95,39 @@ async fn main() -> Result<()> {
     let eu = Identity::load_or_create(&dados.join("identidade"), nome_do_dispositivo())?;
 
     match cli.comando {
-        Comando::Receber { porta } => receber::servir(eu, dados.join("recebidos"), porta).await,
-        Comando::Enviar { ficheiro, destino } => enviar::enviar(&eu, &ficheiro, &destino).await,
+        Comando::Receber { porta } => {
+            receber::servir(
+                eu,
+                dados.join("recebidos"),
+                dados.join("conhecidos.json"),
+                porta,
+            )
+            .await
+        }
+
+        Comando::Enviar { ficheiro, destino } => {
+            let endereco = descoberta::resolver(&destino, PORTA)?;
+            enviar::enviar(&eu, &ficheiro, endereco).await
+        }
+
+        Comando::Dispositivos => {
+            println!("À procura na rede local...");
+            let achados = descoberta::procurar(std::time::Duration::from_secs(3))?;
+
+            if achados.is_empty() {
+                println!(
+                    "Nenhum dispositivo à espera.\n\
+                     Do outro lado tem de estar `pombo receber` a correr, na mesma rede."
+                );
+                return Ok(());
+            }
+
+            for d in &achados {
+                println!("  {}  —  {}", d.nome, d.endereco);
+            }
+            Ok(())
+        }
+
         Comando::Identidade => {
             println!("{}", eu.label);
             println!("Número de segurança: {}", eu.public().safety_number());
