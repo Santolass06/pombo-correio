@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core", "cli"]
+members = ["core", "rede", "cli", "ui/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,6 +9,7 @@ license = "MIT"
 
 [workspace.dependencies]
 pombo-correio-core = { path = "core" }
+pombo-correio-rede = { path = "rede" }
 
 [profile.release]
 opt-level = 3

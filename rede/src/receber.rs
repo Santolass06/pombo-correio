@@ -19,8 +19,8 @@ use pombo_correio_core::{
 use tokio::io::AsyncWriteExt;
 
 use crate::{
+    Evento, Ouvinte,
     conhecidos::Conhecidos,
-    progresso::Progresso,
     protocolo::{Aceite, Oferta},
 };
 
@@ -34,6 +34,7 @@ struct Estado {
     destino: std::path::PathBuf,
     em_curso: tokio::sync::Mutex<HashMap<String, EmCurso>>,
     conhecidos: tokio::sync::Mutex<Conhecidos>,
+    ouvinte: Ouvinte,
 }
 
 /// Reduz o nome recebido ao seu último componente.
@@ -153,33 +154,25 @@ async fn propor(
     let id = hex::encode(manifesto.root);
     let ja = tenho(&estado, &id, manifesto.chunk_size).await;
 
-    println!(
-        "\n  Oferta de {} — {} ({:.1} MB)",
-        oferta.de.label,
-        manifesto.name,
-        manifesto.size as f64 / 1e6
-    );
-
-    // O número de segurança só interessa quando há algo a verificar. Repeti-lo
-    // a cada ficheiro de um dispositivo já conhecido ensinaria a ignorá-lo, que
-    // é a pior coisa que se pode fazer a uma verificação de segurança.
+    // O número de segurança só interessa quando há algo a verificar; assinalar
+    // um dispositivo já conhecido a cada ficheiro ensinaria a ignorá-lo, que é
+    // a pior coisa que se pode fazer a uma verificação.
     let mut registo = estado.conhecidos.lock().await;
-    match registo.nome_anterior(&oferta.de) {
-        Some(antes) if antes == oferta.de.label => {}
-        Some(antes) => println!("  (este dispositivo chamava-se \"{antes}\")"),
-        None => {
-            println!("  DISPOSITIVO NOVO — confirma este número com quem enviou:");
-            println!("    {}", oferta.de.safety_number());
-        }
-    }
-    if let Err(e) = registo.registar(&oferta.de) {
-        println!("  (não consegui memorizar este dispositivo: {e})");
-    }
+    let anterior = registo.nome_anterior(&oferta.de).map(str::to_string);
+    let novo_dispositivo = anterior.is_none();
+    let _ = registo.registar(&oferta.de);
     drop(registo);
 
-    if ja > 0 {
-        println!("  A retomar: já tenho {ja} de {} blocos", manifesto.expected_chunks());
-    }
+    (estado.ouvinte)(Evento::Oferta {
+        id: id.clone(),
+        de: oferta.de.clone(),
+        ficheiro: manifesto.name.clone(),
+        tamanho: manifesto.size,
+        novo: novo_dispositivo,
+        nome_anterior: anterior.filter(|a| *a != oferta.de.label),
+        retoma: ja,
+        total: manifesto.expected_chunks(),
+    });
 
     estado
         .em_curso
@@ -229,7 +222,7 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
     let mut indice = de;
     let mut fluxo = corpo.into_data_stream();
     let mut sobra: Vec<u8> = Vec::new();
-    let mut progresso = Progresso::novo(total);
+    let mut movidos: u64 = 0;
 
     while indice < total {
         let esperado = manifesto.plain_len(indice).context("índice fora do manifesto")? + SEAL_OVERHEAD;
@@ -249,18 +242,23 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
 
         ficheiro.write_all(&claro).await?;
         indice += 1;
-        progresso.passo(indice, claro.len());
+        movidos += claro.len() as u64;
+        (estado.ouvinte)(Evento::Progresso {
+            id: id.clone(),
+            feitos: indice,
+            total,
+            bytes: movidos,
+        });
     }
 
     ficheiro.flush().await?;
     drop(ficheiro);
-    progresso.fim();
 
     let final_ = estado.destino.join(nome_seguro(&manifesto.name));
     tokio::fs::rename(&caminho, &final_).await?;
     estado.em_curso.lock().await.remove(&id);
 
-    println!("  Recebido: {}", final_.display());
+    (estado.ouvinte)(Evento::Recebido { id, caminho: final_ });
     Ok("ok".into())
 }
 
@@ -269,6 +267,7 @@ pub async fn servir(
     destino: std::path::PathBuf,
     conhecidos: std::path::PathBuf,
     porta: u16,
+    ouvinte: Ouvinte,
 ) -> Result<()> {
     tokio::fs::create_dir_all(&destino).await?;
 
@@ -277,6 +276,7 @@ pub async fn servir(
         destino: destino.clone(),
         em_curso: Default::default(),
         conhecidos: Conhecidos::carregar(conhecidos).into(),
+        ouvinte: ouvinte.clone(),
     });
 
     let app = Router::new()
@@ -288,25 +288,15 @@ pub async fn servir(
     let escuta = tokio::net::TcpListener::bind(("0.0.0.0", porta)).await?;
     let porta_real = escuta.local_addr()?.port();
 
-    println!("Pombo-Correio — à espera");
-    println!("  Este dispositivo: {}", estado.eu.label);
-    println!("  Número de segurança: {}", estado.eu.public().safety_number());
-    println!("  A escutar na porta {porta_real}");
-    println!("  A guardar em {}", destino.display());
+    // Falhar a anunciar não é motivo para não receber: numa rede que bloqueie
+    // multicast, escrever o endereço à mão continua a funcionar.
+    let anuncio = crate::descoberta::anunciar(&estado.eu.public(), porta_real).ok();
 
-    // O anúncio vive enquanto esta variável existir. Falhar a anunciar não é
-    // motivo para não receber: numa rede que bloqueie multicast, escrever o
-    // endereço à mão continua a funcionar.
-    let _anuncio = match crate::descoberta::anunciar(&estado.eu.public(), porta_real) {
-        Ok(a) => {
-            println!("  Visível na rede local como \"{}\"", estado.eu.label);
-            Some(a)
-        }
-        Err(e) => {
-            println!("  Sem anúncio na rede local ({e}) — usa o endereço directamente");
-            None
-        }
-    };
+    ouvinte(Evento::AEscutar {
+        porta: porta_real,
+        anunciado: anuncio.is_some(),
+    });
+    let _anuncio = anuncio;
 
     axum::serve(escuta, app).await?;
     Ok(())

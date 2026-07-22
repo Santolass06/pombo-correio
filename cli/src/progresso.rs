@@ -31,11 +31,12 @@ impl Progresso {
         }
     }
 
-    /// Regista um bloco concluído. `feitos` é a contagem absoluta, para que uma
-    /// transferência retomada mostre a percentagem do ficheiro e não a do que
-    /// falta.
-    pub fn passo(&mut self, feitos: u32, bytes: usize) {
-        self.bytes += bytes as u64;
+    /// Regista o estado atual. Ambos os valores são absolutos: `feitos` conta
+    /// desde o início do ficheiro, para que uma transferência retomada mostre a
+    /// percentagem do todo e não a do que falta, e `bytes` conta os movidos
+    /// nesta sessão, que é o que dá um débito honesto depois de uma retoma.
+    pub fn passo(&mut self, feitos: u32, bytes: u64) {
+        self.bytes = bytes;
 
         // O último bloco desenha-se sempre, senão a linha ficaria parada nos
         // 99% quando a transferência já acabou.

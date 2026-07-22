@@ -9,7 +9,7 @@ use pombo_correio_core::{
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use crate::{
-    progresso::Progresso,
+    Evento, Ouvinte,
     protocolo::{Aceite, Oferta},
 };
 
@@ -41,6 +41,7 @@ pub async fn enviar(
     eu: &Identity,
     ficheiro: &std::path::Path,
     destino: std::net::SocketAddr,
+    ouvinte: Ouvinte,
 ) -> Result<()> {
     // O `Display` de um endereço IPv6 já traz os parênteses retos que o URL
     // exige, por isso não é preciso tratá-lo à parte.
@@ -52,7 +53,6 @@ pub async fn enviar(
         .to_string_lossy()
         .into_owned();
 
-    println!("A preparar {nome}...");
     let aberto = std::fs::File::open(ficheiro)
         .with_context(|| format!("não consegui abrir {}", ficheiro.display()))?;
     let manifesto = Manifest::from_reader(&nome, aberto)?;
@@ -69,7 +69,7 @@ pub async fn enviar(
         .json()
         .await?;
 
-    println!("Destino: {} — {}", deles.label, deles.safety_number());
+    ouvinte(Evento::Destino { quem: deles.clone() });
 
     let chave = TransferKey::generate();
     let manifesto_selado = seal_manifest(&chave, &serde_json::to_vec(&manifesto)?);
@@ -93,12 +93,20 @@ pub async fn enviar(
     let aceite: Aceite = resposta.json().await?;
 
     let total = manifesto.expected_chunks();
+    ouvinte(Evento::Oferta {
+        id: aceite.id.clone(),
+        de: eu.public(),
+        ficheiro: nome.clone(),
+        tamanho: manifesto.size,
+        novo: false,
+        nome_anterior: None,
+        retoma: aceite.tenho,
+        total,
+    });
+
     if aceite.tenho >= total {
-        println!("Já lá está inteiro.");
+        ouvinte(Evento::Enviado { id: aceite.id.clone() });
         return Ok(());
-    }
-    if aceite.tenho > 0 {
-        println!("A retomar do bloco {} de {total}", aceite.tenho);
     }
 
     // Um pedido só, com os blocos a sair em fluxo. Um pedido por bloco daria
@@ -111,9 +119,11 @@ pub async fn enviar(
         .await?;
 
     let m = manifesto.clone();
+    let ouvinte_fluxo = ouvinte.clone();
+    let id_fluxo = aceite.id.clone();
     let fluxo = tipar(async_stream::try_stream! {
         let mut buf = vec![0u8; m.chunk_size as usize];
-        let mut progresso = Progresso::novo(total);
+        let mut movidos: u64 = 0;
 
         for indice in aceite.tenho..total {
             let esperado = m.plain_len(indice).expect("índice dentro do total");
@@ -128,9 +138,14 @@ pub async fn enviar(
             // Depois do `yield`: o fluxo é preguiçoso e só chega aqui quando o
             // bloco anterior saiu mesmo pela ligação. Contar antes mostraria o
             // ritmo a que se lê do disco, não o que está a ir para a rede.
-            progresso.passo(indice + 1, esperado);
+            movidos += esperado as u64;
+            ouvinte_fluxo(Evento::Progresso {
+                id: id_fluxo.clone(),
+                feitos: indice + 1,
+                total,
+                bytes: movidos,
+            });
         }
-        progresso.fim();
     });
 
     let resposta = cliente
@@ -146,6 +161,6 @@ pub async fn enviar(
         bail!("falhou: {}", resposta.text().await.unwrap_or_default());
     }
 
-    println!("Enviado.");
+    ouvinte(Evento::Enviado { id: aceite.id.clone() });
     Ok(())
 }

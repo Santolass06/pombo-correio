@@ -1,13 +1,13 @@
-mod conhecidos;
-mod descoberta;
-mod enviar;
 mod progresso;
-mod protocolo;
-mod receber;
+
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use pombo_correio_core::identity::Identity;
+use pombo_correio_rede::{Evento, Ouvinte, descoberta, enviar, receber};
+
+use progresso::Progresso;
 
 /// Porta por omissão. Fora dos intervalos reservados e fácil de decorar.
 const PORTA: u16 = 53318;
@@ -88,26 +88,107 @@ fn nome_do_dispositivo() -> String {
         .unwrap_or_else(|| "dispositivo".into())
 }
 
+/// Traduz os acontecimentos da rede em linhas de terminal.
+///
+/// É só isto que distingue o CLI da interface gráfica — a lógica de
+/// transferência é a mesma nos dois.
+fn ouvinte_terminal() -> Ouvinte {
+    // Uma barra por transferência: várias podem correr ao mesmo tempo.
+    let barras: Arc<std::sync::Mutex<HashMap<String, Progresso>>> = Default::default();
+
+    Arc::new(move |e| match e {
+        Evento::AEscutar { porta, anunciado } => {
+            println!("  A escutar na porta {porta}");
+            if !anunciado {
+                println!("  Sem anúncio na rede local — usa o endereço directamente");
+            }
+        }
+
+        Evento::Destino { quem } => {
+            println!("Destino: {} — {}", quem.label, quem.safety_number());
+        }
+
+        Evento::Oferta {
+            id,
+            de,
+            ficheiro,
+            tamanho,
+            novo,
+            nome_anterior,
+            retoma,
+            total,
+        } => {
+            println!("\n  {ficheiro} ({:.1} MB)", tamanho as f64 / 1e6);
+            if novo {
+                println!("  DISPOSITIVO NOVO — confirma este número com quem enviou:");
+                println!("    {}", de.safety_number());
+            } else if let Some(antes) = nome_anterior {
+                println!("  (este dispositivo chamava-se \"{antes}\")");
+            }
+            if retoma > 0 {
+                println!("  A retomar: {retoma} de {total} blocos já feitos");
+            }
+            barras.lock().unwrap().insert(id, Progresso::novo(total));
+        }
+
+        Evento::Progresso {
+            id,
+            feitos,
+            total,
+            bytes,
+        } => {
+            let mut b = barras.lock().unwrap();
+            b.entry(id)
+                .or_insert_with(|| Progresso::novo(total))
+                .passo(feitos, bytes);
+        }
+
+        Evento::Recebido { id, caminho } => {
+            if let Some(mut p) = barras.lock().unwrap().remove(&id) {
+                p.fim();
+            }
+            println!("  Recebido: {}", caminho.display());
+        }
+
+        Evento::Enviado { id } => {
+            if let Some(mut p) = barras.lock().unwrap().remove(&id) {
+                p.fim();
+            }
+            println!("Enviado.");
+        }
+
+        Evento::Falhou { erro, .. } => println!("  Falhou: {erro}"),
+    })
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let dados = pasta_dados(cli.dados)?;
     let eu = Identity::load_or_create(&dados.join("identidade"), nome_do_dispositivo())?;
+    let ouvinte = ouvinte_terminal();
 
     match cli.comando {
         Comando::Receber { porta } => {
+            println!("Pombo-Correio — à espera");
+            println!("  Este dispositivo: {}", eu.label);
+            println!("  Número de segurança: {}", eu.public().safety_number());
+            println!("  A guardar em {}", dados.join("recebidos").display());
+
             receber::servir(
                 eu,
                 dados.join("recebidos"),
                 dados.join("conhecidos.json"),
                 porta,
+                ouvinte,
             )
             .await
         }
 
         Comando::Enviar { ficheiro, destino } => {
             let endereco = descoberta::resolver(&destino, PORTA)?;
-            enviar::enviar(&eu, &ficheiro, endereco).await
+            println!("A preparar {}...", ficheiro.display());
+            enviar::enviar(&eu, &ficheiro, endereco, ouvinte).await
         }
 
         Comando::Dispositivos => {
