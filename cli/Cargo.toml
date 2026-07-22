@@ -1,0 +1,13 @@
+[package]
+name = "pombo-correio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Binário curto de propósito: `pombo enviar ...` em vez do nome completo.
+[[bin]]
+name = "pombo"
+path = "src/main.rs"
+
+[dependencies]
+pombo-correio-core = { workspace = true }

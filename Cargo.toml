@@ -1,0 +1,17 @@
+[workspace]
+resolver = "3"
+members = ["core", "cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+pombo-correio-core = { path = "core" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
