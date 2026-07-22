@@ -38,13 +38,70 @@ struct Estado {
 ///
 /// O nome vem de outra máquina e nunca pode ser usado como caminho: `..` ou uma
 /// barra à frente escreveriam fora da pasta de destino. Ficar só com o nome do
-/// ficheiro fecha isso.
+/// ficheiro fecha isso, nos dois sistemas — o `Path` do Windows trata `/` e `\`
+/// como separadores, o do Unix só `/`, e nenhum dos dois deixa passar um `..`
+/// inteiro.
 fn nome_seguro(bruto: &str) -> String {
-    std::path::Path::new(bruto)
+    let base = std::path::Path::new(bruto)
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .filter(|n| !n.is_empty() && n != "." && n != "..")
-        .unwrap_or_else(|| "recebido".into())
+        .unwrap_or_else(|| "recebido".into());
+
+    // Só no Windows. Em Unix estes caracteres são legítimos e trocá-los seria
+    // estragar nomes perfeitamente válidos.
+    #[cfg(windows)]
+    let base = aceitavel_no_windows(&base);
+
+    base
+}
+
+/// Torna um nome aceitável para o sistema de ficheiros do Windows.
+///
+/// Um nome vindo de Linux ou Android traz com frequência `:` — carimbos
+/// temporais como `2026-06-22 23:04:58.mkv` são o caso comum — e o Windows
+/// recusa-o ao gravar. Sem isto, a transferência corria até ao fim, verificava
+/// todos os blocos, e só falhava no `rename` final.
+///
+/// Compilado em todas as plataformas para poder ser testado em todas; só é
+/// aplicado no Windows. Sem isto, esta lógica só teria cobertura de testes na
+/// máquina onde é mais incómodo corrê-los.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn aceitavel_no_windows(nome: &str) -> String {
+    const PROIBIDOS: &[char] = &['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+
+    let limpo: String = nome
+        .chars()
+        .map(|c| {
+            // Os de controlo também são recusados, e passam despercebidos.
+            if PROIBIDOS.contains(&c) || (c as u32) < 0x20 {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+
+    // Pontos e espaços no fim são silenciosamente removidos pelo Windows, o que
+    // faria o ficheiro aparecer com outro nome do que aquele que se confirmou.
+    let limpo = limpo.trim_end_matches(['.', ' ']);
+
+    // Nomes de dispositivo herdados do MS-DOS. Continuam reservados, com ou sem
+    // extensão: `CON.txt` é tão inutilizável como `CON`.
+    const RESERVADOS: &[&str] = &[
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+
+    let raiz = limpo.split('.').next().unwrap_or("");
+    if RESERVADOS.iter().any(|r| raiz.eq_ignore_ascii_case(r)) {
+        return format!("_{limpo}");
+    }
+
+    if limpo.is_empty() {
+        return "recebido".into();
+    }
+    limpo.to_string()
 }
 
 fn parcial(estado: &Estado, id: &str) -> std::path::PathBuf {
@@ -213,4 +270,63 @@ pub async fn servir(eu: Identity, destino: std::path::PathBuf, porta: u16) -> Re
 
     axum::serve(escuta, app).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nome_fica_reduzido_ao_ultimo_componente() {
+        assert_eq!(nome_seguro("ferias.mp4"), "ferias.mp4");
+        assert_eq!(nome_seguro("com espaços.mkv"), "com espaços.mkv");
+    }
+
+    #[test]
+    fn travessia_de_caminho_e_neutralizada() {
+        // O nome vem de outra máquina; sem isto escrevia fora da pasta.
+        assert_eq!(nome_seguro("/etc/passwd"), "passwd");
+        assert_eq!(nome_seguro("../../../etc/passwd"), "passwd");
+        assert_eq!(nome_seguro(".."), "recebido");
+        assert_eq!(nome_seguro("/"), "recebido");
+        assert_eq!(nome_seguro(""), "recebido");
+    }
+
+    #[test]
+    fn carimbo_temporal_de_linux_passa_a_ser_gravavel_no_windows() {
+        // O caso real: nomes assim saem de gravadores de ecrã em Linux e
+        // Android, e o Windows recusa-os ao gravar.
+        assert_eq!(
+            aceitavel_no_windows("2026-06-22 23:04:58.mkv"),
+            "2026-06-22 23_04_58.mkv"
+        );
+    }
+
+    #[test]
+    fn caracteres_proibidos_no_windows_sao_trocados() {
+        assert_eq!(aceitavel_no_windows(r#"a<b>c:d"e|f?g*h"#), "a_b_c_d_e_f_g_h");
+        assert_eq!(aceitavel_no_windows("com\u{1}controlo"), "com_controlo");
+    }
+
+    #[test]
+    fn ponto_ou_espaco_no_fim_e_removido() {
+        // O Windows removia-os em silêncio, e o ficheiro ficava com um nome
+        // diferente daquele que se confirmou na oferta.
+        assert_eq!(aceitavel_no_windows("nota."), "nota");
+        assert_eq!(aceitavel_no_windows("nota "), "nota");
+    }
+
+    #[test]
+    fn nomes_de_dispositivo_do_ms_dos_sao_desviados() {
+        // Continuam reservados, com ou sem extensão.
+        assert_eq!(aceitavel_no_windows("CON"), "_CON");
+        assert_eq!(aceitavel_no_windows("con.txt"), "_con.txt");
+        assert_eq!(aceitavel_no_windows("COM1.log"), "_COM1.log");
+        assert_eq!(aceitavel_no_windows("console.txt"), "console.txt");
+    }
+
+    #[test]
+    fn nome_que_desaparece_todo_tem_recurso() {
+        assert_eq!(aceitavel_no_windows("..."), "recebido");
+    }
 }
