@@ -218,7 +218,7 @@ cifra e blocos que o Linux.
 - [x] **S2 — Cifra e identidade em disco**
 - [x] **S3 — Transferência sobre HTTP**
 - [x] **S4 — Descoberta e dispositivos conhecidos**
-- [ ] **S5 — Interface e desktop**
+- [x] **S5 — Interface e desktop** (falta Windows)
 - [ ] **S6 — Android**
 - [ ] **S7 — Relay e link sem instalação**
 - [ ] **S8 — PWA iOS**
@@ -474,11 +474,70 @@ Acabaram-se os endereços escritos à mão na rede local.
 - **Um ficheiro de conhecidos corrompido não impede receber.** Perde-se a
   memória de quem já cá passou, o que é um incómodo e não uma falha.
 
-### S5 — Interface e desktop
+### S5 — Interface e desktop ⚠️ falta correr em Windows
 
-- [ ] `ui/` em Svelte. Um botão de envio, lista de dispositivos, mais nada.
-- [ ] `app/` em Tauri v2. Alvos Linux e Windows.
-- [ ] **Confirmar que os bytes não passam pelo IPC** — só eventos de progresso.
+Aplicação gráfica a funcionar em Linux. Recebe e envia, com progresso ao vivo.
+
+`ui/src/App.svelte` · `ui/src/lib/api.ts` · `ui/src/app.css` ·
+`ui/src-tauri/src/lib.rs` · `rede/` (extraída de `cli/`)
+
+**Feito**
+- [x] `rede/` extraída de `cli/`, comunicando por eventos em vez de imprimir.
+- [x] Tauri v2 + Svelte 5, com o desenho convertido.
+- [x] Lista de dispositivos, envio, progresso, número de segurança.
+- [x] Tema claro e escuro, com botão que ganha sobre a preferência do sistema.
+- [x] **Bytes nunca passam pelo IPC** — só nomes, tamanhos e contagens.
+- [x] Verificado: 40 MB do CLI para a aplicação, byte a byte idênticos.
+- [ ] **Correr em Windows.**
+
+**Estrutura que a interface obrigou a criar**
+
+A lógica de transferência vivia em `cli/`, e a interface precisava exatamente
+da mesma. Adiei a separação em S3 de propósito — nessa altura o CLI era o único
+consumidor — e fiz-a agora, que deixou de ser:
+
+```
+core/  protocolo, identidade, cifra, blocos     (também irá para wasm)
+rede/  descoberta, envio, receção               (não escreve no terminal)
+cli/   terminal                                  ┐ os dois só diferem
+ui/    Tauri + Svelte                             ┘ no que fazem aos eventos
+```
+
+A camada de rede comunica por `Evento` entregue a um fecho. O CLI imprime-os, a
+interface desenha-os. Os 57 testes passaram sem alterações, o que era o ponto: a
+refatoração mudou onde o código vive, não o que faz.
+
+**Dificuldades e detalhes**
+
+- **O desenho vinha empacotado.** O ficheiro de 468 KB era um carregador que
+  descompactava a página em tempo de execução; o HTML real estava numa string
+  JSON lá dentro. Extraído para `design/interface.html`.
+- **O desenho só trazia tema escuro**, apesar de eu ter pedido os dois. O claro
+  foi acrescentado pelos mesmos nomes de token, para que nenhum componente
+  precise de saber em que tema está. O botão usa `data-theme`, que tem de ganhar
+  nos dois sentidos e não apenas quando coincide com a preferência do sistema.
+- **A escala de espaço vinha de uma grelha de apresentação** — valores como
+  2,8 px e 8,4 px, que o browser arredonda de forma inconsistente entre
+  elementos. Passou a inteiros.
+- **Áreas seguras desde já.** No iPhone a aplicação corre instalada no ecrã
+  principal, sem barra de browser a proteger o conteúdo; sem `env(safe-area-*)`
+  o cabeçalho fica sob o entalhe e os botões sob a barra de gestos. Custa duas
+  linhas agora e evita refazer o layout em S8.
+- **O servidor arranca com a aplicação.** Ter a janela aberta é o que significa
+  estar disponível para receber; pedir que se ligue algo à parte seria a
+  primeira coisa que alguém esqueceria.
+- **`Identity` não é clonável de propósito**, para que material secreto não se
+  espalhe por descuido. A cópia para as tarefas em segundo plano é explícita e
+  está num sítio só.
+- **`app.emit` exige `Clone`** no tipo do evento — o Tauri pode ter várias
+  janelas a receber o mesmo acontecimento.
+- **O `--release` do workspace passou a arrastar a árvore do Tauri**, que é
+  enorme. Para o CLI usa-se `cargo build --release -p pombo-correio`.
+
+**Ecrãs do desenho ainda sem suporte no núcleo:** histórico, emparelhamento por
+QR, dispositivos de confiança, prazo dos links, modo simples. Ficaram de fora em
+vez de aparecerem sem função — o histórico e o QR entram quando houver onde os
+guardar, os links em S7.
 
 ### S6 — Android
 

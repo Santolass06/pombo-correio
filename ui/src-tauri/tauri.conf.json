@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Pombo-Correio",
   "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "identifier": "pt.pombo.correio",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -13,10 +13,12 @@
     "windows": [
       {
         "title": "Pombo-Correio",
-        "width": 800,
-        "height": 600,
+        "width": 980,
+        "height": 720,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "minWidth": 360,
+        "minHeight": 480
       }
     ],
     "security": {
