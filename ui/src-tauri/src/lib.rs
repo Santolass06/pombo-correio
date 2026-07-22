@@ -7,10 +7,11 @@
 //!
 //! Esta regra é arquitetural, não uma otimização.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use pombo_correio_core::identity::Identity;
-use pombo_correio_rede::{Evento, descoberta, enviar, receber};
+use pombo_correio_rede::{Cancelar, Evento, descoberta, enviar, receber};
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 
@@ -22,6 +23,10 @@ const PORTA: u16 = 53318;
 
 struct Estado {
     eu: Identity,
+    /// Sinais de cancelamento dos envios a decorrer, por identificador de
+    /// transferência. Entram quando o envio se anuncia (evento Oferta) e saem
+    /// quando termina, de que maneira for.
+    cancelaveis: Mutex<HashMap<String, Cancelar>>,
 }
 
 /// Como a interface vê este dispositivo.
@@ -90,18 +95,50 @@ async fn enviar_ficheiro(
         .map_err(|e| e.to_string())?;
 
     let eu = copiar(&app.state::<Estado>().eu);
-    let ouvinte = ouvinte_para(app.clone());
+    let cancelar: Cancelar = Default::default();
+
+    // Este ouvinte, além de reencaminhar, gere o registo de cancelamento: só
+    // aqui se conhece ao mesmo tempo o sinal e o identificador que a interface
+    // vai usar para o accionar.
+    let ouvinte = {
+        let app = app.clone();
+        let cancelar = cancelar.clone();
+        Arc::new(move |e: Evento| {
+            let estado = app.state::<Estado>();
+            match &e {
+                Evento::Oferta { id, .. } => {
+                    estado.cancelaveis.lock().unwrap().insert(id.clone(), cancelar.clone());
+                }
+                Evento::Enviado { id }
+                | Evento::Cancelado { id }
+                | Evento::Falhou { id, .. } => {
+                    estado.cancelaveis.lock().unwrap().remove(id);
+                }
+                _ => {}
+            }
+            let _ = app.emit(CANAL, ParaInterface::from(e));
+        })
+    };
 
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = enviar::enviar(&eu, &ficheiro, endereco, ouvinte.clone()).await {
-            ouvinte(Evento::Falhou {
-                id: String::new(),
-                erro: e.to_string(),
-            });
+        if let Err(e) = enviar::enviar(&eu, &ficheiro, endereco, ouvinte.clone(), cancelar).await {
+            // Só chega aqui um erro anterior ao envio propriamente dito — ligar
+            // ou resolver o destino. A partir do aceite, o próprio `enviar`
+            // fecha a transferência por evento.
+            ouvinte(Evento::Falhou { id: String::new(), erro: e.to_string() });
         }
     });
 
     Ok(())
+}
+
+/// Manda parar um envio a decorrer. Silencioso se já terminou — a interface
+/// pode carregar em cancelar mesmo no instante em que a transferência acaba.
+#[tauri::command]
+fn cancelar(estado: tauri::State<'_, Estado>, id: String) {
+    if let Some(sinal) = estado.cancelaveis.lock().unwrap().get(&id) {
+        sinal.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 /// Encaminha os acontecimentos da rede para a WebView.
@@ -157,6 +194,9 @@ enum ParaInterface {
     #[serde(rename = "enviado")]
     Enviado { id: String },
 
+    #[serde(rename = "cancelado")]
+    Cancelado { id: String },
+
     #[serde(rename = "falhou")]
     Falhou { id: String, erro: String },
 }
@@ -205,6 +245,7 @@ impl From<Evento> for ParaInterface {
                 caminho: caminho.display().to_string(),
             },
             Evento::Enviado { id } => Self::Enviado { id },
+            Evento::Cancelado { id } => Self::Cancelado { id },
             Evento::Falhou { id, erro } => Self::Falhou { id, erro },
         }
     }
@@ -249,13 +290,17 @@ pub fn run() {
                 }
             });
 
-            app.manage(Estado { eu });
+            app.manage(Estado {
+                eu,
+                cancelaveis: Default::default(),
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             identidade,
             dispositivos,
-            enviar_ficheiro
+            enviar_ficheiro,
+            cancelar
         ])
         .run(tauri::generate_context!())
         .expect("a aplicação não arrancou");

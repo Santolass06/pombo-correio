@@ -5,7 +5,7 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use pombo_correio_core::identity::Identity;
-use pombo_correio_rede::{Evento, Ouvinte, descoberta, enviar, receber};
+use pombo_correio_rede::{Evento, Ouvinte, descoberta, enviar, receber, sem_cancelamento};
 
 use progresso::Progresso;
 
@@ -157,6 +157,11 @@ fn ouvinte_terminal() -> Ouvinte {
             println!("Enviado.");
         }
 
+        Evento::Cancelado { id } => {
+            barras.lock().unwrap().remove(&id);
+            println!("\n  Cancelado. O que já passou fica guardado — retomar continua a valer.");
+        }
+
         Evento::Falhou { erro, .. } => println!("  Falhou: {erro}"),
     })
 }
@@ -188,7 +193,7 @@ async fn main() -> Result<()> {
         Comando::Enviar { ficheiro, destino } => {
             let endereco = descoberta::resolver(&destino, PORTA)?;
             println!("A preparar {}...", ficheiro.display());
-            enviar::enviar(&eu, &ficheiro, endereco, ouvinte).await
+            enviar::enviar(&eu, &ficheiro, endereco, ouvinte, sem_cancelamento()).await
         }
 
         Comando::Dispositivos => {

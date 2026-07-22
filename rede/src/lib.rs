@@ -60,8 +60,21 @@ pub enum Evento {
     /// Envio completo.
     Enviado { id: String },
 
+    /// Cancelado por quem enviava. O que já chegou fica em disco, por isso
+    /// retomar continua a valer — cancelar não é perder o trabalho feito.
+    Cancelado { id: String },
+
     /// Correu mal. A transferência pode ser retomada.
     Falhou { id: String, erro: String },
+}
+
+/// Sinal de cancelamento partilhado entre quem envia e quem manda parar.
+pub type Cancelar = std::sync::Arc<std::sync::atomic::AtomicBool>;
+
+/// Um sinal que nunca dispara, para quem não precisa de cancelar — o CLM
+/// interrompe-se com Ctrl+C, que mata o processo.
+pub fn sem_cancelamento() -> Cancelar {
+    Default::default()
 }
 
 /// Para onde vão os acontecimentos.

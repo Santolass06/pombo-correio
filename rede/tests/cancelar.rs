@@ -1,0 +1,145 @@
+//! Cancelar um envio a meio, e o que fica depois.
+//!
+//! O que importa provar: cancelar pára mesmo, é reportado como cancelamento e
+//! não como falha, e o que já passou fica em disco — retomar tem de continuar a
+//! valer.
+
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering::Relaxed},
+};
+use std::time::Duration;
+
+use pombo_correio_core::identity::Identity;
+use pombo_correio_rede::{Evento, receber, enviar};
+
+/// Diretório temporário que se limpa sozinho.
+struct Temp(std::path::PathBuf);
+impl Temp {
+    fn novo(n: &str) -> Self {
+        let d = std::env::temp_dir().join(format!("pombo-cancel-{n}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        Self(d)
+    }
+}
+impl Drop for Temp {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Recolhe os eventos por tipo, para o teste os poder interrogar.
+#[derive(Default)]
+struct Registo {
+    tipos: Mutex<Vec<String>>,
+}
+impl Registo {
+    fn ouvinte(self: &Arc<Self>) -> pombo_correio_rede::Ouvinte {
+        let eu = self.clone();
+        Arc::new(move |e: Evento| {
+            let nome = match e {
+                Evento::AEscutar { .. } => "a_escutar",
+                Evento::Oferta { .. } => "oferta",
+                Evento::Destino { .. } => "destino",
+                Evento::Progresso { .. } => "progresso",
+                Evento::Recebido { .. } => "recebido",
+                Evento::Enviado { .. } => "enviado",
+                Evento::Cancelado { .. } => "cancelado",
+                Evento::Falhou { .. } => "falhou",
+            };
+            eu.tipos.lock().unwrap().push(nome.into());
+        })
+    }
+    fn viu(&self, tipo: &str) -> bool {
+        self.tipos.lock().unwrap().iter().any(|t| t == tipo)
+    }
+}
+
+#[tokio::test]
+async fn cancelar_para_e_guarda_o_que_ja_passou() {
+    let dir = Temp::novo("meio");
+    let recetor = Identity::generate("recetor");
+    let reg_r = Arc::new(Registo::default());
+    let reg_e = Arc::new(Registo::default());
+
+    // Servidor numa porta escolhida pelo sistema.
+    let escuta = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let porta = escuta.local_addr().unwrap().port();
+    drop(escuta);
+
+    let destino_dir = dir.0.join("recebidos");
+    let conhecidos = dir.0.join("conhecidos.json");
+    let ouvinte_r = reg_r.ouvinte();
+    tokio::spawn(async move {
+        let _ = receber::servir(recetor, destino_dir, conhecidos, porta, ouvinte_r).await;
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // Ficheiro grande o suficiente para haver tempo de cancelar a meio.
+    let origem = dir.0.join("grande.bin");
+    let dados: Vec<u8> = (0..8_000_000).map(|i| (i % 251) as u8).collect();
+    std::fs::write(&origem, &dados).unwrap();
+
+    let emissor = Identity::generate("emissor");
+    let cancelar = Arc::new(AtomicBool::new(false));
+
+    // Dispara o cancelamento pouco depois do arranque.
+    let gatilho = cancelar.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        gatilho.store(true, Relaxed);
+    });
+
+    let addr = format!("127.0.0.1:{porta}").parse().unwrap();
+    enviar::enviar(&emissor, &origem, addr, reg_e.ouvinte(), cancelar)
+        .await
+        .unwrap();
+
+    // Foi reportado como cancelamento, e não como falha nem como sucesso.
+    assert!(reg_e.viu("cancelado"), "não reportou cancelamento");
+    assert!(!reg_e.viu("enviado"), "reportou envio completo apesar do cancelamento");
+    assert!(!reg_e.viu("falhou"), "reportou falha em vez de cancelamento");
+
+    // O ficheiro final não existe — foi interrompido — mas o parcial ficou, o
+    // que é o que torna a retoma possível.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(
+        !dir.0.join("recebidos/grande.bin").exists(),
+        "o ficheiro apareceu completo apesar de cancelado"
+    );
+    let ha_parcial = std::fs::read_dir(dir.0.join("recebidos"))
+        .map(|d| d.filter_map(Result::ok).any(|e| e.path().extension().is_some_and(|x| x == "parcial")))
+        .unwrap_or(false);
+    assert!(ha_parcial, "não guardou o que já tinha passado — retomar deixa de valer");
+}
+
+#[tokio::test]
+async fn cancelar_antes_de_comecar_nao_rebenta() {
+    // Cancelar com o sinal já ligado não deve estoirar nem enviar nada.
+    let dir = Temp::novo("cedo");
+    let recetor = Identity::generate("r");
+    let reg = Arc::new(Registo::default());
+
+    let escuta = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let porta = escuta.local_addr().unwrap().port();
+    drop(escuta);
+    let dd = dir.0.join("recebidos");
+    let cc = dir.0.join("conhecidos.json");
+    tokio::spawn(async move {
+        let _ = receber::servir(recetor, dd, cc, porta, pombo_correio_rede::silencio()).await;
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let origem = dir.0.join("f.bin");
+    std::fs::write(&origem, vec![7u8; 5_000_000]).unwrap();
+
+    let addr = format!("127.0.0.1:{porta}").parse().unwrap();
+    let ja = Arc::new(AtomicBool::new(true));
+    enviar::enviar(&Identity::generate("e"), &origem, addr, reg.ouvinte(), ja)
+        .await
+        .unwrap();
+
+    assert!(reg.viu("cancelado"));
+    assert!(!reg.viu("enviado"));
+}

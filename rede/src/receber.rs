@@ -223,6 +223,9 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
     let mut fluxo = corpo.into_data_stream();
     let mut sobra: Vec<u8> = Vec::new();
     let mut movidos: u64 = 0;
+    // Mesma cadência do lado que envia, e pela mesma razão: um evento por bloco
+    // inundaria o IPC e o débito mostrado ficaria para trás do real.
+    let mut ultimo_evento = std::time::Instant::now();
 
     while indice < total {
         let esperado = manifesto.plain_len(indice).context("índice fora do manifesto")? + SEAL_OVERHEAD;
@@ -243,12 +246,16 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
         ficheiro.write_all(&claro).await?;
         indice += 1;
         movidos += claro.len() as u64;
-        (estado.ouvinte)(Evento::Progresso {
-            id: id.clone(),
-            feitos: indice,
-            total,
-            bytes: movidos,
-        });
+
+        if indice >= total || ultimo_evento.elapsed().as_millis() >= 100 {
+            ultimo_evento = std::time::Instant::now();
+            (estado.ouvinte)(Evento::Progresso {
+                id: id.clone(),
+                feitos: indice,
+                total,
+                bytes: movidos,
+            });
+        }
     }
 
     ficheiro.flush().await?;

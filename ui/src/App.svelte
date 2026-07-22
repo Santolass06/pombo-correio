@@ -3,6 +3,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import {
     aoAcontecer,
+    cancelar,
     dispositivos,
     enviarFicheiro,
     identidade,
@@ -18,10 +19,13 @@
     tamanho: number;
     feitos: number;
     total: number;
-    bytes: number;
-    inicio: number;
-    estado: "a_correr" | "pronto" | "falhou";
+    estado: "a_correr" | "pronto" | "cancelado" | "falhou";
     detalhe?: string;
+    /** Velocidade suavizada, em bytes por segundo. */
+    velocidade: number;
+    /** Última amostra, para calcular a velocidade sem depender do arranque. */
+    ultimoBytes: number;
+    ultimoT: number;
     /** Só na primeira vez que se vê um dispositivo. */
     porVerificar?: { de: string; numero: string };
   };
@@ -64,9 +68,10 @@
           tamanho: e.tamanho,
           feitos: e.retoma,
           total: e.total,
-          bytes: 0,
-          inicio: Date.now(),
           estado: "a_correr",
+          velocidade: 0,
+          ultimoBytes: 0,
+          ultimoT: Date.now(),
           detalhe: e.retoma > 0 ? "Retomada — o progresso anterior foi mantido" : undefined,
           porVerificar: e.novo ? { de: e.de, numero: e.numero_seguranca } : undefined,
         },
@@ -80,10 +85,12 @@
 
     transferencias = transferencias.map((t) => {
       if (t.id !== e.id) return t;
-      if (e.tipo === "progresso") return { ...t, feitos: e.feitos, bytes: e.bytes };
+      if (e.tipo === "progresso") return { ...t, feitos: e.feitos, ...velocidade(t, e.bytes) };
       if (e.tipo === "recebido")
         return { ...t, estado: "pronto" as const, feitos: t.total, detalhe: e.caminho };
       if (e.tipo === "enviado") return { ...t, estado: "pronto" as const, feitos: t.total };
+      if (e.tipo === "cancelado")
+        return { ...t, estado: "cancelado" as const, detalhe: "Cancelado — o que já passou fica guardado" };
       if (e.tipo === "falhou") return { ...t, estado: "falhou" as const, detalhe: e.erro };
       return t;
     });
@@ -114,10 +121,22 @@
     }
   }
 
+  /// Velocidade a partir do salto desde a última amostra, suavizada.
+  ///
+  /// Medir contra o arranque faz o número convergir e parecer preso; medir salto
+  /// a salto reflete o que está mesmo a passar agora. A suavização evita que
+  /// salte a cada evento.
+  function velocidade(t: Transferencia, bytes: number): Partial<Transferencia> {
+    const agora = Date.now();
+    const dt = (agora - t.ultimoT) / 1000;
+    if (dt <= 0) return { ultimoBytes: bytes };
+    const instantanea = (bytes - t.ultimoBytes) / dt;
+    const suave = t.velocidade ? t.velocidade * 0.6 + instantanea * 0.4 : instantanea;
+    return { velocidade: suave, ultimoBytes: bytes, ultimoT: agora };
+  }
+
   function debito(t: Transferencia): string {
-    const s = (Date.now() - t.inicio) / 1000;
-    if (s <= 0 || t.bytes === 0) return "";
-    return `${tamanhoLegivel(t.bytes / s)}/s`;
+    return t.velocidade > 0 ? `${tamanhoLegivel(t.velocidade)}/s` : "";
   }
 
   function percentagem(t: Transferencia): number {
@@ -207,8 +226,14 @@
                 <div class="card-title trunca">{t.ficheiro}</div>
                 <div class="card-meta text-muted">{tamanhoLegivel(t.tamanho)}</div>
               </div>
-              <span class="tag {t.estado === 'falhou' ? 'tag-outline' : 'tag-accent'}">
-                {t.estado === "pronto" ? "Concluído" : t.estado === "falhou" ? "Falhou" : "A passar"}
+              <span class="tag {t.estado === 'a_correr' || t.estado === 'pronto' ? 'tag-accent' : 'tag-outline'}">
+                {t.estado === "pronto"
+                  ? "Concluído"
+                  : t.estado === "falhou"
+                    ? "Falhou"
+                    : t.estado === "cancelado"
+                      ? "Cancelado"
+                      : "A passar"}
               </span>
             </div>
 
@@ -226,8 +251,11 @@
               <div class="barra" style="margin-top: var(--space-3)">
                 <div style="width: {percentagem(t)}%"></div>
               </div>
-              <div class="card-meta text-muted" style="margin-top: var(--space-2)">
-                {percentagem(t)}% · {t.feitos}/{t.total} blocos{debito(t) ? ` · ${debito(t)}` : ""}
+              <div class="linha" style="margin-top: var(--space-2)">
+                <div class="card-meta text-muted cresce">
+                  {percentagem(t)}% · {t.feitos}/{t.total} blocos{debito(t) ? ` · ${debito(t)}` : ""}
+                </div>
+                <button class="btn btn-ghost" onclick={() => cancelar(t.id)}>Cancelar</button>
               </div>
             {/if}
 

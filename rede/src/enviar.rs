@@ -8,10 +8,25 @@ use pombo_correio_core::{
 };
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
+use std::sync::atomic::Ordering::Relaxed;
+
 use crate::{
-    Evento, Ouvinte,
+    Cancelar, Evento, Ouvinte,
     protocolo::{Aceite, Oferta},
 };
+
+/// Traduz um erro de rede numa frase que alguém sem conhecimentos técnicos
+/// entenda. O erro cru do `reqwest` — "error sending request for url ..." — não
+/// diz nada a quem só quer saber se o ficheiro chegou.
+fn amigavel(e: &reqwest::Error) -> String {
+    if e.is_connect() {
+        "não consegui ligar-me ao destino — está aberto e na mesma rede?".into()
+    } else if e.is_timeout() {
+        "o destino demorou demasiado a responder".into()
+    } else {
+        "perdi a ligação ao destino a meio do envio".into()
+    }
+}
 
 /// Fixa o tipo do fluxo produzido pela macro.
 ///
@@ -42,6 +57,7 @@ pub async fn enviar(
     ficheiro: &std::path::Path,
     destino: std::net::SocketAddr,
     ouvinte: Ouvinte,
+    cancelar: Cancelar,
 ) -> Result<()> {
     // O `Display` de um endereço IPv6 já traz os parênteses retos que o URL
     // exige, por isso não é preciso tratá-lo à parte.
@@ -121,11 +137,23 @@ pub async fn enviar(
     let m = manifesto.clone();
     let ouvinte_fluxo = ouvinte.clone();
     let id_fluxo = aceite.id.clone();
+    let cancelar_fluxo = cancelar.clone();
     let fluxo = tipar(async_stream::try_stream! {
         let mut buf = vec![0u8; m.chunk_size as usize];
         let mut movidos: u64 = 0;
+        // Um evento por bloco inundaria o IPC do Tauri a mais de cem por segundo,
+        // e os eventos acumulavam-se ao ponto de o débito mostrado ficar preso
+        // muito abaixo do real. Uma cadência de 100 ms chega ao olho e mantém o
+        // canal livre; o último bloco desenha-se sempre, para a barra fechar.
+        let mut ultimo_evento = std::time::Instant::now();
 
         for indice in aceite.tenho..total {
+            // Parar antes de ler o bloco seguinte: o que já saiu fica em disco do
+            // outro lado, por isso cancelar não deita fora o trabalho feito.
+            if cancelar_fluxo.load(Relaxed) {
+                break;
+            }
+
             let esperado = m.plain_len(indice).expect("índice dentro do total");
             let lido = ler_bloco(&mut origem, &mut buf[..esperado]).await?;
             if lido != esperado {
@@ -139,28 +167,41 @@ pub async fn enviar(
             // bloco anterior saiu mesmo pela ligação. Contar antes mostraria o
             // ritmo a que se lê do disco, não o que está a ir para a rede.
             movidos += esperado as u64;
-            ouvinte_fluxo(Evento::Progresso {
-                id: id_fluxo.clone(),
-                feitos: indice + 1,
-                total,
-                bytes: movidos,
-            });
+            let feitos = indice + 1;
+            if feitos >= total || ultimo_evento.elapsed().as_millis() >= 100 {
+                ultimo_evento = std::time::Instant::now();
+                ouvinte_fluxo(Evento::Progresso { id: id_fluxo.clone(), feitos, total, bytes: movidos });
+            }
         }
     });
 
-    let resposta = cliente
+    let envio = cliente
         .put(format!(
             "{base}/transferencia/{}/blocos?de={}",
             aceite.id, aceite.tenho
         ))
         .body(reqwest::Body::wrap_stream(fluxo))
         .send()
-        .await?;
+        .await;
 
-    if !resposta.status().is_success() {
-        bail!("falhou: {}", resposta.text().await.unwrap_or_default());
+    // O cancelamento vem primeiro: interromper o fluxo deixa o servidor a
+    // receber menos do que esperava, o que ele reporta como erro — mas isso é a
+    // consequência do cancelamento, não uma falha a mostrar como tal.
+    if cancelar.load(Relaxed) {
+        ouvinte(Evento::Cancelado { id: aceite.id });
+        return Ok(());
     }
 
-    ouvinte(Evento::Enviado { id: aceite.id.clone() });
+    // A partir daqui os erros já não sobem: há um cartão de transferência que
+    // precisa de ser fechado, e deixar o erro propagar deixava-o preso para
+    // sempre. Reporta-se pelo evento e devolve-se Ok.
+    match envio {
+        Err(e) => ouvinte(Evento::Falhou { id: aceite.id, erro: amigavel(&e) }),
+        Ok(r) if !r.status().is_success() => ouvinte(Evento::Falhou {
+            id: aceite.id,
+            erro: r.text().await.unwrap_or_else(|_| "o destino recusou".into()),
+        }),
+        Ok(_) => ouvinte(Evento::Enviado { id: aceite.id }),
+    }
     Ok(())
 }

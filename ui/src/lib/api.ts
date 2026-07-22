@@ -33,6 +33,7 @@ export type Evento =
   | { tipo: "progresso"; id: string; feitos: number; total: number; bytes: number }
   | { tipo: "recebido"; id: string; caminho: string }
   | { tipo: "enviado"; id: string }
+  | { tipo: "cancelado"; id: string }
   | { tipo: "falhou"; id: string; erro: string };
 
 export const identidade = () => invoke<Eu>("identidade");
@@ -40,6 +41,8 @@ export const dispositivos = () => invoke<Vizinho[]>("dispositivos");
 
 export const enviarFicheiro = (ficheiro: string, destino: string) =>
   invoke<void>("enviar_ficheiro", { ficheiro, destino });
+
+export const cancelar = (id: string) => invoke<void>("cancelar", { id });
 
 export const aoAcontecer = (f: (e: Evento) => void) =>
   listen<Evento>("pombo", (m) => f(m.payload));
