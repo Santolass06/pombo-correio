@@ -9,3 +9,6 @@ dist/
 # Chaves de identidade e estado local — nunca versionar
 *.key
 /state/
+
+# Ficheiros grandes para testes manuais
+/test_docs/

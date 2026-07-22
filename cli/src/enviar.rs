@@ -48,7 +48,9 @@ pub async fn enviar(eu: &Identity, ficheiro: &std::path::Path, destino: &str) ->
         .into_owned();
 
     println!("A preparar {nome}...");
-    let manifesto = Manifest::from_reader(&nome, std::fs::File::open(ficheiro)?)?;
+    let aberto = std::fs::File::open(ficheiro)
+        .with_context(|| format!("não consegui abrir {}", ficheiro.display()))?;
+    let manifesto = Manifest::from_reader(&nome, aberto)?;
 
     let cliente = reqwest::Client::new();
 
