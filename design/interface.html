@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="6413d6c6-8148-4823-a797-e2a4584fd0c2"></script>
+
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>/* Nocturne — design-system tokens and component classes. This file is the source of truth for the system's look; retune it here and see readme.md. */
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("498a130e-d392-4b77-9c36-23e4f12bd183") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("1c55b925-2869-400d-84c5-5ed0f201705f") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("97f45707-fb22-44cc-861c-249afc8b52f8") format('woff2');
+  unicode-range: U+1F00-1FFF;
+}
+/* greek */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("7cc57737-0216-4474-8099-76da0a90bb29") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("7f382892-9a8d-4e54-84cb-50b07f055f36") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("0aa443a6-6f0a-489c-bfd8-fc8f67f8e9a4") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("5f4352cf-c61c-4055-906e-3a1953e0ac6a") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("498a130e-d392-4b77-9c36-23e4f12bd183") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("1c55b925-2869-400d-84c5-5ed0f201705f") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("97f45707-fb22-44cc-861c-249afc8b52f8") format('woff2');
+  unicode-range: U+1F00-1FFF;
+}
+/* greek */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("7cc57737-0216-4474-8099-76da0a90bb29") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("7f382892-9a8d-4e54-84cb-50b07f055f36") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("0aa443a6-6f0a-489c-bfd8-fc8f67f8e9a4") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("5f4352cf-c61c-4055-906e-3a1953e0ac6a") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("498a130e-d392-4b77-9c36-23e4f12bd183") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("1c55b925-2869-400d-84c5-5ed0f201705f") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("97f45707-fb22-44cc-861c-249afc8b52f8") format('woff2');
+  unicode-range: U+1F00-1FFF;
+}
+/* greek */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("7cc57737-0216-4474-8099-76da0a90bb29") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("7f382892-9a8d-4e54-84cb-50b07f055f36") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("0aa443a6-6f0a-489c-bfd8-fc8f67f8e9a4") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("5f4352cf-c61c-4055-906e-3a1953e0ac6a") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("498a130e-d392-4b77-9c36-23e4f12bd183") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("1c55b925-2869-400d-84c5-5ed0f201705f") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("97f45707-fb22-44cc-861c-249afc8b52f8") format('woff2');
+  unicode-range: U+1F00-1FFF;
+}
+/* greek */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("7cc57737-0216-4474-8099-76da0a90bb29") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("7f382892-9a8d-4e54-84cb-50b07f055f36") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("0aa443a6-6f0a-489c-bfd8-fc8f67f8e9a4") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("5f4352cf-c61c-4055-906e-3a1953e0ac6a") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+
+:root {
+  --color-bg: #161826;
+  --color-surface: #232532;
+  --color-text: #e9e9ed;
+  --color-accent: #9184d9; /* review round 7 (Barron): the accent moves to
+     the product's blurple — OKLCH hue 289.2, the hue of the app's own Pro
+     accent (#9a8fe0, --om-accent-pro) — at the same lightness the steel
+     accent held (L 0.660, so the documented ratios survive) and chroma
+     in the product blurple's own range (its token sits at C 0.118; the
+     accent takes 0.125, from the old steel's 0.030):
+     the accent now reads as an accent rather than another neutral. */
+  --color-accent-2: #a7a1db; /* the machine-derived stand-in follows: same
+     hue, same L 0.734, chroma at the same 2:3 proportion it held */
+  --color-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+
+  /* Tonal ramps — generated in OKLCH on one shared lightness scale, so the
+     same step of any role matches the others in visual value. */
+  --color-neutral-100: #f3f5fe;
+  --color-neutral-200: #e4e7f5;
+  --color-neutral-300: #cfd3e5;
+  --color-neutral-400: #b2b6ca;
+  --color-neutral-500: #9397ab;
+  --color-neutral-600: #75798c;
+  --color-neutral-700: #595d6c;
+  --color-neutral-800: #3f424d;
+  --color-neutral-900: #292b31;
+
+  --color-accent-100: #f5f4ff;
+  --color-accent-200: #e7e5fe;
+  --color-accent-300: #d2cefd;
+  --color-accent-400: #b5abfc;
+  --color-accent-500: #968ae0;
+  --color-accent-600: #796cbf;
+  --color-accent-700: #5d5294;
+  --color-accent-800: #423a6a;
+  --color-accent-900: #2b2741;
+
+  --color-accent-2-100: #f5f4ff;
+  --color-accent-2-200: #e7e5fe;
+  --color-accent-2-300: #d2cefd;
+  --color-accent-2-400: #b5afe8;
+  --color-accent-2-500: #9690c9;
+  --color-accent-2-600: #7972a9;
+  --color-accent-2-700: #5c5783;
+  --color-accent-2-800: #423e5d;
+  --color-accent-2-900: #2b293a;
+
+  /* Deck section-divider ground — review round 3: saturation as presence.
+     Dividers take a saturated deep indigo (hue 277, the neutral ramp's own
+     family; C 0.094 — written when the accent held C 0.030, before the
+     round-7 blurple raised it past the ground's) with a lighter bloom and
+     a ghost tint of the same hue, while the slide grounds stay
+     desaturated. Deck-scale fills only — not interface colors. */
+  --color-section: #262a60;
+  --color-section-glow: #353b80;
+  --color-section-ghost: #4c5397;
+
+  --font-heading: "Inter", system-ui, sans-serif;
+  --font-heading-weight: 500;
+  --font-body: "Inter", system-ui, sans-serif;
+
+  --space-1: 2.8px;
+  --space-2: 5.6px;
+  --space-3: 8.4px;
+  --space-4: 11.2px;
+  --space-6: 16.8px;
+  --space-8: 22.4px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+
+  /* Elevation — derived from the ground: soft ink-tinted shadows on a
+     light theme, a hairline edge + ambient darkness on a dark one. */
+  --shadow-sm: 0 0 0 1px #3f424d;
+  --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0,0,0,0.55);
+  --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0,0,0,0.65);
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: var(--font-heading-weight); }
+
+.lighten{mix-blend-mode:lighten;background-color:transparent}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Components — built with the tokens above. Plain CSS
+   on plain HTML: no JavaScript, no build step. Each class is documented in
+   readme.md and demonstrated in foundations/ and components/.
+   ══════════════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; font-size: 15px; line-height: 1.55; font-weight: 400; }
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  line-height: 1.12; letter-spacing: -0.015em; margin: 0 0 var(--space-2);
+}
+h1 { font-size: 42px; }
+h2 { font-size: 32px; }
+h3 { font-size: 25px; }
+h4 { font-size: 20px; }
+h5 { font-size: 16px; }
+h6 { font-size: 13px; }
+h6 { letter-spacing: 0.08em; text-transform: uppercase; }
+p { margin: 0 0 var(--space-3); }
+a { color: var(--color-accent); text-underline-offset: 3px; }
+img { display: block; max-width: 100%; }
+figure { margin: 0; }
+figcaption {
+  font-size: 11px; margin-top: var(--space-1);
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+.text-muted { color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
+
+/* — rules — */
+/* Rules fade to transparent at both ends instead of stopping cleanly — a
+   Nocturne signature. The ramp is 48px an end (one deck baseline unit),
+   painted from the same divider token. Freestanding rules fade; box
+   outlines, in-control separators, and short accent marks stay solid. */
+.hr {
+  height: 1px; border: 0; margin: var(--space-4) 0;
+  background: linear-gradient(to right,
+    transparent, var(--color-divider) 48px,
+    var(--color-divider) calc(100% - 48px), transparent);
+}
+
+/* — buttons — */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  cursor: pointer; text-decoration: none;
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 14px; line-height: 1.2; color: var(--color-text); /* matches the .input's 14px —
+     the pair sits side by side in sign-up rows */
+  background: transparent; border: 1px solid transparent;
+  padding: var(--space-2) calc(var(--space-3) * 1.2);
+  border-radius: var(--radius-md);
+}
+.btn svg { display: block; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-primary { color: var(--color-accent); border-color: var(--color-accent); }
+.btn-primary:hover { background: color-mix(in srgb, var(--color-accent) 12%, transparent); }
+.btn-primary:active { background: color-mix(in srgb, var(--color-accent) 22%, transparent); }
+.btn-secondary { border-color: var(--color-divider); }
+.btn-secondary:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.btn-secondary:active { background: color-mix(in srgb, var(--color-text) 14%, transparent); }
+.btn-ghost { color: var(--color-accent); padding-inline: var(--space-1); }
+.btn-ghost:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.btn-ghost:active { background: color-mix(in srgb, var(--color-accent) 18%, transparent); }
+.btn-icon { width: 36px; height: 36px; padding: 0; }
+.btn-block { width: 100%; margin-top: var(--space-2); }
+
+/* — forms — */
+.field > label {
+  display: block; font-size: 12px; margin-bottom: 5px;
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+}
+.input {
+  width: 100%; min-height: 36px; padding: 6px 10px; font: inherit;
+  font-size: 14px; color: var(--color-text); caret-color: var(--color-accent);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider); border-radius: var(--radius-md);
+}
+.input:hover { border-color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+.input:focus-visible { border-color: var(--color-accent); outline-offset: 0; }
+textarea.input { min-height: 90px; resize: vertical; }
+.radio { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
+.radio input, .seg-opt input {
+  position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none;
+}
+.radio .dot {
+  width: 16px; height: 16px; flex: none; border-radius: 50%;
+  border: 1.5px solid var(--color-divider);
+}
+.radio:hover .dot { border-color: var(--color-accent); }
+.radio input:checked + .dot {
+  border-color: var(--color-accent); background: var(--color-accent);
+  box-shadow: inset 0 0 0 4px var(--color-bg);
+}
+.radio input:focus-visible + .dot { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.seg {
+  display: inline-flex; overflow: hidden;
+  border: 1px solid var(--color-divider); border-radius: var(--radius-md);
+}
+.seg-opt {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; font-size: 13px; cursor: pointer;
+}
+.seg-opt + .seg-opt { border-left: 1px solid var(--color-divider); }
+.seg-opt:has(input:checked) { color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }
+.seg-opt:not(:has(input:checked)):hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.seg-opt:has(input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+
+/* — cards — */
+.card {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-surface);
+}
+.card-kicker { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent); }
+.card-title {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 17px; line-height: 1.2;
+}
+.card-body { margin: 0; font-size: 13px; opacity: 0.8; flex: 1; }
+.card-meta {
+  display: flex; align-items: center; gap: 6px; font-size: 11px;
+  color: color-mix(in srgb, var(--color-text) 50%, transparent);
+}
+.elev-sm { box-shadow: var(--shadow-sm); }
+.elev-md { box-shadow: var(--shadow-md); }
+.elev-lg { box-shadow: var(--shadow-lg); }
+
+/* — tags — */
+.tag {
+  display: inline-flex; align-items: center; font-size: 11px;
+  letter-spacing: 0.02em; padding: 3px 10px;
+  border-radius: calc(var(--radius-md) * 0.75);
+}
+.tag-accent { background: var(--color-accent-800); color: var(--color-accent-100); }
+.tag-accent-2 { background: var(--color-accent-2-800); color: var(--color-accent-2-100); }
+.tag-neutral { background: var(--color-neutral-800); color: var(--color-neutral-100); }
+.tag-outline { border: 1px solid var(--color-accent); color: var(--color-accent); }
+
+/* — navigation — */
+.nav {
+  display: flex; align-items: center; gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: none;
+}
+.nav-brand {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 18px; margin-right: auto;
+}
+.nav a { color: inherit; text-decoration: none; font-size: 14px; }
+.nav a:hover, .nav a[aria-current='page'] { color: var(--color-accent); }
+
+/* — tables — */
+.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table th {
+  text-align: left; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+  padding: var(--space-2); border-bottom: 1px solid transparent; /* keeps layout; the row paints the fading rule */
+}
+.table td {
+  padding: var(--space-2);
+  border-bottom: 1px solid transparent;
+}
+/* Row rules as row-level strips so the end-fade spans the row, not each cell. */
+.table thead tr {
+  background: linear-gradient(to right,
+    transparent, var(--color-divider) 48px,
+    var(--color-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+.table tbody tr {
+  background: linear-gradient(to right,
+    transparent, color-mix(in srgb, var(--color-text) 8%, transparent) 48px,
+    color-mix(in srgb, var(--color-text) 8%, transparent) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+.table tbody tr:hover {
+  /* the hover tint layers over the row rule, which keeps painting */
+  background:
+    linear-gradient(color-mix(in srgb, var(--color-text) 4%, transparent),
+                    color-mix(in srgb, var(--color-text) 4%, transparent)) no-repeat 0 0 / 100% 100%,
+    linear-gradient(to right,
+      transparent, color-mix(in srgb, var(--color-text) 8%, transparent) 48px,
+      color-mix(in srgb, var(--color-text) 8%, transparent) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+/* — dialog — */
+.dialog-backdrop {
+  position: fixed; inset: 0; display: grid; place-items: center;
+  padding: var(--space-4);
+  background: color-mix(in srgb, var(--color-neutral-900) 50%, transparent);
+}
+.dialog {
+  width: min(440px, 100%); display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-4); border-radius: var(--radius-lg);
+  background: var(--color-surface); box-shadow: var(--shadow-lg);
+}
+.dialog-title {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 20px;
+}
+.dialog-body { font-size: 14px; opacity: 0.85; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
+
+</style>
+  <style>
+    html, body { margin: 0; background: var(--color-bg); }
+    * { box-sizing: border-box; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: var(--color-neutral-800); border-radius: 8px; }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</helmet>
+
+<div style="zoom:{{ simpleZoom }}; min-height: 100vh; padding-bottom: 64px;">
+
+  <div style="display: flex; align-items: center; gap: 4px; padding: 14px clamp(16px,4vw,48px); border-bottom: 1px solid var(--color-divider);">
+    <span style="display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; background: var(--color-accent); color: var(--color-bg); margin-right: 8px;">
+      <svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12L21 3L14 21L11 13L3 12Z"></path></svg>
+    </span>
+    <span style="font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 18px;">Pombo-Correio</span>
+    <div style="margin-left: auto; display: flex; gap: 4px;">
+      <button class="btn" style="color: {{ navDevicesColor }};" onclick="{{ goDevices }}">Dispositivos</button>
+      <button class="btn" style="color: {{ navHistoryColor }};" onclick="{{ goHistory }}">Histórico</button>
+      <button class="btn" style="color: {{ navSettingsColor }};" onclick="{{ goSettings }}">Definições</button>
+    </div>
+  </div>
+
+  <div style="max-width: 960px; margin-left: clamp(16px,4vw,48px); margin-right: auto; padding: 24px clamp(16px,4vw,48px) 24px 0;">
+
+    <sc-if value="{{ isDevicesScreen }}" hint-placeholder-val="{{ true }}">
+      <div>
+        <sc-if value="{{ hasTransfers }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-bottom: 28px;">
+            <h6 style="color: var(--color-accent); margin-bottom: 10px;">Transferências</h6>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+              <sc-for list="{{ transfersView }}" as="item" hint-placeholder-count="2">
+                <div class="card elev-sm" style="animation: fadeUp .3s ease;">
+                  <div style="display: flex; justify-content: space-between; gap: 12px; align-items: flex-start;">
+                    <div style="min-width: 0;">
+                      <div class="card-title" style="font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ item.fileName }}</div>
+                      <div class="card-meta" style="margin-top: 2px;">{{ item.size }} · {{ item.deviceName }}</div>
+                    </div>
+                    <span class="tag {{ item.tagClass }}">{{ item.statusLabel }}</span>
+                  </div>
+
+                  <sc-if value="{{ item.showBar }}" hint-placeholder-val="{{ false }}">
+                    <div>
+                      <sc-if value="{{ item.resumed }}" hint-placeholder-val="{{ false }}">
+                        <div style="font-size: 11px; color: var(--color-accent-300); margin-bottom: 4px;">Retomada — o progresso anterior foi mantido</div>
+                      </sc-if>
+                      <div style="height: 6px; border-radius: 4px; background: var(--color-neutral-800); overflow: hidden;">
+                        <div style="height: 100%; background: var(--color-accent); width: {{ item.progress }}%; transition: width .8s linear;"></div>
+                      </div>
+                      <div style="display: flex; justify-content: space-between; font-size: 11px; color: color-mix(in srgb, var(--color-text) 55%, transparent); margin-top: 4px;">
+                        <span>{{ item.progressLabel }}</span>
+                        <span>{{ item.speed }}</span>
+                      </div>
+                    </div>
+                  </sc-if>
+
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px;">
+                    <button class="btn btn-ghost" style="font-size: 12px; padding: 2px 4px;" onclick="{{ item.toggleExpand }}">{{ item.pathLine }}</button>
+                    <div style="display: flex; gap: 6px;">
+                      <sc-if value="{{ item.canCancel }}" hint-placeholder-val="{{ false }}">
+                        <button class="btn btn-secondary" style="font-size: 12px; padding: 4px 10px;" onclick="{{ item.cancel }}">Cancelar</button>
+                      </sc-if>
+                      <sc-if value="{{ item.canRetry }}" hint-placeholder-val="{{ false }}">
+                        <button class="btn btn-primary" style="font-size: 12px; padding: 4px 10px;" onclick="{{ item.retry }}">Tentar de novo</button>
+                      </sc-if>
+                    </div>
+                  </div>
+
+                  <sc-if value="{{ item.expanded }}" hint-placeholder-val="{{ false }}">
+                    <div style="font-size: 12px; color: color-mix(in srgb, var(--color-text) 60%, transparent); border-top: 1px solid var(--color-divider); padding-top: 8px;">{{ item.techDetail }}</div>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px;">
+          <div>
+            <h1 style="margin-bottom: 2px;">Os teus dispositivos</h1>
+            <p class="text-muted" style="margin: 0;">{{ deviceCountLabel }}</p>
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <button class="btn btn-secondary" onclick="{{ openPair }}">
+              <svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>
+              Emparelhar
+            </button>
+            <button class="btn btn-primary" onclick="{{ openSend }}">
+              <svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12L21 3L14 21L11 13L3 12Z"></path></svg>
+              Enviar ficheiro
+            </button>
+          </div>
+        </div>
+
+        <sc-if value="{{ devicesEmpty }}" hint-placeholder-val="{{ false }}">
+          <div style="border: 1px dashed var(--color-divider); border-radius: var(--radius-lg); padding: 48px 24px; text-align: center;">
+            <div style="width: 48px; height: 48px; border-radius: 999px; background: var(--color-surface); display: flex; align-items: center; justify-content: center; margin: 0 auto 14px;">
+              <svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>
+            </div>
+            <h3 style="margin-bottom: 6px;">Ainda não tens nenhum dispositivo</h3>
+            <p class="text-muted" style="max-width: 360px; margin: 0 auto 18px;">Junta o telemóvel, o computador ou o tablet de alguém da família para começarem a partilhar.</p>
+            <button class="btn btn-primary" onclick="{{ openPair }}">Emparelhar o primeiro dispositivo</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ devicesNotEmpty }}" hint-placeholder-val="{{ true }}">
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px;">
+            <sc-for list="{{ devicesView }}" as="item" hint-placeholder-count="8">
+              <button class="card elev-sm" style="text-align: left; cursor: pointer; opacity: {{ item.opacity }};" onclick="{{ item.openSendToThis }}">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <div style="width: 40px; height: 40px; flex: none; border-radius: 10px; background: var(--color-surface); display: flex; align-items: center; justify-content: center; color: color-mix(in srgb, var(--color-text) 75%, transparent);">
+                    <svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2"></rect><line x1="11" y1="18" x2="13" y2="18"></line></svg>
+                  </div>
+                  <div style="min-width: 0;">
+                    <div class="card-title" style="font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ item.name }}</div>
+                    <div class="card-meta">{{ item.detail }}</div>
+                  </div>
+                </div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                  <span class="tag {{ item.tagClass }}">{{ item.statusLabel }}</span>
+                  <sc-if value="{{ item.trusted }}" hint-placeholder-val="{{ false }}">
+                    <span class="tag tag-outline">De confiança</span>
+                  </sc-if>
+                </div>
+              </button>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isHistoryScreen }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <h1>Histórico</h1>
+        <div class="seg" style="margin-bottom: 18px;">
+          <label class="seg-opt"><input type="radio" name="histtab" checked="{{ historyTabIsSent }}" onchange="{{ setHistoryTabSent }}">Enviados</label>
+          <label class="seg-opt"><input type="radio" name="histtab" checked="{{ historyTabIsReceived }}" onchange="{{ setHistoryTabReceived }}">Recebidos</label>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <sc-for list="{{ historyView }}" as="item" hint-placeholder-count="5">
+            <div class="card elev-sm" style="flex-direction: row; align-items: center; justify-content: space-between; gap: 12px;">
+              <div style="min-width: 0;">
+                <div class="card-title" style="font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ item.fileName }}</div>
+                <div class="card-meta">{{ item.deviceName }} · {{ item.date }} · {{ item.size }}</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; flex: none;">
+                <span class="tag {{ item.tagClass }}">{{ item.statusLabel }}</span>
+                <button class="btn btn-secondary" style="font-size: 12px; padding: 4px 10px;" onclick="{{ item.resend }}">Reenviar</button>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isSettingsScreen }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width: 560px;">
+        <h1 style="margin-bottom: 20px;">Definições</h1>
+
+        <div class="field" style="margin-bottom: 20px;">
+          <label>Nome deste dispositivo</label>
+          <input class="input" value="{{ deviceName }}" onchange="{{ setDeviceName }}">
+        </div>
+
+        <h6 style="color: var(--color-accent); margin-bottom: 10px;">Dispositivos de confiança</h6>
+        <p class="text-muted" style="margin-top: 0; font-size: 13px;">Aceitam ficheiros automaticamente, sem perguntar.</p>
+        <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px;">
+          <sc-for list="{{ trustedDevicesView }}" as="item" hint-placeholder-count="8">
+            <div class="card elev-sm" style="flex-direction: row; align-items: center; justify-content: space-between; padding: 10px 14px;">
+              <span style="font-size: 14px;">{{ item.name }}</span>
+              <button class="btn {{ item.btnClass }}" style="font-size: 12px; padding: 4px 10px;" onclick="{{ item.toggle }}">{{ item.label }}</button>
+            </div>
+          </sc-for>
+        </div>
+
+        <div class="field" style="margin-bottom: 20px;">
+          <label>Pasta de receção</label>
+          <input class="input" value="{{ receivingFolder }}" onchange="{{ setReceivingFolder }}">
+        </div>
+
+        <h6 style="color: var(--color-accent); margin-bottom: 10px;">Prazo de validade dos links, por omissão</h6>
+        <div class="seg" style="margin-bottom: 24px;">
+          <label class="seg-opt"><input type="radio" name="linkexp" checked="{{ expiryIs1 }}" onchange="{{ setExpiry1 }}">1 dia</label>
+          <label class="seg-opt"><input type="radio" name="linkexp" checked="{{ expiryIs3 }}" onchange="{{ setExpiry3 }}">3 dias</label>
+          <label class="seg-opt"><input type="radio" name="linkexp" checked="{{ expiryIs7 }}" onchange="{{ setExpiry7 }}">7 dias</label>
+        </div>
+
+        <div class="card elev-sm" style="flex-direction: row; align-items: center; justify-content: space-between; margin-bottom: 24px;">
+          <div>
+            <div class="card-title" style="font-size: 15px;">Modo simples</div>
+            <div class="card-body">Texto maior e ecrãs mais diretos — pensado para quem prefere o essencial.</div>
+          </div>
+          <button class="btn {{ simpleModeBtnClass }}" onclick="{{ toggleSimpleMode }}">{{ simpleModeLabel }}</button>
+        </div>
+
+        <details>
+          <summary style="cursor: pointer; font-size: 13px; color: color-mix(in srgb, var(--color-text) 60%, transparent); margin-bottom: 10px;">Detalhes técnicos</summary>
+          <div class="field">
+            <label>Endereços dos servidores de casa</label>
+            <input class="input" value="{{ homeServerAddress }}" readonly="{{ true }}">
+          </div>
+        </details>
+      </div>
+    </sc-if>
+  </div>
+
+  <div style="position: fixed; left: 12px; bottom: 12px; z-index: 40; background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: var(--radius-md); padding: 8px; display: flex; flex-wrap: wrap; gap: 6px; max-width: 340px; box-shadow: var(--shadow-md);">
+    <span style="font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 50%, transparent); width: 100%;">Pré-visualizar estados</span>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioNormal }}">Normal</button>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioIncoming }}">Receção a chegar</button>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioTrustedToast }}">Auto-aceite</button>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioQueued }}">Destino offline</button>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioBlocked }}">Sem rede</button>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioDiskFull }}">Disco cheio</button>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioDeclined }}">Recusado</button>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioFailed }}">Falhou</button>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioEmpty }}">Primeira utilização</button>
+    <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; width: 100%; margin-top: 2px; color: color-mix(in srgb, var(--color-text) 70%, transparent);">
+      <input type="checkbox" checked="{{ simulateIOS }}" onchange="{{ toggleSimulateIOS }}"> Simular iPhone (aviso HEIC)
+    </label>
+  </div>
+
+  <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+    <div style="position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--color-surface); border: 1px solid var(--color-divider); box-shadow: var(--shadow-lg); border-radius: var(--radius-md); padding: 12px 18px; font-size: 13px; z-index: 50; max-width: 90vw;">{{ toast }}</div>
+  </sc-if>
+
+  <sc-if value="{{ overlayIsSend }}" hint-placeholder-val="{{ false }}">
+    <div class="dialog-backdrop" onclick="{{ closeOverlay }}">
+      <div class="dialog" style="width: min(420px,100%);" onclick="{{ stopClick }}">
+
+        <sc-if value="{{ sendStepIsType }}" hint-placeholder-val="{{ true }}">
+          <div>
+            <div class="dialog-title" style="margin-bottom: 14px;">O que queres enviar?</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <button class="btn btn-secondary btn-block" style="justify-content: flex-start; gap: 10px;" onclick="{{ pickFiles }}">Ficheiros</button>
+              <button class="btn btn-secondary btn-block" style="justify-content: flex-start; gap: 10px;" onclick="{{ pickFolder }}">Uma pasta</button>
+              <button class="btn btn-secondary btn-block" style="justify-content: flex-start; gap: 10px;" onclick="{{ pickPhotos }}">Fotos</button>
+              <button class="btn btn-secondary btn-block" style="justify-content: flex-start; gap: 10px;" onclick="{{ pickText }}">Texto</button>
+              <button class="btn btn-secondary btn-block" style="justify-content: flex-start; gap: 10px; grid-column: span 2;" onclick="{{ pickLink }}">Um link</button>
+            </div>
+            <div class="dialog-actions"><button class="btn btn-ghost" onclick="{{ closeOverlay }}">Cancelar</button></div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ sendStepIsHeic }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div class="dialog-title" style="margin-bottom: 10px;">Usa a app Ficheiros para esta foto</div>
+            <div class="dialog-body" style="margin-bottom: 16px;">Quando escolhes fotos pela Biblioteca de Fotos do iPhone, a qualidade original perde-se ao enviar. Para manter a foto exatamente como foi tirada, abre a app <strong>Ficheiros</strong> e escolhe-a a partir daí.</div>
+            <div class="dialog-actions" style="justify-content: space-between;">
+              <button class="btn btn-ghost" onclick="{{ goStepType }}">Voltar</button>
+              <button class="btn btn-primary" onclick="{{ heicContinueAsFiles }}">Abrir a app Ficheiros</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ sendStepIsContent }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div class="dialog-title" style="margin-bottom: 12px;">{{ contentStepTitle }}</div>
+            <div class="field">
+              <textarea class="input" rows="4" placeholder="{{ contentPlaceholder }}" value="{{ sendContent }}" onchange="{{ setSendContent }}"></textarea>
+            </div>
+            <div class="dialog-actions" style="justify-content: space-between;">
+              <button class="btn btn-ghost" onclick="{{ goStepType }}">Voltar</button>
+              <button class="btn btn-primary" onclick="{{ goStepTarget }}">Continuar</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ sendStepIsTarget }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div class="dialog-title" style="margin-bottom: 12px;">Para quem?</div>
+            <div style="display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto;">
+              <sc-for list="{{ targetsView }}" as="item" hint-placeholder-count="8">
+                <button class="btn btn-secondary btn-block" style="justify-content: flex-start; margin-top: 0;" onclick="{{ item.select }}">{{ item.name }} <span class="tag {{ item.tagClass }}" style="margin-left: auto;">{{ item.statusLabel }}</span></button>
+              </sc-for>
+              <button class="btn btn-ghost btn-block" style="justify-content: flex-start; margin-top: 4px; border-top: 1px solid var(--color-divider); padding-top: 12px; border-radius: 0;" onclick="{{ pickNoApp }}">Alguém sem a aplicação →</button>
+            </div>
+            <div class="dialog-actions"><button class="btn btn-ghost" onclick="{{ goStepType }}">Voltar</button></div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ sendStepIsConfirm }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div class="dialog-title" style="margin-bottom: 12px;">Confirmar envio</div>
+            <div class="card elev-sm" style="margin-bottom: 16px;">
+              <div class="card-meta">A enviar</div>
+              <div class="card-title" style="font-size: 16px;">{{ sendTypeLabel }}</div>
+              <div class="card-meta">Para {{ selectedTargetName }}</div>
+            </div>
+            <div class="dialog-actions" style="justify-content: space-between;">
+              <button class="btn btn-ghost" onclick="{{ goStepTarget }}">Voltar</button>
+              <button class="btn btn-primary" onclick="{{ confirmSend }}">Enviar</button>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ overlayIsPair }}" hint-placeholder-val="{{ false }}">
+    <div class="dialog-backdrop" onclick="{{ closeOverlay }}">
+      <div class="dialog" style="width: min(420px,100%);" onclick="{{ stopClick }}">
+        <div class="dialog-title" style="margin-bottom: 14px;">Emparelhar dispositivo</div>
+        <div class="seg" style="margin-bottom: 18px;">
+          <label class="seg-opt"><input type="radio" name="pairtab" checked="{{ pairTabIsQr }}" onchange="{{ setPairTabQr }}">Código QR</label>
+          <label class="seg-opt"><input type="radio" name="pairtab" checked="{{ pairTabIsNumber }}" onchange="{{ setPairTabNumber }}">Número de segurança</label>
+        </div>
+
+        <sc-if value="{{ pairTabIsQr }}" hint-placeholder-val="{{ true }}">
+          <div style="text-align: center;">
+            <p class="text-muted" style="margin-top: 0;">Mostra este código ao outro dispositivo, ou aponta a câmara ao código dele.</p>
+            <div style="display: inline-grid; grid-template-columns: repeat(11, 1fr); width: 180px; height: 180px; background: var(--color-surface); padding: 10px; border-radius: var(--radius-md); gap: 1px;">
+              <sc-for list="{{ qrCells }}" as="item" hint-placeholder-count="121">
+                <div style="background: {{ item.bg }};"></div>
+              </sc-for>
+            </div>
+            <div style="margin-top: 16px;"><button class="btn btn-secondary">Ler código do outro dispositivo</button></div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ pairTabIsNumber }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <p class="text-muted" style="margin-top: 0;">Lê estes números em voz alta e confirma que aparecem exatamente iguais no outro dispositivo.</p>
+            <div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; font-family: var(--font-heading); font-size: 22px; letter-spacing: .04em; background: var(--color-surface); border-radius: var(--radius-md); padding: 20px; margin: 14px 0;">
+              <sc-for list="{{ securityGroups }}" as="grp" hint-placeholder-count="6"><span>{{ grp }}</span></sc-for>
+            </div>
+            <div style="display: flex; gap: 10px;">
+              <button class="btn btn-secondary btn-block" onclick="{{ confirmMismatch }}">É diferente</button>
+              <button class="btn btn-primary btn-block" onclick="{{ confirmMatch }}">É igual</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <div class="dialog-actions"><button class="btn btn-ghost" onclick="{{ closeOverlay }}">Fechar</button></div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ overlayIsShare }}" hint-placeholder-val="{{ false }}">
+    <div class="dialog-backdrop" onclick="{{ closeOverlay }}">
+      <div class="dialog" style="width: min(420px,100%);" onclick="{{ stopClick }}">
+        <div class="dialog-title" style="margin-bottom: 4px;">Enviar a quem não tem a app</div>
+        <p class="text-muted" style="margin-top: 0;">Cria um link para partilhar por WhatsApp ou SMS.</p>
+
+        <sc-if value="{{ shareHasLink }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div class="field"><label>Link</label><input class="input" value="{{ generatedLink }}" readonly="{{ true }}"></div>
+            <sc-if value="{{ sharePinEnabled }}" hint-placeholder-val="{{ true }}">
+              <p style="font-size: 13px;">PIN a pedir: <strong>{{ sharePin }}</strong></p>
+            </sc-if>
+            <p class="text-muted" style="font-size: 12px;">Válido por {{ shareValidityLabel }}.</p>
+            <div style="display: flex; gap: 8px; margin: 14px 0;">
+              <button class="btn btn-secondary btn-block" onclick="{{ copyLink }}">{{ copyLabel }}</button>
+              <button class="btn btn-primary btn-block">Partilhar no WhatsApp</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ shareNoLink }}" hint-placeholder-val="{{ true }}">
+          <div>
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; margin-bottom: 14px;">
+              <input type="checkbox" checked="{{ sharePinEnabled }}" onchange="{{ toggleSharePin }}"> Pedir PIN para abrir
+            </label>
+            <div class="seg" style="margin-bottom: 18px;">
+              <label class="seg-opt"><input type="radio" name="sharevalidity" checked="{{ shareValidityIs1 }}" onchange="{{ setShareValidity1 }}">1 dia</label>
+              <label class="seg-opt"><input type="radio" name="sharevalidity" checked="{{ shareValidityIs3 }}" onchange="{{ setShareValidity3 }}">3 dias</label>
+              <label class="seg-opt"><input type="radio" name="sharevalidity" checked="{{ shareValidityIs7 }}" onchange="{{ setShareValidity7 }}">7 dias</label>
+            </div>
+            <button class="btn btn-primary btn-block" onclick="{{ generateLink }}">Gerar link</button>
+          </div>
+        </sc-if>
+
+        <div class="dialog-actions"><button class="btn btn-ghost" onclick="{{ closeOverlay }}">Fechar</button></div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ hasIncoming }}" hint-placeholder-val="{{ false }}">
+    <div class="dialog-backdrop">
+      <div class="dialog" style="width: min(400px,100%);">
+        <div class="dialog-title" style="margin-bottom: 4px;">A receber um ficheiro</div>
+        <p class="text-muted" style="margin-top: 0;">{{ incomingFrom }} quer enviar-te isto:</p>
+        <div class="card elev-sm">
+          <div class="card-title" style="font-size: 15px;">{{ incomingFile }}</div>
+          <div class="card-meta">{{ incomingSize }}</div>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" onclick="{{ declineIncoming }}">Recusar</button>
+          <button class="btn btn-primary" onclick="{{ acceptIncoming }}">Aceitar</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script="">
+const DEVICES = [
+  {id:'d1',name:'Telemóvel do avô',detail:'Nesta rede',status:'available',trusted:true},
+  {id:'d2',name:'Telemóvel da avó',detail:'Nesta rede',status:'available',trusted:true},
+  {id:'d3',name:'PC da sala',detail:'Nesta rede',status:'available',trusted:false},
+  {id:'d4',name:'Portátil da Marta',detail:'Visto há 2 dias',status:'unavailable',trusted:false},
+  {id:'d5',name:'iPad do Tiago',detail:'Por outra rede',status:'internet',trusted:false},
+  {id:'d6',name:'Telemóvel da Marta',detail:'Nesta rede',status:'available',trusted:false},
+  {id:'d7',name:'Servidor de casa',detail:'Sempre ligado',status:'available',trusted:true},
+  {id:'d8',name:'Tablet da cozinha',detail:'Visto há 5 horas',status:'unavailable',trusted:false},
+];
+
+const HISTORY = [
+  {id:'h1',fileName:'Fotos_aniversário.zip',deviceName:'Telemóvel do avô',date:'ontem',size:'340 MB',direction:'sent',status:'done'},
+  {id:'h2',fileName:'Contrato_renda.pdf',deviceName:'PC da sala',date:'ontem',size:'2,1 MB',direction:'sent',status:'done'},
+  {id:'h3',fileName:'Vídeo_praia.mov',deviceName:'iPad do Tiago',date:'2 dias',size:'1,1 GB',direction:'received',status:'done'},
+  {id:'h4',fileName:'Lista_compras.pdf',deviceName:'Telemóvel da avó',date:'3 dias',size:'180 KB',direction:'received',status:'done'},
+  {id:'h5',fileName:'Apresentação.pptx',deviceName:'Portátil da Marta',date:'4 dias',size:'22 MB',direction:'sent',status:'declined'},
+  {id:'h6',fileName:'Fotos_natal.zip',deviceName:'Servidor de casa',date:'1 semana',size:'812 MB',direction:'sent',status:'failed'},
+];
+
+function statusLabel(s){ return s==='available'?'Disponível':s==='unavailable'?'Indisponível':'Só pela internet'; }
+function statusTag(s){ return s==='available'?'tag-accent':s==='unavailable'?'tag-neutral':'tag-outline'; }
+
+class Component extends DCLogic {
+  state = {
+    screen: 'devices',
+    overlay: null,
+    sendStep: 'type',
+    sendType: null,
+    sendContent: '',
+    selectedTargetId: null,
+    pairTab: 'qr',
+    simulateIOS: false,
+    devices: DEVICES,
+    transfers: [
+      {id:'t1',fileName:'Fotos_natal.zip',size:'812 MB',deviceName:'Telemóvel do avô',status:'active',progress:42,path:'local',speed:'26,1 MB/s',resumed:false,expanded:false},
+      {id:'t2',fileName:'Vídeo_praia.mov',size:'2,3 GB',deviceName:'PC da sala',status:'active',progress:63,path:'tailscale',speed:'6,4 MB/s',resumed:true,expanded:false},
+    ],
+    history: HISTORY,
+    historyTab: 'sent',
+    incoming: null,
+    toast: null,
+    deviceName: 'PC da sala',
+    receivingFolder: 'Descarregas/Pombo-Correio',
+    linkExpiryDefault: '3',
+    simpleMode: false,
+    homeServerAddress: 'casa.familia.pombo-correio.app',
+    shareForm: {pin: true, validity: '3'},
+    generatedLink: null,
+    copyLabel: 'Copiar link',
+  };
+
+  qrCells = (() => {
+    const n = 11, cells = [];
+    const isFinder = (r,c) => (r<3&&c<3)||(r<3&&c>n-4)||(r>n-4&&c<3);
+    for (let r=0;r<n;r++) for (let c=0;c<n;c++) {
+      const filled = isFinder(r,c) ? true : ((r*13+c*7+r*c)%5)<2;
+      cells.push({key:`${r}-${c}`, bg: filled ? 'var(--color-text)' : 'transparent'});
+    }
+    return cells;
+  })();
+
+  securityGroups = ['48213','90475','11208','63357','20194','88462'];
+
+  componentDidMount() {
+    this._tick = setInterval(() => {
+      this.setState(s => ({
+        transfers: s.transfers.map(t => {
+          if (t.status !== 'active') return t;
+          let progress = Math.min(100, t.progress + 2 + Math.random()*4);
+          let path = t.path;
+          if (t.id === 't1' && progress > 55 && path === 'local') path = 'tailscale';
+          return {...t, progress, path, status: progress >= 100 ? 'done' : 'active'};
+        })
+      }));
+    }, 1200);
+  }
+  componentWillUnmount() { clearInterval(this._tick); }
+
+  toast_(msg) {
+    this.setState({toast: msg});
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => this.setState({toast: null}), 3800);
+  }
+
+  renderVals() {
+    const s = this.state;
+
+    const devicesView = s.devices.map(d => ({
+      ...d,
+      statusLabel: statusLabel(d.status),
+      tagClass: statusTag(d.status),
+      opacity: d.status === 'unavailable' ? 0.6 : 1,
+      openSendToThis: () => this.setState({overlay:'send', sendStep:'type', selectedTargetId: d.id}),
+    }));
+
+    const pathLineFor = (t) => {
+      if (t.status === 'active') {
+        if (t.path === 'local') return 'A usar a rede de casa (mais rápido) · Porquê?';
+        if (t.path === 'tailscale') return 'A usar uma ligação privada pela internet · Porquê?';
+        return 'A guardar em casa para entregar depois · Porquê?';
+      }
+      if (t.status === 'queued') return 'Em fila — sem ligação ao dispositivo agora';
+      if (t.status === 'blocked') return 'Sem ligação disponível';
+      if (t.status === 'disk-full') return 'Sem espaço no destino';
+      if (t.status === 'declined') return 'Recusado pelo destinatário';
+      if (t.status === 'failed') return 'Não foi possível concluir';
+      return 'Entregue';
+    };
+    const techDetailFor = (t) => {
+      if (t.path === 'tailscale') return 'Mudou da rede local para uma ligação privada pela internet. A transferência continua sem interromper.';
+      if (t.path === 'server') return 'Está a passar pelo servidor de casa porque o destino não está contactável diretamente agora.';
+      return 'A transferir diretamente na rede local — o caminho mais rápido disponível.';
+    };
+    const statusLabelFor = (t) => ({
+      active:'A transferir', queued:'Em fila', blocked:'Sem rede', 'disk-full':'Sem espaço',
+      declined:'Recusado', failed:'Falhou', done:'Entregue'
+    })[t.status];
+    const tagClassFor = (t) => ({
+      active:'tag-accent', queued:'tag-neutral', blocked:'tag-neutral', 'disk-full':'tag-neutral',
+      declined:'tag-outline', failed:'tag-outline', done:'tag-accent'
+    })[t.status];
+
+    const transfersView = s.transfers.map(t => ({
+      ...t,
+      statusLabel: statusLabelFor(t),
+      tagClass: tagClassFor(t),
+      showBar: t.status === 'active',
+      progress: Math.round(t.progress || 0),
+      progressLabel: `${Math.round(t.progress||0)}%`,
+      pathLine: pathLineFor(t),
+      techDetail: techDetailFor(t),
+      canCancel: t.status === 'active' || t.status === 'queued' || t.status === 'blocked',
+      canRetry: t.status === 'failed',
+      toggleExpand: () => this.setState(st => ({transfers: st.transfers.map(x => x.id===t.id?{...x,expanded:!x.expanded}:x)})),
+      cancel: () => this.setState(st => ({transfers: st.transfers.filter(x => x.id !== t.id)})),
+      retry: () => this.setState(st => ({transfers: st.transfers.map(x => x.id===t.id?{...x,status:'active'}:x)})),
+    }));
+
+    const targetsView = s.devices.map(d => ({
+      ...d, statusLabel: statusLabel(d.status), tagClass: statusTag(d.status),
+      select: () => this.setState({selectedTargetId: d.id, sendStep:'confirm'}),
+    }));
+    const selectedTarget = s.devices.find(d => d.id === s.selectedTargetId);
+
+    const typeLabels = {files:'Ficheiros selecionados', folder:'Uma pasta', photos:'Fotos selecionadas', text:'Uma mensagem de texto', link:'Um link'};
+
+    const trustedDevicesView = s.devices.map(d => ({
+      ...d,
+      label: d.trusted ? 'De confiança' : 'Tornar de confiança',
+      btnClass: d.trusted ? 'btn-primary' : 'btn-secondary',
+      toggle: () => this.setState(st => ({devices: st.devices.map(x => x.id===d.id?{...x,trusted:!x.trusted}:x)})),
+    }));
+
+    const historyFiltered = s.history.filter(h => h.direction === s.historyTab);
+    const historyView = historyFiltered.map(h => ({
+      ...h,
+      statusLabel: h.status==='done'?(h.direction==='sent'?'Entregue':'Recebido'):h.status==='declined'?'Recusado':'Falhou',
+      tagClass: h.status==='done'?'tag-accent':'tag-outline',
+      resend: () => { this.setState({screen:'devices'}); this.toast_(`A reenviar "${h.fileName}"…`); },
+    }));
+
+    return {
+      simpleZoom: s.simpleMode ? 1.16 : 1,
+      screen: s.screen,
+      isDevicesScreen: s.screen === 'devices', isHistoryScreen: s.screen === 'history', isSettingsScreen: s.screen === 'settings',
+      navDevicesColor: s.screen==='devices' ? 'var(--color-accent)' : 'inherit',
+      navHistoryColor: s.screen==='history' ? 'var(--color-accent)' : 'inherit',
+      navSettingsColor: s.screen==='settings' ? 'var(--color-accent)' : 'inherit',
+      goDevices: () => this.setState({screen:'devices'}),
+      goHistory: () => this.setState({screen:'history'}),
+      goSettings: () => this.setState({screen:'settings'}),
+
+      deviceCountLabel: `${s.devices.length} dispositivo${s.devices.length===1?'':'s'} emparelhado${s.devices.length===1?'':'s'}`,
+      devicesView, devicesEmpty: s.devices.length===0, devicesNotEmpty: s.devices.length>0,
+      hasTransfers: s.transfers.length>0, transfersView,
+
+      openSend: () => this.setState({overlay:'send', sendStep:'type', selectedTargetId:null}),
+      openPair: () => this.setState({overlay:'pair', pairTab:'qr'}),
+      closeOverlay: () => this.setState({overlay:null}),
+      stopClick: (e) => e.stopPropagation(),
+
+      overlay: s.overlay, overlayIsSend: s.overlay==='send', overlayIsPair: s.overlay==='pair', overlayIsShare: s.overlay==='share',
+      sendStepIsType: s.sendStep==='type', sendStepIsHeic: s.sendStep==='heic', sendStepIsContent: s.sendStep==='content',
+      sendStepIsTarget: s.sendStep==='target', sendStepIsConfirm: s.sendStep==='confirm',
+      goStepType: () => this.setState({sendStep:'type'}),
+      goStepTarget: () => this.setState({sendStep:'target'}),
+
+      pickFiles: () => this.setState({sendType:'files', sendStep:'target'}),
+      pickFolder: () => this.setState({sendType:'folder', sendStep:'target'}),
+      pickPhotos: () => this.setState({sendType:'photos', sendStep: s.simulateIOS ? 'heic' : 'target'}),
+      pickText: () => this.setState({sendType:'text', sendStep:'content'}),
+      pickLink: () => this.setState({sendType:'link', sendStep:'content'}),
+      heicContinueAsFiles: () => this.setState({sendType:'files', sendStep:'target'}),
+      contentStepTitle: s.sendType==='text' ? 'Escreve o texto' : 'Cola o link',
+      contentPlaceholder: s.sendType==='text' ? 'A tua mensagem…' : 'https://…',
+      sendContent: s.sendContent,
+      setSendContent: (e) => this.setState({sendContent: e.target.value}),
+
+      targetsView,
+      pickNoApp: () => this.setState({overlay:'share', sendStep:'type'}),
+      sendTypeLabel: typeLabels[s.sendType] || 'Ficheiros selecionados',
+      selectedTargetName: selectedTarget ? selectedTarget.name : '—',
+      confirmSend: () => {
+        const newT = {id:'t'+Date.now(), fileName: typeLabels[s.sendType]||'Ficheiro', size:'—', deviceName: selectedTarget?selectedTarget.name:'—', status:'active', progress:0, path:'local', speed:'a começar…', resumed:false, expanded:false};
+        this.setState(st => ({overlay:null, transfers:[newT, ...st.transfers]}));
+        this.toast_('Envio iniciado.');
+      },
+
+      simulateIOS: s.simulateIOS,
+      toggleSimulateIOS: () => this.setState(st => ({simulateIOS: !st.simulateIOS})),
+
+      pairTabIsQr: s.pairTab==='qr', pairTabIsNumber: s.pairTab==='number',
+      setPairTabQr: () => this.setState({pairTab:'qr'}), setPairTabNumber: () => this.setState({pairTab:'number'}),
+      qrCells: this.qrCells, securityGroups: this.securityGroups,
+      confirmMatch: () => { this.setState({overlay:null, devices:[...s.devices, {id:'d'+Date.now(), name:'Novo dispositivo', detail:'Nesta rede', status:'available', trusted:false}]}); this.toast_('Dispositivo emparelhado.'); },
+      confirmMismatch: () => this.toast_('Os números não coincidem — não emparelhes este dispositivo.'),
+
+      shareHasLink: !!s.generatedLink, shareNoLink: !s.generatedLink,
+      sharePinEnabled: s.shareForm.pin, toggleSharePin: () => this.setState(st => ({shareForm:{...st.shareForm, pin:!st.shareForm.pin}})),
+      shareValidityIs1: s.shareForm.validity==='1', shareValidityIs3: s.shareForm.validity==='3', shareValidityIs7: s.shareForm.validity==='7',
+      setShareValidity1: () => this.setState(st=>({shareForm:{...st.shareForm,validity:'1'}})),
+      setShareValidity3: () => this.setState(st=>({shareForm:{...st.shareForm,validity:'3'}})),
+      setShareValidity7: () => this.setState(st=>({shareForm:{...st.shareForm,validity:'7'}})),
+      shareValidityLabel: {'1':'1 dia','3':'3 dias','7':'7 dias'}[s.shareForm.validity],
+      generatedLink: s.generatedLink,
+      sharePin: '4471',
+      generateLink: () => this.setState({generatedLink:'pombo.link/f/8k2n-vmq1'}),
+      copyLabel: s.copyLabel,
+      copyLink: () => { this.setState({copyLabel:'Copiado!'}); setTimeout(() => this.setState({copyLabel:'Copiar link'}), 2000); },
+
+      hasIncoming: !!s.incoming,
+      incomingFrom: s.incoming ? s.incoming.deviceName : '',
+      incomingFile: s.incoming ? s.incoming.fileName : '',
+      incomingSize: s.incoming ? s.incoming.size : '',
+      acceptIncoming: () => { this.setState({incoming:null}); this.toast_('Ficheiro guardado.'); },
+      declineIncoming: () => this.setState({incoming:null}),
+
+      historyView, historyTabIsSent: s.historyTab==='sent', historyTabIsReceived: s.historyTab==='received',
+      setHistoryTabSent: () => this.setState({historyTab:'sent'}), setHistoryTabReceived: () => this.setState({historyTab:'received'}),
+
+      deviceName: s.deviceName, setDeviceName: (e) => this.setState({deviceName:e.target.value}),
+      trustedDevicesView,
+      receivingFolder: s.receivingFolder, setReceivingFolder: (e) => this.setState({receivingFolder:e.target.value}),
+      expiryIs1: s.linkExpiryDefault==='1', expiryIs3: s.linkExpiryDefault==='3', expiryIs7: s.linkExpiryDefault==='7',
+      setExpiry1: () => this.setState({linkExpiryDefault:'1'}), setExpiry3: () => this.setState({linkExpiryDefault:'3'}), setExpiry7: () => this.setState({linkExpiryDefault:'7'}),
+      simpleMode: s.simpleMode, simpleModeLabel: s.simpleMode ? 'Ativo' : 'Inativo', simpleModeBtnClass: s.simpleMode ? 'btn-primary' : 'btn-secondary',
+      toggleSimpleMode: () => this.setState(st => ({simpleMode: !st.simpleMode})),
+      homeServerAddress: s.homeServerAddress,
+
+      hasToast: !!s.toast, toast: s.toast,
+
+      scenarioNormal: () => this.setState({
+        devices: DEVICES, historyTab:'sent',
+        transfers: [
+          {id:'t1',fileName:'Fotos_natal.zip',size:'812 MB',deviceName:'Telemóvel do avô',status:'active',progress:42,path:'local',speed:'26,1 MB/s',resumed:false,expanded:false},
+          {id:'t2',fileName:'Vídeo_praia.mov',size:'2,3 GB',deviceName:'PC da sala',status:'active',progress:63,path:'tailscale',speed:'6,4 MB/s',resumed:true,expanded:false},
+        ], incoming:null, screen:'devices',
+      }),
+      scenarioIncoming: () => this.setState({incoming:{deviceName:'Telemóvel da Marta', fileName:'Vídeo_aniversário.mp4', size:'1,4 GB'}, screen:'devices'}),
+      scenarioTrustedToast: () => { this.setState({screen:'devices'}); this.toast_('Recebeste "Lista_compras.pdf" de Telemóvel do avô — guardado automaticamente.'); },
+      scenarioQueued: () => this.setState({transfers:[{id:'tq',fileName:'Receita_médica.pdf',size:'1,2 MB',deviceName:'Portátil da Marta',status:'queued',progress:0,path:'local',speed:'',resumed:false,expanded:false}], screen:'devices'}),
+      scenarioBlocked: () => this.setState({transfers:[{id:'tb',fileName:'Álbum_verão.zip',size:'3,1 GB',deviceName:'iPad do Tiago',status:'blocked',progress:0,path:'local',speed:'',resumed:false,expanded:false}], screen:'devices'}),
+      scenarioDiskFull: () => this.setState({transfers:[{id:'td',fileName:'Backup_fotos.zip',size:'14,2 GB',deviceName:'Tablet da cozinha',status:'disk-full',progress:0,path:'local',speed:'',resumed:false,expanded:false}], screen:'devices'}),
+      scenarioDeclined: () => this.setState({transfers:[{id:'te',fileName:'Fatura_obras.pdf',size:'480 KB',deviceName:'Telemóvel da Marta',status:'declined',progress:0,path:'local',speed:'',resumed:false,expanded:false}], screen:'devices'}),
+      scenarioFailed: () => this.setState({transfers:[{id:'tf',fileName:'Vídeo_casamento.mov',size:'4,7 GB',deviceName:'Servidor de casa',status:'failed',progress:0,path:'local',speed:'',resumed:false,expanded:false}], screen:'devices'}),
+      scenarioEmpty: () => this.setState({devices:[], transfers:[], screen:'devices'}),
+    };
+  }
+}
+
+</script>
+
+
+</body></html>
