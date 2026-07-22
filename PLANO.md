@@ -40,6 +40,7 @@ problema em nenhuma delas.
 | Stack | Rust + Tauri v2 + interface web. Ver justificação abaixo. |
 | Exposição | Servidores na mesma rede, porta aberta possível, ambos em Tailscale. |
 | Ordem | Linux → Windows → Android → **iOS por último**, já polido. |
+| Onde se implementa | Máquina local na rede de casa. O ambiente web só planeia e revê. |
 
 ---
 
@@ -60,7 +61,13 @@ problema em nenhuma delas.
    dezenas de ficheiros); este projeto é protocolo e cifra, onde os erros são
    silenciosos e passam nos testes que um modelo mais fraco escreveria.
    Reavaliar se aparecer fan-out genuinamente mecânico.
-6. Cada bocado de lógica não-trivial deixa **um teste que falha se a lógica
+6. **Implementação na máquina local, não no ambiente web/remoto.** O código dos
+   sprints é escrito, corrido, testado e commitado a partir de uma máquina na
+   rede de casa. O ambiente remoto é efémero, não tem rota para a LAN, o Pi 5
+   nem o Tailscale, e é reciclado por inatividade — serve apenas para planear e
+   rever. Não é preferência: o critério do S3 (validar LAN, Tailscale e
+   x86-64↔ARM64 no Pi 5) é impossível a partir do remoto.
+7. Cada bocado de lógica não-trivial deixa **um teste que falha se a lógica
    partir**. Sem frameworks e sem suites por função.
 
 ---
