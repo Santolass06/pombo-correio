@@ -8,7 +8,10 @@ use pombo_correio_core::{
 };
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
-use crate::protocolo::{Aceite, Oferta};
+use crate::{
+    progresso::Progresso,
+    protocolo::{Aceite, Oferta},
+};
 
 /// Fixa o tipo do fluxo produzido pela macro.
 ///
@@ -108,6 +111,8 @@ pub async fn enviar(eu: &Identity, ficheiro: &std::path::Path, destino: &str) ->
     let m = manifesto.clone();
     let fluxo = tipar(async_stream::try_stream! {
         let mut buf = vec![0u8; m.chunk_size as usize];
+        let mut progresso = Progresso::novo(total);
+
         for indice in aceite.tenho..total {
             let esperado = m.plain_len(indice).expect("índice dentro do total");
             let lido = ler_bloco(&mut origem, &mut buf[..esperado]).await?;
@@ -117,7 +122,13 @@ pub async fn enviar(eu: &Identity, ficheiro: &std::path::Path, destino: &str) ->
                 )))?;
             }
             yield bytes::Bytes::from(seal_chunk(&chave, indice, &buf[..esperado]));
+
+            // Depois do `yield`: o fluxo é preguiçoso e só chega aqui quando o
+            // bloco anterior saiu mesmo pela ligação. Contar antes mostraria o
+            // ritmo a que se lê do disco, não o que está a ir para a rede.
+            progresso.passo(indice + 1, esperado);
         }
+        progresso.fim();
     });
 
     let resposta = cliente

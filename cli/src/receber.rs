@@ -18,7 +18,10 @@ use pombo_correio_core::{
 };
 use tokio::io::AsyncWriteExt;
 
-use crate::protocolo::{Aceite, Oferta};
+use crate::{
+    progresso::Progresso,
+    protocolo::{Aceite, Oferta},
+};
 
 struct EmCurso {
     manifesto: Manifest,
@@ -150,6 +153,7 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
     let mut indice = de;
     let mut fluxo = corpo.into_data_stream();
     let mut sobra: Vec<u8> = Vec::new();
+    let mut progresso = Progresso::novo(total);
 
     while indice < total {
         let esperado = manifesto.plain_len(indice).context("índice fora do manifesto")? + SEAL_OVERHEAD;
@@ -169,10 +173,12 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
 
         ficheiro.write_all(&claro).await?;
         indice += 1;
+        progresso.passo(indice, claro.len());
     }
 
     ficheiro.flush().await?;
     drop(ficheiro);
+    progresso.fim();
 
     let final_ = estado.destino.join(nome_seguro(&manifesto.name));
     tokio::fs::rename(&caminho, &final_).await?;

@@ -79,9 +79,16 @@ problema em nenhuma delas.
 A simplificação central, e a que mais trabalho poupa: **os transportes não
 diferem no protocolo, só na forma de alcançar o outro lado.**
 
-Tudo é HTTPS com pedidos `Range`. Isto dá retoma de graça (é para isso que o
-`Range` existe), os browsers falam-no nativamente — o que o caminho sem
-instalação exige de qualquer maneira — e o mesmo código serve os quatro casos.
+Tudo é HTTP simples, e os browsers falam-no nativamente — o que o caminho sem
+instalação exige de qualquer maneira.
+
+Há duas metades, e ambas são precisas:
+
+- **Subir** — quem envia empurra num `PUT` único com o corpo em fluxo. Retoma
+  com `?de=N`. É o que liga dispositivo a dispositivo, e também dispositivo ao
+  relay. Feito em S3.
+- **Descer** — quem recebe puxa com um `GET` e `Range`. Só é preciso do relay
+  para quem recebe. Entra em S7.
 
 | Caminho | Como se alcança o outro lado | Passa pelo servidor? |
 |---|---|---|
@@ -100,10 +107,10 @@ fio e não é falado por browsers. O LocalSend usa HTTP simples e chega-lhe.
 **Os blocos são a unidade de verificação e retoma, não de pedidos.** Um pedido
 HTTP por bloco seria o desenho ingénuo e mataria o débito pela internet: a 1 MiB
 por bloco e gigabit são ~125 pedidos por segundo, e com 30 ms de latência
-sequencialmente não passa de ~33 Mbps. Em vez disso pede-se um `Range` grande e
-lê-se a resposta em streaming, deixando o TCP encher o tubo; os blocos vão sendo
-verificados à medida que chegam. Retomar é voltar a pedir a partir da fronteira
-do primeiro bloco por verificar.
+sequencialmente não passa de ~33 Mbps. Em vez disso é **um pedido só, com o
+corpo em fluxo**, deixando o TCP encher o tubo; os blocos vão sendo verificados
+à medida que passam. Retomar é recomeçar na fronteira do primeiro bloco por
+verificar.
 
 ### Onde está mesmo o gargalo
 
@@ -209,7 +216,7 @@ cifra e blocos que o Linux.
 
 - [x] **S1 — Primitivas do núcleo**
 - [x] **S2 — Cifra e identidade em disco**
-- [ ] **S3 — Transferência sobre HTTPS**
+- [x] **S3 — Transferência sobre HTTP**
 - [ ] **S4 — Descoberta e emparelhamento**
 - [ ] **S5 — Interface e desktop**
 - [ ] **S6 — Android**
@@ -299,13 +306,10 @@ Selagem de blocos, envelope para o destinatário, identidade persistida.
   sistema sem camadas pelo meio, e deixa de haver acoplamento entre as versões
   da `rand` e da `aead`.
 
-### S3 — Transferência sobre HTTP ⚠️ falta validar em rede real
-
-Código completo e testado em localhost. **Falta o critério de aceitação**, que
-exige máquinas na rede de casa.
+### S3 — Transferência sobre HTTP ✅
 
 `cli/src/protocolo.rs` · `cli/src/receber.rs` · `cli/src/enviar.rs` ·
-`cli/src/main.rs` · `cli/tests/e2e.rs`
+`cli/src/progresso.rs` · `cli/src/main.rs` · `cli/tests/e2e.rs`
 
 **Feito**
 - [x] Servidor `axum` no lado de quem recebe: `/identidade`, `/transferencia`,
@@ -314,11 +318,29 @@ exige máquinas na rede de casa.
       `pombo identidade`.
 - [x] Retoma, com o identificador da transferência a ser a raiz de Merkle.
 - [x] Teste de integração com dois processos e um socket.
-- [ ] **Validar em rede real: LAN, Tailscale, e x86-64↔ARM64 no Pi 5.**
+- [x] Progresso ao vivo nos dois lados: percentagem, blocos e débito.
+- [x] **Validado em rede real, PC x86-64 → Raspberry Pi 5 ARM64.**
 
-**Medido em localhost:** 200 MB em 2,1 s (~100 MB/s, já com selagem, abertura e
-verificação). 1,5 GB cortado no bloco 153 de 1431, retomado, byte a byte
-idêntico.
+**Medido**
+- Localhost: 400 MB a ~127 MB/s. 1,5 GB cortado no bloco 153 de 1431, retomado,
+  byte a byte idêntico.
+- LAN real, PC → Pi 5: `teste.mp4` (31,9 MB) e `1GB.txt` transferidos; o
+  segundo foi cortado a meio e retomou no bloco 321 de 1024.
+- Os 41 testes passam em ARM64 sem alterações. A precaução de usar `to_le_bytes`
+  explicitamente em toda a parte pagou-se: não houve nada a corrigir entre
+  arquiteturas.
+
+**Progresso: onde é contado, e porquê importa**
+
+No emissor o `passo` vem **depois** do `yield`. O fluxo é preguiçoso, por isso
+só se retoma a execução quando o bloco anterior saiu mesmo pela ligação. Contar
+antes do `yield` mostraria o ritmo a que se lê do disco — números bonitos e
+falsos, que esconderiam exatamente o problema que o progresso serve para
+apanhar.
+
+Fora de um terminal não se desenha nada. O `\r` só faz sentido num ecrã; num
+ficheiro de registo encheria tudo de lixo, e o teste de integração lê esta saída
+linha a linha.
 
 **Desvios ao plano, e porquê**
 
