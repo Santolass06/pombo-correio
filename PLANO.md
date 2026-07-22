@@ -321,14 +321,44 @@ Selagem de blocos, envelope para o destinatário, identidade persistida.
 - [x] Progresso ao vivo nos dois lados: percentagem, blocos e débito.
 - [x] **Validado em rede real, PC x86-64 → Raspberry Pi 5 ARM64.**
 
+**Matriz validada em máquinas reais**
+
+| | Linux x86-64 | Linux ARM64 (Pi 5) | Windows |
+|---|---|---|---|
+| envia | ✅ | ✅ | ✅ |
+| recebe | ✅ | ✅ | ✅ |
+| retoma | ✅ | ✅ | ✅ |
+
+Mais: LAN, Tailscale, dois envios em simultâneo, matar cada um dos lados a meio,
+e nomes com espaços e com caracteres que o Windows recusa.
+
 **Medido**
-- Localhost: 400 MB a ~127 MB/s. 1,5 GB cortado no bloco 153 de 1431, retomado,
-  byte a byte idêntico.
-- LAN real, PC → Pi 5: `teste.mp4` (31,9 MB) e `1GB.txt` transferidos; o
-  segundo foi cortado a meio e retomou no bloco 321 de 1024.
-- Os 41 testes passam em ARM64 sem alterações. A precaução de usar `to_le_bytes`
-  explicitamente em toda a parte pagou-se: não houve nada a corrigir entre
+- Localhost: 400 MB a ~127 MB/s.
+- LAN, PC → Pi 5: `1GB.txt` cortado e retomado no bloco 321 de 1024.
+- LAN, Windows → PC: 164 MB a 112,9 MB/s.
+- Matar o recetor a meio: 160 de 1145 blocos preservados, retomado, idêntico.
+- Os 48 testes passam em ARM64 e em Windows sem alterações. A precaução de usar
+  `to_le_bytes` explicitamente em toda a parte pagou-se: nada a corrigir entre
   arquiteturas.
+
+**Duas coisas que só apareceram fora do Linux**
+
+- **O Windows nem arrancava.** `pasta_dados` procurava `HOME` ou
+  `XDG_DATA_HOME`, que o Windows não define. Passou a `%APPDATA%`, e o nome do
+  dispositivo a `%COMPUTERNAME%` em vez de `/etc/hostname` — senão todas as
+  máquinas Windows apareceriam como "dispositivo" na lista, que é o que torna a
+  lista inútil.
+- **Nomes com `:` não gravam em Windows.** Carimbos temporais como
+  `2026-06-22 23:04:58.mkv` saem assim de gravadores de ecrã em Linux e Android.
+  Sem tratamento, a transferência corria até ao fim, verificava todos os blocos,
+  e falhava só no `rename` final. Também se tratam pontos e espaços finais, que
+  o Windows remove em silêncio, e os nomes de dispositivo do MS-DOS. Aplicado só
+  em Windows — em Unix estes caracteres são legítimos — mas compilado em toda a
+  parte, para a lógica ter testes onde é mais cómodo corrê-los.
+
+**Em aberto:** em Windows a identidade fica com as permissões por omissão da
+pasta, porque o `0600` é `#[cfg(unix)]`. O `%APPDATA%` já é por utilizador, mas
+não é a mesma garantia.
 
 **Progresso: onde é contado, e porquê importa**
 
