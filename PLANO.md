@@ -533,6 +533,20 @@ refatoração mudou onde o código vive, não o que faz.
   janelas a receber o mesmo acontecimento.
 - **O `--release` do workspace passou a arrastar a árvore do Tauri**, que é
   enorme. Para o CLI usa-se `cargo build --release -p pombo-correio`.
+- **A aplicação não se compila com `cargo`.** Um `cargo build -p
+  pombo-correio-app` produz um binário que abre com *"Could not connect to
+  localhost: Connection refused"*: o `cargo` não corre o `beforeBuildCommand`
+  que gera o `dist/`, não embebe esses ficheiros, e deixa o `devUrl` a apontar
+  para o Vite. Compila-se com `npm run app:build`. Ver `COMO_CORRER.md`.
+- **O sintoma engana, e enganou-me.** Com a interface a falhar, *o resto
+  funciona na mesma* — a aplicação fica à escuta, é descoberta por mDNS e recebe
+  ficheiros correctamente. O meu teste inicial confirmou que o processo não
+  rebentava e que uma transferência de 40 MB chegava íntegra, e dei S5 por
+  verificado. Nunca tinha confirmado que a janela desenhava alguma coisa.
+  **Verificar uma aplicação gráfica exige provar que a interface carregou**, e
+  não apenas que o processo sobreviveu. A prova usada: o comando `identidade` só
+  é invocado pelo frontend, por isso um `eprintln` lá dentro distingue os dois
+  casos sem ambiguidade.
 
 **Ecrãs do desenho ainda sem suporte no núcleo:** histórico, emparelhamento por
 QR, dispositivos de confiança, prazo dos links, modo simples. Ficaram de fora em
