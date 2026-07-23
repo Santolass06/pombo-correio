@@ -16,3 +16,17 @@ opt-level = 3
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# Otimiza as DEPENDÊNCIAS mesmo em debug, mantendo o nosso código depurável e a
+# compilar depressa. Sem isto, a transferência numa build de desenvolvimento
+# (`npm run app`) cai para ~2 MB/s e fica inutilizável para ficheiros grandes.
+#
+# `opt-level` sozinho não chega: com `overflow-checks` e `debug-assertions`
+# ligados, cada operação aritmética da cifra ChaCha20 é verificada, e ela faz
+# milhões delas por bloco — foi o que segurou a decifração a ~2,8 MB/s. Desligar
+# essas verificações **nas dependências** (não no nosso código) recupera a
+# velocidade. A criptografia toda vive aqui, por isso é suficiente.
+[profile.dev.package."*"]
+opt-level = 3
+overflow-checks = false
+debug-assertions = false

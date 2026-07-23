@@ -14,6 +14,24 @@ npm run app:build    # versão final
 O binário fica em `target/release/pombo-correio-app`, e os pacotes `.deb`,
 `.rpm` e `.AppImage` em `target/release/bundle/`.
 
+### Para usar a sério, corre a versão final
+
+**`npm run app` compila em modo debug, e a criptografia em debug é dezenas de
+vezes mais lenta** — a transferência cai para ~2–5 MB/s em vez de ~90. Basta um
+dos lados estar em debug para arrastar os dois: quem cifra devagar deixa o outro
+à espera.
+
+Para uso real, em **todas** as máquinas:
+
+```sh
+npm run app:build
+./target/release/pombo-correio-app
+```
+
+O `npm run app` (dev) serve para desenvolver a interface, com recarga
+automática; um perfil no `Cargo.toml` otimiza as dependências de criptografia
+mesmo em debug para o tornar tolerável, mas nunca iguala a versão final.
+
 ### Porque não `cargo build`
 
 Um `cargo build -p pombo-correio-app` compila e corre — mas abre uma janela com
