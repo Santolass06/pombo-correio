@@ -716,6 +716,96 @@ Testado num OnePlus Pad (OPD2403), Android 16, ARM64, por USB (adb).
 - [ ] Partilha pelo share sheet do sistema.
 - [ ] Cleartext e permissões (multicast, network state) já postos no manifesto.
 
+#### Desenho do que falta (send e receive igualmente importantes)
+
+Plugins verificados a existir e atuais: `tauri-plugin-android-fs` v8.1.0 (URIs
+`content://`) e `tauri-plugin-background-service` (foreground service). O
+`MulticastLock` fica por código Kotlin nativo — nenhum plugin o cobre.
+
+**Peça A — Foreground service (a fundação)**
+
+Porquê: sem ele, o OxygenOS bloqueia as ligações de entrada (descoberta desta
+fase) e a app não recebe com o ecrã desligado.
+
+- Plugin `tauri-plugin-background-service`: notificação persistente, `START_STICKY`
+  (o SO tenta reiniciar sob pressão de memória), `service_label` (texto da
+  notificação), `foreground_service_type`.
+- **Decisão a fechar — `foreground_service_type`:** `dataSync` encaixa na
+  semântica mas o Android 15 limita-o a ~6 h/dia, o que corta um aparelho que se
+  quer sempre disponível; `specialUse` é flexível (só exige justificação, e nós
+  não distribuímos pela Play Store). **Recomendação: `specialUse`.**
+- Ciclo de vida: arranca quando a app abre, ou por um interruptor "receber em
+  segundo plano" nas Definições. O servidor axum e o mDNS correm no processo da
+  app, que o serviço mantém vivo. Para: ação na notificação / interruptor.
+- **Decisão a fechar — ligado por omissão?** Num tablet-hub de casa (ligado à
+  corrente), sim. Num telemóvel, o utilizador pode querer desligado. Proposta:
+  interruptor nas Definições, ligado por omissão.
+- *O que cada lado observa:* serviço a correr → quem envia liga e funciona. Sem
+  serviço → quem envia dá timeout → "o destino não está disponível, abre o
+  Pombo-Correio nele" (mensagem já existente).
+- *Pré-mortem (processo morto pelo SO a meio da receção):* a ligação cai, quem
+  envia mostra "a ligação terminou", o parcial fica em disco → a retoma salva-o;
+  o `START_STICKY` tenta repor o serviço.
+
+**Peça B — mDNS `MulticastLock` (acoplada a A)**
+
+Porquê: sem o lock, o Android filtra o multicast — o tablet não recebe as
+consultas nem as respostas, logo não vê ninguém nem responde a quem o procura.
+
+- Código Kotlin, dentro do serviço de A (onde já há contexto Android):
+  ```kotlin
+  val lock = (getSystemService(WIFI_SERVICE) as WifiManager)
+      .createMulticastLock("pombo")
+  lock.setReferenceCounted(false); lock.acquire()   // release() ao parar
+  ```
+- Sem ponte para o Rust: adquire-se no `onCreate` do serviço, liberta-se no
+  `onDestroy`. Acoplado ao ciclo de A por isso.
+- *Fallback:* se falhar, o IP direto continua a funcionar (o `resolver` aceita
+  endereço literal). A descoberta é comodidade, não requisito.
+
+**Peça C — Enviar do Android (URI `content://`)**
+
+O seletor devolve um `content://`, e `enviar` abre por caminho. O
+`tauri-plugin-android-fs` resolve-o: `open_file(uri, Read)` devolve um
+**`std::fs::File` real** e `get_name()` dá o nome — muito mais simples do que
+copiar para cache ou fazer ponte com streams Java.
+
+- *Desafio:* `enviar` lê a fonte **duas vezes** — uma para o manifesto (hash de
+  tudo), outra para o streaming (com `seek` para a retoma). Um `content://` não
+  é um caminho, mas o `std::fs::File` do plugin é *seekable* e reabrível.
+- *Desenho:* abstração `Fonte` em `rede`, para manter o específico de Android na
+  borda e o `rede::enviar` agnóstico:
+  - `nome()`, `tamanho()`, e abrir um leitor fresco em `offset` (`Read + Seek`).
+  - `FonteCaminho(PathBuf)` — desktop/CLI, como hoje.
+  - `FonteAndroid` — guarda o URI; reabre via o plugin. A resolução do URI faz-se
+    na **camada de comando Tauri** (onde o `AppHandle`/plugin existe), não dentro
+    do `rede`.
+- *Retoma no envio Android:* o `std::fs::File` é seekable → funciona. Risco: se
+  algum URI não for seekable, cai-se para ler-e-descartar até ao offset (anotar).
+- *Nome:* `get_name()`; o saneamento no recetor já existe.
+
+**Peça D — Share sheet (depois de C)**
+
+`intent-filter` `ACTION_SEND`/`SEND_MULTIPLE` no manifesto → outra app "partilha
+para o Pombo-Correio". O conteúdo chega como `content://`, mesmo tratamento de C.
+Prioridade menor.
+
+**Ordem**
+
+1. **A + B** juntos — a fundação; recebe de forma fiável e torna a descoberta
+   possível.
+2. **C** — enviar do Android.
+3. **D** — share sheet.
+
+**Riscos**
+
+- Plugins jovens: antes de integrar cada um, um *spike* curto a validar que se
+  comporta; o fallback é Kotlin escrito à mão (serviço nativo), mais trabalho.
+- Bateria: o serviço persistente gasta. Mitigado pelo interruptor e por o alvo
+  ser um tablet à corrente.
+- Todo o código de Android fica atrás de `#[cfg(target_os = "android")]` — o
+  desktop e o CLI não mudam.
+
 ### S7 — Relay e link sem instalação
 
 - [ ] `relay/` em axum: depósito cifrado com TTL, registo de dispositivos.
