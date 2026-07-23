@@ -38,10 +38,31 @@
 
   const emCurso = $derived(transferencias.filter((t) => t.estado === "a_correr"));
 
-  onMount(async () => {
-    eu = await identidade();
-    procurar();
-    return await aoAcontecer(trata);
+  onMount(() => {
+    let vivo = true;
+    const parar = { fn: () => {} };
+
+    (async () => {
+      eu = await identidade();
+      procurar();
+      const off = await aoAcontecer(trata);
+      if (vivo) parar.fn = off;
+      else off();
+    })();
+
+    // Re-procura periódica: a descoberta mDNS não é instantânea, e um
+    // dispositivo que só liga a app depois de nós não apareceria até se carregar
+    // em "Procurar". Enquanto estamos no ecrã de dispositivos, refresca-se em
+    // silêncio para a lista se ir preenchendo sozinha.
+    const timer = setInterval(() => {
+      if (aba === "dispositivos" && !aProcurar) procurar(true);
+    }, 4000);
+
+    return () => {
+      vivo = false;
+      clearInterval(timer);
+      parar.fn();
+    };
   });
 
   function trata(e: Evento) {
@@ -96,12 +117,14 @@
     if (e.tipo === "falhou" && !conhecida) aviso = e.erro;
   }
 
-  async function procurar() {
-    aProcurar = true;
+  async function procurar(quieto = false) {
+    // Uma refrescagem em silêncio não acende o "À procura...", para a lista não
+    // piscar de 4 em 4 segundos; só o pedido explícito do utilizador o faz.
+    if (!quieto) aProcurar = true;
     try {
       vizinhos = await dispositivos();
     } catch (erro) {
-      aviso = String(erro);
+      if (!quieto) aviso = String(erro);
     } finally {
       aProcurar = false;
     }

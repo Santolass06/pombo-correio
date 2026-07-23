@@ -186,9 +186,16 @@ async fn cancelar_no_recetor_para_quem_envia() {
     .await;
     assert!(r.is_ok(), "o envio não terminou — ficou preso apesar do cancelamento no recetor");
 
-    // Não chegou ao fim: ou falhou (ligação fechada) ou foi dado como enviado
-    // não pode ter sido. O que importa é não ter ficado pendurado, já provado.
+    // O importante: não ficou preso (já provado pelo timeout) e não reportou
+    // sucesso. Quem envia chega a um estado terminal — cancelado, se o 409 do
+    // recetor lhe chegou, ou falhou, se a ligação caiu antes (o comum a meio de
+    // um upload grande). Ambos são aceitáveis; ficar pendurado ou dar por
+    // enviado não são.
     assert!(!reg_e.viu("enviado"), "reportou envio completo apesar de cancelado no recetor");
+    assert!(
+        reg_e.viu("cancelado") || reg_e.viu("falhou"),
+        "quem envia não chegou a nenhum estado terminal"
+    );
 }
 
 #[tokio::test]

@@ -24,7 +24,10 @@ fn amigavel(e: &reqwest::Error) -> String {
     } else if e.is_timeout() {
         "o destino demorou demasiado a responder".into()
     } else {
-        "perdi a ligação ao destino a meio do envio".into()
+        // A meio de um upload, a ligação a cair pode ser rede ou o outro lado a
+        // cancelar — não há como distinguir por HTTP. A mensagem é neutra e
+        // convida a retomar, que é seguro: o parcial ficou do outro lado.
+        "a ligação ao destino terminou — podes tentar enviar de novo".into()
     }
 }
 
@@ -214,6 +217,12 @@ pub async fn enviar(
         Err(e) => {
             metricas.registar("envio_falhou", serde_json::json!({ "id": aceite.id, "erro": e.to_string() }));
             ouvinte(Evento::Falhou { id: aceite.id, erro: amigavel(&e) })
+        }
+        // 409: foi o outro lado a cancelar. É um cancelamento, não uma falha —
+        // os dois lados mostram o mesmo estado.
+        Ok(r) if r.status() == reqwest::StatusCode::CONFLICT => {
+            metricas.registar("envio_cancelado_pelo_destino", serde_json::json!({ "id": aceite.id }));
+            ouvinte(Evento::Cancelado { id: aceite.id })
         }
         Ok(r) if !r.status().is_success() => ouvinte(Evento::Falhou {
             id: aceite.id,

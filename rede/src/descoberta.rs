@@ -81,22 +81,42 @@ pub fn anunciar(eu: &PublicIdentity, porta: u16) -> Result<Anuncio> {
     Ok(Anuncio { daemon, nome_completo })
 }
 
+/// Preferência de um endereço: menor é melhor.
+///
+/// A ordem importa muito mais do que parece. Um dispositivo na mesma casa
+/// anuncia o IP da LAN (`192.168.x`, `10.x`) **e** o do Tailscale (`100.x`). Se
+/// se escolher o do Tailscale estando ambos na LAN, o tráfego sai de casa e
+/// volta pelo relay do Tailscale — uns míseros ~2 MB/s — em vez dos ~100 MB/s
+/// da rede local. Por isso a gama do Tailscale (CGNAT, 100.64.0.0/10) fica
+/// **abaixo** de qualquer outro IPv4. O IPv6 fica por último: numa rede
+/// doméstica depende do que o router e a firewall deixam passar.
+fn preferencia(ip: &std::net::IpAddr) -> u8 {
+    match ip {
+        std::net::IpAddr::V4(a) => {
+            let o = a.octets();
+            // 100.64.0.0/10 — a gama que o Tailscale usa.
+            if o[0] == 100 && (64..=127).contains(&o[1]) {
+                1
+            } else {
+                0
+            }
+        }
+        std::net::IpAddr::V6(_) => 2,
+    }
+}
+
 /// Escolhe com que endereço falar, de entre os que um dispositivo anuncia.
 ///
-/// Uma máquina com Wi-Fi, cabo e Tailscale anuncia vários, e a biblioteca
-/// entrega-os num conjunto sem ordem — pegar no primeiro daria endereços
-/// diferentes a cada execução, o que o utilizador sentiria como falhas ao
-/// calhas.
-///
-/// IPv4 primeiro: numa rede doméstica funciona sempre, enquanto o IPv6 depende
-/// do que o router e a firewall deixam passar. O empate desfaz-se pela ordem
-/// textual, só para o resultado ser reproduzível.
+/// A biblioteca entrega-os num conjunto sem ordem; sem uma ordenação estável,
+/// pegar no primeiro daria endereços diferentes a cada execução, sentido como
+/// falhas ao calhas. Ordena-se pela preferência acima e, dentro dela, pelo
+/// texto, só para o resultado ser reproduzível.
 ///
 /// O `loopback` é descartado: um dispositivo que anuncie `127.0.0.1` está a
 /// falar de si próprio, e enviar para lá nunca sairia da máquina de origem.
 fn escolher_ip(enderecos: impl Iterator<Item = std::net::IpAddr>) -> Option<std::net::IpAddr> {
     let mut ips: Vec<_> = enderecos.filter(|i| !i.is_loopback()).collect();
-    ips.sort_by_key(|i| (i.is_ipv6(), i.to_string()));
+    ips.sort_by_key(|i| (preferencia(i), i.to_string()));
     ips.into_iter().next()
 }
 
@@ -252,6 +272,24 @@ mod tests {
         let a = escolher_ip(ips(&["192.168.1.50", "192.168.1.20", "10.0.0.5"]).into_iter());
         let b = escolher_ip(ips(&["10.0.0.5", "192.168.1.50", "192.168.1.20"]).into_iter());
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn lan_ganha_ao_tailscale() {
+        // O bug do ~2 MB/s: com ambos na mesma casa, escolher o 100.x do
+        // Tailscale mandava o tráfego pelo relay em vez da rede local. O IP da
+        // LAN tem de ganhar, apesar de "100..." vir antes de "192..." no texto.
+        for lan in ["192.168.1.50", "10.0.0.5", "172.16.3.4"] {
+            let escolhido = escolher_ip(ips(&["100.100.20.30", lan]).into_iter());
+            assert_eq!(escolhido, Some(lan.parse().unwrap()), "não escolheu a LAN sobre o Tailscale");
+        }
+    }
+
+    #[test]
+    fn tailscale_serve_quando_e_o_unico() {
+        // Fora de casa, o Tailscale é o único caminho — e aí tem de ser usado.
+        let escolhido = escolher_ip(ips(&["100.100.20.30"]).into_iter());
+        assert_eq!(escolhido, Some("100.100.20.30".parse().unwrap()));
     }
 
     #[test]

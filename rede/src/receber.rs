@@ -191,15 +191,33 @@ struct De {
     de: u32,
 }
 
+/// Marca o erro "cancelado por quem recebe" para o distinguir de uma falha
+/// verdadeira. Vai como estado HTTP próprio, para que quem envia saiba que foi
+/// um cancelamento intencional e não um problema.
+#[derive(Debug)]
+struct CanceladoPeloRecetor;
+impl std::fmt::Display for CanceladoPeloRecetor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "cancelado por quem recebe")
+    }
+}
+impl std::error::Error for CanceladoPeloRecetor {}
+
 async fn blocos(
     State(estado): State<Arc<Estado>>,
     Path(id): Path<String>,
     Query(De { de }): Query<De>,
     corpo: Body,
 ) -> Result<String, (StatusCode, String)> {
-    receber_blocos(estado, id, de, corpo)
-        .await
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+    receber_blocos(estado, id, de, corpo).await.map_err(|e| {
+        // 409 quando foi o próprio recetor a cancelar; qualquer outra coisa é
+        // um pedido malformado ou uma falha.
+        if e.downcast_ref::<CanceladoPeloRecetor>().is_some() {
+            (StatusCode::CONFLICT, "cancelado".into())
+        } else {
+            (StatusCode::BAD_REQUEST, e.to_string())
+        }
+    })
 }
 
 async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -> Result<String> {
@@ -257,10 +275,10 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
             estado.metricas.registar("rececao_cancelada", serde_json::json!({ "id": id, "blocos": indice }));
             (estado.ouvinte)(Evento::Cancelado { id: id.clone() });
             // Erro de propósito, não `Ok`: uma resposta 200 diria a quem envia
-            // que correu tudo bem, e ele daria o envio por concluído. O erro
-            // fecha a ligação com um estado que o faz parar. O parcial fica em
-            // disco na mesma, por isso retomar continua a valer.
-            bail!("recebido cancelou a transferência {id}");
+            // que correu tudo bem, e ele daria o envio por concluído. Este erro
+            // vira um 409, que quem envia reconhece como cancelamento e não como
+            // falha. O parcial fica em disco, por isso retomar continua a valer.
+            return Err(CanceladoPeloRecetor.into());
         }
 
         let esperado = manifesto.plain_len(indice).context("índice fora do manifesto")? + SEAL_OVERHEAD;

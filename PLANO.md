@@ -291,13 +291,28 @@ difícil: quem desenvolve não vê o Pi nem a rede de casa. A peça central é o
 
 Foi criado precisamente para o problema em aberto abaixo.
 
-## Em aberto
+## Resolvido
 
-- **Velocidade a 2 MB/s entre o Pi e a máquina, apesar de ~90 MB/s em loopback.**
-  A transferência não é lenta em si (medido nos dois lados da app); o que falta é
-  saber onde, na rede real, se perde o débito. As métricas por fase foram
-  acrescentadas para responder a isto — falta correr uma transferência real e ler
-  o `rececao_fim`. Suspeita principal: cartão SD do Pi (`disco_ms` a dominar).
+- **Velocidade a 2 MB/s entre o Pi e a máquina.** Era o tráfego a passar pelo
+  relay do Tailscale em vez da rede local. Cada dispositivo anuncia por mDNS o IP
+  da LAN (`192.168.x`) **e** o do Tailscale (`100.x`), e `escolher_ip` ordenava
+  por texto — `"100..."` vem antes de `"192..."`, por isso escolhia sempre o
+  Tailscale. Estando ambos na mesma casa, o tráfego saía e voltava pelo DERP do
+  Tailscale (~2 MB/s) em vez dos ~100 MB/s da LAN. A pista decisiva foi ser
+  **igual nos dois sentidos**: disco ou CPU seriam assimétricos, a rede não.
+  Corrigido em `preferencia`: a gama CGNAT do Tailscale fica abaixo de qualquer
+  outro IPv4, mas continua a ser usada quando é o único caminho (fora de casa).
+
+## Notas de comportamento
+
+- **Cancelar a meio não se reflete de forma fiável em quem envia.** Quando quem
+  recebe cancela, a ligação parte-se do lado de quem envia antes de a resposta
+  409 lhe chegar — limitação do HTTP com uploads grandes em fluxo. Quem recebe
+  mostra "cancelado"; quem envia mostra "a ligação terminou — tenta de novo",
+  que é honesto (não dá para distinguir de uma falha de rede) e convida a
+  retomar, seguro porque o parcial ficou. Símbolo fiável exigiria um canal de
+  volta (quem recebe avisa o servidor de quem envia) — fica para quando o relay
+  trouxer esse canal.
 
 ---
 
