@@ -212,6 +212,19 @@ cifra e blocos que o Linux.
 
 ---
 
+## TODO — ASAP
+
+- [ ] **Não listar o próprio dispositivo na descoberta.** Cada aparelho anuncia-se
+  por mDNS e também se vê a si próprio, o que não faz sentido e deixa enviar para
+  si mesmo por engano. Filtrar em `rede/src/descoberta.rs::procurar` — comparar a
+  impressão digital anunciada (`CHAVE_FP`) com a deste dispositivo e descartar a
+  correspondência. Exige passar a impressão digital própria a `procurar`, e por
+  isso à ponte Tauri (`dispositivos`) e ao comando `pombo dispositivos`.
+  Cuidado: dois aparelhos distintos podem ter o mesmo *nome*, por isso o filtro
+  tem de ser pela impressão digital, nunca pelo nome.
+
+---
+
 ## Sprints
 
 - [x] **S1 — Primitivas do núcleo**
