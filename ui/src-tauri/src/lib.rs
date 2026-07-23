@@ -104,34 +104,13 @@ async fn enviar_ficheiro(
     let eu = copiar(&app.state::<Estado>().eu);
     let metricas = app.state::<Estado>().metricas.clone();
     let cancelar: Cancelar = Default::default();
-
-    // Este ouvinte, além de reencaminhar, gere o registo de cancelamento: só
-    // aqui se conhece ao mesmo tempo o sinal e o identificador que a interface
-    // vai usar para o accionar.
-    let ouvinte = {
-        let app = app.clone();
-        let cancelar = cancelar.clone();
-        Arc::new(move |e: Evento| {
-            let estado = app.state::<Estado>();
-            match &e {
-                Evento::Oferta { id, .. } => {
-                    estado.cancelaveis.lock().unwrap().insert(id.clone(), cancelar.clone());
-                }
-                Evento::Enviado { id }
-                | Evento::Cancelado { id }
-                | Evento::Falhou { id, .. } => {
-                    estado.cancelaveis.lock().unwrap().remove(id);
-                }
-                _ => {}
-            }
-            let _ = app.emit(CANAL, ParaInterface::from(e));
-        })
-    };
+    let ouvinte = ouvinte_de_envio(app.clone(), cancelar.clone());
 
     tauri::async_runtime::spawn(async move {
         // A app corre servidor na PORTA, por isso quem recebe pode avisá-la de
         // um cancelamento por esse endereço.
-        if let Err(e) = enviar::enviar(&eu, &ficheiro, endereco, ouvinte.clone(), cancelar, &metricas, PORTA).await {
+        let fonte = pombo_correio_rede::FonteCaminho(ficheiro);
+        if let Err(e) = enviar::enviar_fonte(&eu, &fonte, endereco, ouvinte.clone(), cancelar, &metricas, PORTA).await {
             // Só chega aqui um erro anterior ao envio propriamente dito — ligar
             // ou resolver o destino. A partir do aceite, o próprio `enviar`
             // fecha a transferência por evento.
@@ -140,6 +119,111 @@ async fn enviar_ficheiro(
     });
 
     Ok(())
+}
+
+/// Ouvinte de um envio: reencaminha para a WebView e gere o registo de
+/// cancelamento — só aqui se conhece o sinal e o identificador ao mesmo tempo.
+fn ouvinte_de_envio(app: tauri::AppHandle, cancelar: Cancelar) -> pombo_correio_rede::Ouvinte {
+    Arc::new(move |e: Evento| {
+        let estado = app.state::<Estado>();
+        match &e {
+            Evento::Oferta { id, .. } => {
+                estado.cancelaveis.lock().unwrap().insert(id.clone(), cancelar.clone());
+            }
+            Evento::Enviado { id } | Evento::Cancelado { id } | Evento::Falhou { id, .. } => {
+                estado.cancelaveis.lock().unwrap().remove(id);
+            }
+            _ => {}
+        }
+        let _ = app.emit(CANAL, ParaInterface::from(e));
+    })
+}
+
+/// Origem de um ficheiro escolhido no Android — um URI `content://` que o
+/// plugin resolve num `std::fs::File`. Reabre a cada chamada (o `enviar` lê a
+/// origem duas vezes: manifesto e streaming).
+#[cfg(target_os = "android")]
+struct FonteAndroid {
+    app: tauri::AppHandle,
+    uri: tauri_plugin_android_fs::FsUri,
+    nome: String,
+}
+
+#[cfg(target_os = "android")]
+impl pombo_correio_rede::Fonte for FonteAndroid {
+    fn nome(&self) -> String {
+        self.nome.clone()
+    }
+    fn abrir(&self) -> std::io::Result<std::fs::File> {
+        use tauri_plugin_android_fs::AndroidFsExt;
+        self.app
+            .android_fs()
+            .open_file_readable(&self.uri)
+            .map_err(std::io::Error::other)
+    }
+}
+
+/// Envio a partir do Android: abre o seletor de ficheiros do sistema (que
+/// devolve um `content://`), e envia. Comando separado do `enviar_ficheiro`
+/// porque o Android não trabalha com caminhos.
+#[tauri::command]
+async fn enviar_android(app: tauri::AppHandle, destino: String) -> Result<(), String> {
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, destino);
+        Err("só no Android".into())
+    }
+    #[cfg(target_os = "android")]
+    {
+        use tauri_plugin_android_fs::AndroidFsExt;
+
+        let fp = descoberta::impressao_curta(&app.state::<Estado>().eu.public());
+        let endereco = tokio::task::spawn_blocking(move || descoberta::resolver(&destino, PORTA, Some(&fp)))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+
+        // O seletor é bloqueante (abre uma atividade e espera), por isso fora da
+        // thread da interface.
+        let app_sel = app.clone();
+        let escolha = tokio::task::spawn_blocking(move || {
+            let afs = app_sel.android_fs();
+            let uri = afs
+                .picker()
+                .pick_file(None, &[], false)
+                .map_err(|e| e.to_string())?;
+            match uri {
+                Some(uri) => {
+                    let nome = afs.get_name(&uri).unwrap_or_else(|_| "ficheiro".into());
+                    Ok::<_, String>(Some((uri, nome)))
+                }
+                None => Ok(None), // o utilizador cancelou o seletor
+            }
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e)?;
+
+        let Some((uri, nome)) = escolha else {
+            return Ok(()); // cancelado, sem erro
+        };
+
+        let eu = copiar(&app.state::<Estado>().eu);
+        let metricas = app.state::<Estado>().metricas.clone();
+        let cancelar: Cancelar = Default::default();
+        let ouvinte = ouvinte_de_envio(app.clone(), cancelar.clone());
+        let fonte = FonteAndroid { app: app.clone(), uri, nome };
+
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) =
+                enviar::enviar_fonte(&eu, &fonte, endereco, ouvinte.clone(), cancelar, &metricas, PORTA).await
+            {
+                ouvinte(Evento::Falhou { id: String::new(), erro: e.to_string() });
+            }
+        });
+
+        Ok(())
+    }
 }
 
 /// Manda parar um envio a decorrer. Silencioso se já terminou — a interface
@@ -294,6 +378,7 @@ pub fn run() {
     // fiável. O servidor de receção continua a correr no processo (no `setup`).
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_android_fs::init())
         .setup(|app| {
             let dados = app.path().app_data_dir()?;
             let eu = Identity::load_or_create(&dados.join("identidade"), nome_do_dispositivo())?;
@@ -342,6 +427,7 @@ pub fn run() {
             identidade,
             dispositivos,
             enviar_ficheiro,
+            enviar_android,
             cancelar
         ])
         .run(tauri::generate_context!())

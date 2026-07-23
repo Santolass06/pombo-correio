@@ -55,9 +55,28 @@ async fn ler_bloco<R: AsyncReadExt + Unpin>(r: &mut R, buf: &mut [u8]) -> std::i
     Ok(cheio)
 }
 
+/// Envia um ficheiro identificado por um caminho no disco (desktop, CLI).
+///
+/// Fino invólucro sobre [`enviar_fonte`]: só embrulha o caminho numa
+/// [`crate::FonteCaminho`]. Existe para os chamadores de sempre não mudarem.
 pub async fn enviar(
     eu: &Identity,
     ficheiro: &std::path::Path,
+    destino: std::net::SocketAddr,
+    ouvinte: Ouvinte,
+    cancelar: Cancelar,
+    metricas: &crate::Metricas,
+    porta_resposta: u16,
+) -> Result<()> {
+    let fonte = crate::FonteCaminho(ficheiro.to_owned());
+    enviar_fonte(eu, &fonte, destino, ouvinte, cancelar, metricas, porta_resposta).await
+}
+
+/// Envia o que quer que uma [`crate::Fonte`] descreva — no Android, um URI
+/// `content://`; no desktop, um caminho.
+pub async fn enviar_fonte(
+    eu: &Identity,
+    fonte: &dyn crate::Fonte,
     destino: std::net::SocketAddr,
     ouvinte: Ouvinte,
     cancelar: Cancelar,
@@ -68,14 +87,9 @@ pub async fn enviar(
     // exige, por isso não é preciso tratá-lo à parte.
     let base = format!("http://{destino}");
 
-    let nome = ficheiro
-        .file_name()
-        .context("caminho sem nome de ficheiro")?
-        .to_string_lossy()
-        .into_owned();
+    let nome = fonte.nome();
 
-    let aberto = std::fs::File::open(ficheiro)
-        .with_context(|| format!("não consegui abrir {}", ficheiro.display()))?;
+    let aberto = fonte.abrir().context("não consegui abrir o ficheiro a enviar")?;
     let manifesto = Manifest::from_reader(&nome, aberto)?;
 
     let cliente = reqwest::Client::new();
@@ -139,7 +153,8 @@ pub async fn enviar(
 
     // Um pedido só, com os blocos a sair em fluxo. Um pedido por bloco daria
     // um ida-e-volta por MiB e limitaria o débito à latência da ligação.
-    let mut origem = tokio::fs::File::open(ficheiro).await?;
+    // Abre-se a fonte de novo (handle fresco) e envolve-se no I/O assíncrono.
+    let mut origem = tokio::fs::File::from_std(fonte.abrir()?);
     origem
         .seek(std::io::SeekFrom::Start(
             aceite.tenho as u64 * manifesto.chunk_size as u64,

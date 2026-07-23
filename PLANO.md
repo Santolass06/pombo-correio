@@ -728,10 +728,24 @@ Adquirido no `onCreate` do `RecetorService`, libertado no `onDestroy`. Provado:
 o PC passou a descobrir o tablet por mDNS (`dispositivo — 192.168.1.235`), que
 antes não aparecia.
 
+**Peça C — enviar do Android ⚠️ implementado, falta o teste do seletor**
+
+`tauri-plugin-android-fs` v29 dá `open_file_readable(uri) -> std::fs::File` e
+`get_name(uri)`. Implementado:
+- Abstração `Fonte` em `rede` (`FonteCaminho` desktop/CLI; `FonteAndroid` no
+  app), sem quebrar os chamadores: `enviar(&Path)` é um invólucro sobre
+  `enviar_fonte(&dyn Fonte)`. 23 testes de `rede` verdes.
+- Comando `enviar_android`: abre o seletor SAF em `spawn_blocking`, resolve o
+  URI num `std::fs::File`, e envia. O frontend chama-o quando o user agent é
+  Android; no desktop mantém o diálogo por caminho.
+- Compila (desktop e Android), instala, e **receber não regrediu** (hash igual).
+- **Falta validar o seletor a abrir de facto.** Invocá-lo pelo DevTools devolveu
+  sem abrir (o SAF lança uma atividade, provavelmente precisa do gesto real do
+  utilizador); e a lista estava vazia, por isso não houve botão para tocar por
+  adb. **É teste de utilizador:** tocar "Enviar ficheiro" no tablet e escolher.
+
 **Por fazer**
-- [ ] **Enviar do Android**: o seletor devolve um URI `content://`, não um
-      caminho; `enviar` abre por caminho. `tauri-plugin-android-fs` dá um
-      `std::fs::File` real do URI (ver desenho da peça C).
+- [ ] Validar o envio do Android (teste de utilizador com o seletor).
 - [ ] Partilha pelo share sheet do sistema (peça D).
 - [ ] Nome do dispositivo no Android: o `getprop ro.product.model` já está no
       código, mas a identidade do teste foi criada antes e ficou "dispositivo";

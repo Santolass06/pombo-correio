@@ -5,6 +5,8 @@
     aoAcontecer,
     cancelar,
     dispositivos,
+    eAndroid,
+    enviarAndroid,
     enviarFicheiro,
     identidade,
     tamanhoLegivel,
@@ -131,9 +133,14 @@
   }
 
   async function enviarPara(destino: string) {
-    const escolhido = await open({ multiple: false, title: "O que queres enviar?" });
-    if (typeof escolhido !== "string") return;
     try {
+      if (eAndroid()) {
+        // O seletor abre-se do lado do Rust; devolve logo, o envio segue por eventos.
+        await enviarAndroid(destino);
+        return;
+      }
+      const escolhido = await open({ multiple: false, title: "O que queres enviar?" });
+      if (typeof escolhido !== "string") return;
       await enviarFicheiro(escolhido, destino);
     } catch (erro) {
       aviso = String(erro);

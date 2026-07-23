@@ -49,6 +49,15 @@ export const dispositivos = () => invoke<Vizinho[]>("dispositivos");
 export const enviarFicheiro = (ficheiro: string, destino: string) =>
   invoke<void>("enviar_ficheiro", { ficheiro, destino });
 
+/// No Android o seletor de ficheiros abre-se do lado do Rust (devolve um URI
+/// content://, não um caminho), por isso o envio é um comando próprio.
+export const enviarAndroid = (destino: string) =>
+  invoke<void>("enviar_android", { destino });
+
+/// O WebView do Android identifica-se no user agent; chega para escolher o
+/// caminho de envio certo sem mais um plugin de plataforma.
+export const eAndroid = () => /Android/i.test(navigator.userAgent);
+
 export const cancelar = (id: string) => invoke<void>("cancelar", { id });
 
 export const aoAcontecer = (f: (e: Evento) => void) =>

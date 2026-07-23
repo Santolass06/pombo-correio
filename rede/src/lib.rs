@@ -78,6 +78,34 @@ pub enum Evento {
     Falhou { id: String, erro: String },
 }
 
+/// Origem de um ficheiro a enviar.
+///
+/// Mantém o `enviar` agnóstico à plataforma: no desktop e no CLI a origem é um
+/// caminho no disco; no Android é um URI `content://` do seletor, que não é um
+/// caminho mas que o plugin resolve num `std::fs::File`. O `enviar` só precisa
+/// de saber o nome e de abrir um leitor fresco — abre duas vezes, uma para o
+/// manifesto e outra para o streaming — por isso `abrir` dá sempre um handle
+/// novo, posicionado no início.
+pub trait Fonte: Send + Sync {
+    fn nome(&self) -> String;
+    fn abrir(&self) -> std::io::Result<std::fs::File>;
+}
+
+/// A origem mais comum: um caminho no disco (desktop, CLI).
+pub struct FonteCaminho(pub std::path::PathBuf);
+
+impl Fonte for FonteCaminho {
+    fn nome(&self) -> String {
+        self.0
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "ficheiro".into())
+    }
+    fn abrir(&self) -> std::io::Result<std::fs::File> {
+        std::fs::File::open(&self.0)
+    }
+}
+
 /// Sinal de cancelamento partilhado entre quem envia e quem manda parar.
 pub type Cancelar = std::sync::Arc<std::sync::atomic::AtomicBool>;
 
