@@ -30,7 +30,14 @@ export type Evento =
       total: number;
     }
   | { tipo: "destino"; nome: string; numero_seguranca: string }
-  | { tipo: "progresso"; id: string; feitos: number; total: number; bytes: number }
+  | {
+      tipo: "progresso";
+      id: string;
+      feitos: number;
+      total: number;
+      bytes: number;
+      bytes_por_seg: number;
+    }
   | { tipo: "recebido"; id: string; caminho: string }
   | { tipo: "enviado"; id: string }
   | { tipo: "cancelado"; id: string }

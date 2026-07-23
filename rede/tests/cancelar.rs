@@ -72,7 +72,7 @@ async fn cancelar_para_e_guarda_o_que_ja_passou() {
     let conhecidos = dir.0.join("conhecidos.json");
     let ouvinte_r = reg_r.ouvinte();
     tokio::spawn(async move {
-        let _ = receber::servir(recetor, destino_dir, conhecidos, porta, ouvinte_r).await;
+        let _ = receber::servir(recetor, destino_dir, conhecidos, porta, ouvinte_r, Default::default()).await;
     });
     tokio::time::sleep(Duration::from_millis(300)).await;
 
@@ -115,6 +115,68 @@ async fn cancelar_para_e_guarda_o_que_ja_passou() {
 }
 
 #[tokio::test]
+async fn cancelar_no_recetor_para_quem_envia() {
+    // O buraco encontrado a testar no Pi: cancelar do lado de quem recebe não
+    // parava quem enviava. Agora o recetor regista um sinal por transferência,
+    // e accioná-lo fecha a ligação, o que faz o envio terminar.
+    let dir = Temp::novo("recetor");
+    let recetor = Identity::generate("recetor");
+    let reg_e = Arc::new(Registo::default());
+
+    // Registo de canceláveis partilhado com o servidor, como faz a app.
+    let cancelaveis: pombo_correio_rede::Cancelaveis = Default::default();
+
+    let escuta = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let porta = escuta.local_addr().unwrap().port();
+    drop(escuta);
+
+    let dd = dir.0.join("recebidos");
+    let cc = dir.0.join("conhecidos.json");
+    let canc_servidor = cancelaveis.clone();
+    tokio::spawn(async move {
+        let _ = receber::servir(
+            recetor,
+            dd,
+            cc,
+            porta,
+            pombo_correio_rede::silencio(),
+            canc_servidor,
+        )
+        .await;
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let origem = dir.0.join("grande.bin");
+    std::fs::write(&origem, vec![3u8; 8_000_000]).unwrap();
+
+    // Assim que a transferência aparecer no registo, aciona o cancelamento —
+    // é o que o botão da app faz, pelo identificador.
+    let vigia = cancelaveis.clone();
+    tokio::spawn(async move {
+        for _ in 0..200 {
+            if let Some(sinal) = vigia.lock().unwrap().values().next() {
+                sinal.store(true, Relaxed);
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    });
+
+    let addr = format!("127.0.0.1:{porta}").parse().unwrap();
+    // O envio tem de TERMINAR — é o que falhava, ficava preso a comunicar.
+    let r = tokio::time::timeout(
+        Duration::from_secs(10),
+        enviar::enviar(&Identity::generate("e"), &origem, addr, reg_e.ouvinte(), Default::default()),
+    )
+    .await;
+    assert!(r.is_ok(), "o envio não terminou — ficou preso apesar do cancelamento no recetor");
+
+    // Não chegou ao fim: ou falhou (ligação fechada) ou foi dado como enviado
+    // não pode ter sido. O que importa é não ter ficado pendurado, já provado.
+    assert!(!reg_e.viu("enviado"), "reportou envio completo apesar de cancelado no recetor");
+}
+
+#[tokio::test]
 async fn cancelar_antes_de_comecar_nao_rebenta() {
     // Cancelar com o sinal já ligado não deve estoirar nem enviar nada.
     let dir = Temp::novo("cedo");
@@ -127,7 +189,7 @@ async fn cancelar_antes_de_comecar_nao_rebenta() {
     let dd = dir.0.join("recebidos");
     let cc = dir.0.join("conhecidos.json");
     tokio::spawn(async move {
-        let _ = receber::servir(recetor, dd, cc, porta, pombo_correio_rede::silencio()).await;
+        let _ = receber::servir(recetor, dd, cc, porta, pombo_correio_rede::silencio(), Default::default()).await;
     });
     tokio::time::sleep(Duration::from_millis(300)).await;
 

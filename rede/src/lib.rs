@@ -46,12 +46,19 @@ pub enum Evento {
     /// Para quem envia: com quem se está a falar.
     Destino { quem: PublicIdentity },
 
-    /// Blocos concluídos até agora, e bytes movidos nesta sessão.
+    /// Blocos concluídos até agora, bytes movidos nesta sessão, e a velocidade
+    /// em bytes por segundo.
+    ///
+    /// A velocidade é medida **aqui**, dentro do ciclo de transferência, onde o
+    /// tempo é exato. A interface não a pode calcular a partir da chegada dos
+    /// eventos: eles atravessam o IPC aos solavancos, e o tempo entre chegadas
+    /// não é o tempo real da transferência.
     Progresso {
         id: String,
         feitos: u32,
         total: u32,
         bytes: u64,
+        bytes_por_seg: f64,
     },
 
     /// Ficheiro completo e verificado.
@@ -71,11 +78,20 @@ pub enum Evento {
 /// Sinal de cancelamento partilhado entre quem envia e quem manda parar.
 pub type Cancelar = std::sync::Arc<std::sync::atomic::AtomicBool>;
 
-/// Um sinal que nunca dispara, para quem não precisa de cancelar — o CLM
+/// Um sinal que nunca dispara, para quem não precisa de cancelar — o CLI
 /// interrompe-se com Ctrl+C, que mata o processo.
 pub fn sem_cancelamento() -> Cancelar {
     Default::default()
 }
+
+/// Registo dos sinais de cancelamento, por identificador de transferência.
+///
+/// Partilhado entre quem serve (que insere um sinal quando uma transferência
+/// começa) e quem manda cancelar (que o aciona pelo identificador). Serve tanto
+/// envios como receções — a mesma máquina nunca é as duas pontas da mesma
+/// transferência, por isso um identificador é só de uma.
+pub type Cancelaveis =
+    std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Cancelar>>>;
 
 /// Para onde vão os acontecimentos.
 pub type Ouvinte = Arc<dyn Fn(Evento) + Send + Sync>;

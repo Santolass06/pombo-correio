@@ -136,6 +136,9 @@ fn ouvinte_terminal() -> Ouvinte {
             feitos,
             total,
             bytes,
+            // O CLI corre síncrono, sem IPC pelo meio, por isso mede a sua
+            // própria velocidade de forma fiável a partir dos bytes.
+            bytes_por_seg: _,
         } => {
             let mut b = barras.lock().unwrap();
             b.entry(id)
@@ -186,6 +189,7 @@ async fn main() -> Result<()> {
                 dados.join("conhecidos.json"),
                 porta,
                 ouvinte,
+                Default::default(),
             )
             .await
         }

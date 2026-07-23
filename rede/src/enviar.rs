@@ -146,6 +146,7 @@ pub async fn enviar(
         // muito abaixo do real. Uma cadência de 100 ms chega ao olho e mantém o
         // canal livre; o último bloco desenha-se sempre, para a barra fechar.
         let mut ultimo_evento = std::time::Instant::now();
+        let mut bytes_no_ultimo_evento: u64 = 0;
 
         for indice in aceite.tenho..total {
             // Parar antes de ler o bloco seguinte: o que já saiu fica em disco do
@@ -169,8 +170,11 @@ pub async fn enviar(
             movidos += esperado as u64;
             let feitos = indice + 1;
             if feitos >= total || ultimo_evento.elapsed().as_millis() >= 100 {
+                let dt = ultimo_evento.elapsed().as_secs_f64();
+                let bytes_por_seg = if dt > 0.0 { (movidos - bytes_no_ultimo_evento) as f64 / dt } else { 0.0 };
                 ultimo_evento = std::time::Instant::now();
-                ouvinte_fluxo(Evento::Progresso { id: id_fluxo.clone(), feitos, total, bytes: movidos });
+                bytes_no_ultimo_evento = movidos;
+                ouvinte_fluxo(Evento::Progresso { id: id_fluxo.clone(), feitos, total, bytes: movidos, bytes_por_seg });
             }
         }
     });

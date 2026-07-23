@@ -7,11 +7,10 @@
 //!
 //! Esta regra é arquitetural, não uma otimização.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use pombo_correio_core::identity::Identity;
-use pombo_correio_rede::{Cancelar, Evento, descoberta, enviar, receber};
+use pombo_correio_rede::{Cancelar, Cancelaveis, Evento, descoberta, enviar, receber};
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 
@@ -23,10 +22,10 @@ const PORTA: u16 = 53318;
 
 struct Estado {
     eu: Identity,
-    /// Sinais de cancelamento dos envios a decorrer, por identificador de
-    /// transferência. Entram quando o envio se anuncia (evento Oferta) e saem
-    /// quando termina, de que maneira for.
-    cancelaveis: Mutex<HashMap<String, Cancelar>>,
+    /// Sinais de cancelamento de tudo o que está a decorrer, por identificador
+    /// de transferência — envios e receções. Partilhado com o servidor de
+    /// receção, para que o mesmo botão cancele os dois casos.
+    cancelaveis: Cancelaveis,
 }
 
 /// Como a interface vê este dispositivo.
@@ -186,6 +185,7 @@ enum ParaInterface {
         feitos: u32,
         total: u32,
         bytes: u64,
+        bytes_por_seg: f64,
     },
 
     #[serde(rename = "recebido")]
@@ -234,11 +234,13 @@ impl From<Evento> for ParaInterface {
                 feitos,
                 total,
                 bytes,
+                bytes_por_seg,
             } => Self::Progresso {
                 id,
                 feitos,
                 total,
                 bytes,
+                bytes_por_seg,
             },
             Evento::Recebido { id, caminho } => Self::Recebido {
                 id,
@@ -278,10 +280,21 @@ pub fn run() {
             let recetor = copiar(&eu);
             let destino = dados.join("recebidos");
             let conhecidos = dados.join("conhecidos.json");
+            // O mesmo registo serve as receções e os envios, para o botão de
+            // cancelar funcionar nos dois lados.
+            let cancelaveis: Cancelaveis = Default::default();
+            let cancelaveis_recetor = cancelaveis.clone();
 
             tauri::async_runtime::spawn(async move {
-                if let Err(e) =
-                    receber::servir(recetor, destino, conhecidos, PORTA, ouvinte.clone()).await
+                if let Err(e) = receber::servir(
+                    recetor,
+                    destino,
+                    conhecidos,
+                    PORTA,
+                    ouvinte.clone(),
+                    cancelaveis_recetor,
+                )
+                .await
                 {
                     ouvinte(Evento::Falhou {
                         id: String::new(),
@@ -290,10 +303,7 @@ pub fn run() {
                 }
             });
 
-            app.manage(Estado {
-                eu,
-                cancelaveis: Default::default(),
-            });
+            app.manage(Estado { eu, cancelaveis });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

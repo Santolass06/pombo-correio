@@ -19,7 +19,7 @@ use pombo_correio_core::{
 use tokio::io::AsyncWriteExt;
 
 use crate::{
-    Evento, Ouvinte,
+    Cancelaveis, Evento, Ouvinte,
     conhecidos::Conhecidos,
     protocolo::{Aceite, Oferta},
 };
@@ -34,6 +34,7 @@ struct Estado {
     destino: std::path::PathBuf,
     em_curso: tokio::sync::Mutex<HashMap<String, EmCurso>>,
     conhecidos: tokio::sync::Mutex<Conhecidos>,
+    cancelaveis: Cancelaveis,
     ouvinte: Ouvinte,
 }
 
@@ -218,6 +219,11 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
         .open(&caminho)
         .await?;
 
+    // Sinal de cancelamento desta receção, para que quem tem a app à frente lhe
+    // possa mandar parar. Fica registado pelo identificador enquanto dura.
+    let cancelar: crate::Cancelar = Default::default();
+    estado.cancelaveis.lock().unwrap().insert(id.clone(), cancelar.clone());
+
     let total = manifesto.expected_chunks();
     let mut indice = de;
     let mut fluxo = corpo.into_data_stream();
@@ -226,8 +232,20 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
     // Mesma cadência do lado que envia, e pela mesma razão: um evento por bloco
     // inundaria o IPC e o débito mostrado ficaria para trás do real.
     let mut ultimo_evento = std::time::Instant::now();
+    let mut bytes_no_ultimo_evento: u64 = 0;
 
     while indice < total {
+        // Parar aqui deixa em disco tudo o que já foi escrito, por isso retomar
+        // continua a valer. Sair da função fecha a ligação, e é isso que faz
+        // parar quem estava a enviar.
+        if cancelar.load(std::sync::atomic::Ordering::Relaxed) {
+            ficheiro.flush().await?;
+            estado.cancelaveis.lock().unwrap().remove(&id);
+            estado.em_curso.lock().await.remove(&id);
+            (estado.ouvinte)(Evento::Cancelado { id });
+            return Ok("cancelado".into());
+        }
+
         let esperado = manifesto.plain_len(indice).context("índice fora do manifesto")? + SEAL_OVERHEAD;
 
         // Encher até ter um bloco selado inteiro. O fluxo chega em pedaços de
@@ -248,12 +266,16 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
         movidos += claro.len() as u64;
 
         if indice >= total || ultimo_evento.elapsed().as_millis() >= 100 {
+            let dt = ultimo_evento.elapsed().as_secs_f64();
+            let bytes_por_seg = if dt > 0.0 { (movidos - bytes_no_ultimo_evento) as f64 / dt } else { 0.0 };
             ultimo_evento = std::time::Instant::now();
+            bytes_no_ultimo_evento = movidos;
             (estado.ouvinte)(Evento::Progresso {
                 id: id.clone(),
                 feitos: indice,
                 total,
                 bytes: movidos,
+                bytes_por_seg,
             });
         }
     }
@@ -263,6 +285,7 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
 
     let final_ = estado.destino.join(nome_seguro(&manifesto.name));
     tokio::fs::rename(&caminho, &final_).await?;
+    estado.cancelaveis.lock().unwrap().remove(&id);
     estado.em_curso.lock().await.remove(&id);
 
     (estado.ouvinte)(Evento::Recebido { id, caminho: final_ });
@@ -275,6 +298,7 @@ pub async fn servir(
     conhecidos: std::path::PathBuf,
     porta: u16,
     ouvinte: Ouvinte,
+    cancelaveis: Cancelaveis,
 ) -> Result<()> {
     tokio::fs::create_dir_all(&destino).await?;
 
@@ -283,6 +307,7 @@ pub async fn servir(
         destino: destino.clone(),
         em_curso: Default::default(),
         conhecidos: Conhecidos::carregar(conhecidos).into(),
+        cancelaveis,
         ouvinte: ouvinte.clone(),
     });
 

@@ -21,11 +21,8 @@
     total: number;
     estado: "a_correr" | "pronto" | "cancelado" | "falhou";
     detalhe?: string;
-    /** Velocidade suavizada, em bytes por segundo. */
+    /** Velocidade em bytes por segundo, medida pelo Rust e só mostrada aqui. */
     velocidade: number;
-    /** Última amostra, para calcular a velocidade sem depender do arranque. */
-    ultimoBytes: number;
-    ultimoT: number;
     /** Só na primeira vez que se vê um dispositivo. */
     porVerificar?: { de: string; numero: string };
   };
@@ -70,8 +67,6 @@
           total: e.total,
           estado: "a_correr",
           velocidade: 0,
-          ultimoBytes: 0,
-          ultimoT: Date.now(),
           detalhe: e.retoma > 0 ? "Retomada — o progresso anterior foi mantido" : undefined,
           porVerificar: e.novo ? { de: e.de, numero: e.numero_seguranca } : undefined,
         },
@@ -85,7 +80,8 @@
 
     transferencias = transferencias.map((t) => {
       if (t.id !== e.id) return t;
-      if (e.tipo === "progresso") return { ...t, feitos: e.feitos, ...velocidade(t, e.bytes) };
+      if (e.tipo === "progresso")
+        return { ...t, feitos: e.feitos, velocidade: e.bytes_por_seg };
       if (e.tipo === "recebido")
         return { ...t, estado: "pronto" as const, feitos: t.total, detalhe: e.caminho };
       if (e.tipo === "enviado") return { ...t, estado: "pronto" as const, feitos: t.total };
@@ -119,20 +115,6 @@
     } catch (erro) {
       aviso = String(erro);
     }
-  }
-
-  /// Velocidade a partir do salto desde a última amostra, suavizada.
-  ///
-  /// Medir contra o arranque faz o número convergir e parecer preso; medir salto
-  /// a salto reflete o que está mesmo a passar agora. A suavização evita que
-  /// salte a cada evento.
-  function velocidade(t: Transferencia, bytes: number): Partial<Transferencia> {
-    const agora = Date.now();
-    const dt = (agora - t.ultimoT) / 1000;
-    if (dt <= 0) return { ultimoBytes: bytes };
-    const instantanea = (bytes - t.ultimoBytes) / dt;
-    const suave = t.velocidade ? t.velocidade * 0.6 + instantanea * 0.4 : instantanea;
-    return { velocidade: suave, ultimoBytes: bytes, ultimoT: agora };
   }
 
   function debito(t: Transferencia): string {
