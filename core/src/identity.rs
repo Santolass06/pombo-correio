@@ -164,7 +164,13 @@ impl Identity {
     }
 
     /// Lê a identidade se existir; gera-a e grava-a se não existir.
+    ///
+    /// Se já existir mas o nome tiver mudado — por exemplo, o utilizador
+    /// renomeou o dispositivo nas definições —, atualiza-o e regrava. As chaves
+    /// não mudam, por isso a impressão digital mantém-se e o dispositivo
+    /// continua conhecido dos outros; só passa a mostrar o nome novo.
     pub fn load_or_create(path: &std::path::Path, label: impl Into<String>) -> Result<Self> {
+        let label = label.into();
         match Self::load(path) {
             Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
                 let id = Self::generate(label);
@@ -172,6 +178,13 @@ impl Identity {
                     std::fs::create_dir_all(dir)?;
                 }
                 id.save(path)?;
+                Ok(id)
+            }
+            Ok(mut id) => {
+                if id.label != label {
+                    id.label = label;
+                    id.save(path)?;
+                }
                 Ok(id)
             }
             outro => outro,
@@ -336,15 +349,19 @@ mod tests {
     }
 
     #[test]
-    fn load_or_create_gera_a_primeira_vez_e_reusa_depois() {
+    fn load_or_create_reusa_as_chaves_e_atualiza_o_nome() {
         let dir = Temp::novo("criar");
         let path = dir.join("sub/dir/id");
 
-        let primeira = Identity::load_or_create(&path, "novo").unwrap();
-        let segunda = Identity::load_or_create(&path, "ignorado").unwrap();
+        let primeira = Identity::load_or_create(&path, "antigo").unwrap();
+        // Segunda chamada com nome diferente — como quem renomeou o dispositivo.
+        let segunda = Identity::load_or_create(&path, "novo nome").unwrap();
 
-        assert_eq!(primeira.public(), segunda.public(), "gerou uma identidade nova");
-        assert_eq!(segunda.label, "novo", "o nome gravado devia ganhar");
+        // As chaves não mudam: o dispositivo continua o mesmo para os outros.
+        assert_eq!(primeira.public().fingerprint(), segunda.public().fingerprint());
+        // Mas o nome atualiza, e fica gravado.
+        assert_eq!(segunda.label, "novo nome");
+        assert_eq!(Identity::load(&path).unwrap().label, "novo nome");
     }
 
     #[test]

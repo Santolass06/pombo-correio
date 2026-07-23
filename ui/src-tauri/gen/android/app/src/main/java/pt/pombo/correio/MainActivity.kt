@@ -7,6 +7,18 @@ import androidx.activity.enableEdgeToEdge
 
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
+    // O nome que a pessoa reconhece é o das Definições ("Nome do dispositivo",
+    // ex. "OnePlus Pad 2"), só acessível por código Android. Escreve-se num
+    // ficheiro ANTES do super.onCreate (que arranca o Rust), para o Rust o poder
+    // ler ao criar/atualizar a identidade.
+    try {
+      val nome = android.provider.Settings.Global.getString(contentResolver, "device_name")
+      if (!nome.isNullOrBlank()) {
+        java.io.File(applicationInfo.dataDir, "nome-dispositivo").writeText(nome.trim())
+      }
+    } catch (_: Throwable) {
+    }
+
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
 

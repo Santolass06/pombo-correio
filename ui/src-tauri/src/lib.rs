@@ -348,19 +348,29 @@ impl From<Evento> for ParaInterface {
     }
 }
 
-fn nome_do_dispositivo() -> String {
+fn nome_do_dispositivo(dados: &std::path::Path) -> String {
     #[cfg(windows)]
     let bruto = std::env::var("COMPUTERNAME").ok();
-    // No Android não há `/etc/hostname` útil (dava sempre "localhost"); o modelo
-    // do aparelho (ro.product.model) é o que a pessoa reconhece na lista.
+
+    // No Android o nome que a pessoa reconhece é o das Definições
+    // (`Settings.Global.device_name`, ex. "OnePlus Pad 2"), não o modelo. Só é
+    // acessível por código Android, por isso a MainActivity (Kotlin) lê-o e
+    // escreve-o neste ficheiro antes de o Rust arrancar. Cai para o modelo se
+    // ainda não estiver.
     #[cfg(target_os = "android")]
-    let bruto = std::process::Command::new("getprop")
-        .arg("ro.product.model")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok());
+    let bruto = std::fs::read_to_string(dados.join("nome-dispositivo")).ok().or_else(|| {
+        std::process::Command::new("getprop")
+            .arg("ro.product.model")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+    });
+
     #[cfg(all(not(windows), not(target_os = "android")))]
     let bruto = std::fs::read_to_string("/etc/hostname").ok();
+
+    #[cfg(all(not(windows), not(target_os = "android")))]
+    let _ = dados;
 
     bruto
         .map(|s| s.trim().to_string())
@@ -381,7 +391,7 @@ pub fn run() {
         .plugin(tauri_plugin_android_fs::init())
         .setup(|app| {
             let dados = app.path().app_data_dir()?;
-            let eu = Identity::load_or_create(&dados.join("identidade"), nome_do_dispositivo())?;
+            let eu = Identity::load_or_create(&dados.join("identidade"), nome_do_dispositivo(&dados))?;
 
             // O servidor arranca com a aplicação: ter a janela aberta é o que
             // significa estar disponível para receber. Pedir que se ligue algo à
