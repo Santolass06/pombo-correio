@@ -70,6 +70,28 @@ problema em nenhuma delas.
 7. Cada bocado de lógica não-trivial deixa **um teste que falha se a lógica
    partir**. Sem frameworks e sem suites por função.
 
+8. **Desenhar antes de implementar, para o que envolve duas partes, protocolo,
+   estado ou timing.** Escreve-se aqui, por extenso e com trechos de código se
+   ajudar, como a coisa funciona — o **caminho feliz e os de falha** — antes de
+   codificar, e adapta-se ao que se encontrar. Não é para tudo: uma correção
+   local trivial dispensa-o. É para o que tem duas pontas. A pergunta que **tem**
+   de ser respondida no desenho: *o que é que cada lado observa, e quando?*. Foi
+   saltá-la que fez o cancelamento nascer partido — o aviso ia pela ligação que
+   estava a ser cortada, o que se via num segundo a traçar o fluxo.
+
+9. **Pré-mortem numa linha para qualquer mudança de protocolo:** *se esta ligação
+   morrer agora, o que é que cada lado conclui?*. Barata, e apanha desenhos que
+   dependem de a ligação sobreviver ao que a está a matar.
+
+10. **Ser honesto sobre onde uma coisa foi provada.** Cada afirmação de "feito"
+    diz *onde* foi verificada, e **loopback, build debug, ou uma só máquina não
+    contam como prova de comportamento distribuído nem de desempenho real**.
+    "Lógica verificada em loopback" e "validado entre máquinas" são estados
+    diferentes; trocá-los foi a raiz de vários problemas desta fase (velocidade,
+    dispositivo a listar-se a si próprio, cancelamento) — todos só apareceram em
+    hardware real depois de dados por feitos. Um sprint com uma ponta distribuída
+    só fecha com validação em máquinas reais, como o S3 já exige.
+
 ---
 
 ## Arquitetura
