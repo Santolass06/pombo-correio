@@ -305,14 +305,15 @@ Foi criado precisamente para o problema em aberto abaixo.
 
 ## Notas de comportamento
 
-- **Cancelar a meio não se reflete de forma fiável em quem envia.** Quando quem
-  recebe cancela, a ligação parte-se do lado de quem envia antes de a resposta
-  409 lhe chegar — limitação do HTTP com uploads grandes em fluxo. Quem recebe
-  mostra "cancelado"; quem envia mostra "a ligação terminou — tenta de novo",
-  que é honesto (não dá para distinguir de uma falha de rede) e convida a
-  retomar, seguro porque o parcial ficou. Símbolo fiável exigiria um canal de
-  volta (quem recebe avisa o servidor de quem envia) — fica para quando o relay
-  trouxer esse canal.
+- **Cancelar reflete-se nos dois lados, por um canal à parte.** O aviso de
+  cancelamento não pode viajar pela ligação da transferência — é essa que está a
+  ser cortada, e o aviso morreria com ela (foi o bug relatado). Cada dispositivo
+  corre um servidor, por isso quem cancela abre uma ligação **nova** ao outro
+  (`POST /cancelar/{id}`) para lho dizer. Quem envia anuncia a sua porta de
+  servidor na oferta (`porta_resposta`), para quem recebe o saber avisar; o CLI a
+  enviar não tem servidor e manda porta 0 (não é avisado — mas o Ctrl+C basta).
+  O 409 fica como reforço para o caso de a resposta ainda chegar. Provado por
+  `cancelar_reflete_nos_dois_lados_pelo_canal`, com dois servidores reais.
 
 ---
 

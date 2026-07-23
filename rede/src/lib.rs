@@ -96,6 +96,27 @@ pub fn sem_cancelamento() -> Cancelar {
 pub type Cancelaveis =
     std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Cancelar>>>;
 
+/// Porta em que todos os dispositivos escutam. Fora dos intervalos reservados e
+/// fácil de decorar.
+pub const PORTA_PADRAO: u16 = 53318;
+
+/// Avisa o outro lado de que uma transferência foi cancelada.
+///
+/// Numa **ligação nova**, de propósito: o cancelamento não pode viajar pela
+/// ligação da transferência, que está precisamente a ser cortada — o aviso
+/// morreria com ela. Cada dispositivo corre um servidor, por isso quem cancela
+/// bate à porta do outro para lho dizer.
+///
+/// É best-effort: se o outro lado não tiver servidor (o CLI a enviar, por
+/// exemplo) ou já tiver desligado, não há nada a fazer e não é erro.
+pub(crate) async fn avisar_cancelamento(base: &str, id: &str) {
+    let _ = reqwest::Client::new()
+        .post(format!("{base}/cancelar/{id}"))
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
+        .await;
+}
+
 /// Para onde vão os acontecimentos.
 pub type Ouvinte = Arc<dyn Fn(Evento) + Send + Sync>;
 

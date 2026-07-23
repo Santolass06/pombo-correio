@@ -200,7 +200,9 @@ async fn main() -> Result<()> {
             let endereco = descoberta::resolver(&destino, PORTA, Some(&fp))?;
             println!("A preparar {}...", ficheiro.display());
             let metricas = Metricas::no_diretorio(&dados);
-            enviar::enviar(&eu, &ficheiro, endereco, ouvinte, sem_cancelamento(), &metricas).await
+            // Porta 0: o CLI a enviar não corre servidor, por isso quem recebe
+            // não o pode avisar de um cancelamento — mas o Ctrl+C basta.
+            enviar::enviar(&eu, &ficheiro, endereco, ouvinte, sem_cancelamento(), &metricas, 0).await
         }
 
         Comando::Dispositivos => {

@@ -19,6 +19,11 @@ pub struct Oferta {
     /// Assinatura de quem envia sobre o manifesto selado.
     #[serde(with = "sig")]
     pub assinatura: [u8; 64],
+    /// Porta do servidor de quem envia, para quem recebe o poder avisar de um
+    /// cancelamento. Zero se não tiver servidor (o CLI a enviar), e então não se
+    /// avisa — nada mau, o CLI interrompe-se com Ctrl+C.
+    #[serde(default)]
+    pub porta_resposta: u16,
 }
 
 /// Resposta a uma oferta.

@@ -62,6 +62,7 @@ pub async fn enviar(
     ouvinte: Ouvinte,
     cancelar: Cancelar,
     metricas: &crate::Metricas,
+    porta_resposta: u16,
 ) -> Result<()> {
     // O `Display` de um endereço IPv6 já traz os parênteses retos que o URL
     // exige, por isso não é preciso tratá-lo à parte.
@@ -99,6 +100,7 @@ pub async fn enviar(
         envelope: Envelope::seal(&chave, &deles),
         assinatura: eu.sign(&manifesto_selado),
         manifesto_selado,
+        porta_resposta,
     };
 
     let resposta = cliente
@@ -203,6 +205,9 @@ pub async fn enviar(
     // consequência do cancelamento, não uma falha a mostrar como tal.
     if cancelar.load(Relaxed) {
         metricas.registar("envio_cancelado", serde_json::json!({ "id": aceite.id }));
+        // Avisa quem recebe por uma ligação nova — a da transferência está a ser
+        // cortada e o aviso não passaria por ela.
+        crate::avisar_cancelamento(&base, &aceite.id).await;
         ouvinte(Evento::Cancelado { id: aceite.id });
         return Ok(());
     }

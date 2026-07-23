@@ -129,7 +129,9 @@ async fn enviar_ficheiro(
     };
 
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = enviar::enviar(&eu, &ficheiro, endereco, ouvinte.clone(), cancelar, &metricas).await {
+        // A app corre servidor na PORTA, por isso quem recebe pode avisá-la de
+        // um cancelamento por esse endereço.
+        if let Err(e) = enviar::enviar(&eu, &ficheiro, endereco, ouvinte.clone(), cancelar, &metricas, PORTA).await {
             // Só chega aqui um erro anterior ao envio propriamente dito — ligar
             // ou resolver o destino. A partir do aceite, o próprio `enviar`
             // fecha a transferência por evento.

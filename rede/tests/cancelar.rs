@@ -104,7 +104,7 @@ async fn cancelar_para_e_guarda_o_que_ja_passou() {
     });
 
     let addr = format!("127.0.0.1:{porta}").parse().unwrap();
-    enviar::enviar(&emissor, &origem, addr, reg_e.ouvinte(), cancelar, &Metricas::desligada())
+    enviar::enviar(&emissor, &origem, addr, reg_e.ouvinte(), cancelar, &Metricas::desligada(), 0)
         .await
         .unwrap();
 
@@ -181,7 +181,7 @@ async fn cancelar_no_recetor_para_quem_envia() {
     // O envio tem de TERMINAR — é o que falhava, ficava preso a comunicar.
     let r = tokio::time::timeout(
         Duration::from_secs(10),
-        enviar::enviar(&Identity::generate("e"), &origem, addr, reg_e.ouvinte(), Default::default(), &Metricas::desligada()),
+        enviar::enviar(&Identity::generate("e"), &origem, addr, reg_e.ouvinte(), Default::default(), &Metricas::desligada(), 0),
     )
     .await;
     assert!(r.is_ok(), "o envio não terminou — ficou preso apesar do cancelamento no recetor");
@@ -196,6 +196,91 @@ async fn cancelar_no_recetor_para_quem_envia() {
         reg_e.viu("cancelado") || reg_e.viu("falhou"),
         "quem envia não chegou a nenhum estado terminal"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancelar_reflete_nos_dois_lados_pelo_canal() {
+    // O cenário que o utilizador descreveu: cancelar num lado não aparecia no
+    // outro, porque o aviso ia pela ligação da transferência, que estava a ser
+    // cortada. Agora quem cancela abre uma ligação NOVA ao servidor do outro
+    // (/cancelar). Aqui os dois lados correm servidor, como a app: A envia para
+    // B, B cancela, e A tem de dar por isso.
+    let dir = Temp::novo("canal");
+
+    // Servidor de B (quem recebe).
+    let b = Identity::generate("B");
+    let canc_b: pombo_correio_rede::Cancelaveis = Default::default();
+    let escuta_b = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let porta_b = escuta_b.local_addr().unwrap().port();
+    drop(escuta_b);
+    let dd_b = dir.0.join("b/recebidos");
+    let cc_b = dir.0.join("b/conhecidos.json");
+    let canc_b_srv = canc_b.clone();
+    tokio::spawn(async move {
+        let _ = receber::servir(b, dd_b, cc_b, porta_b, pombo_correio_rede::silencio(), canc_b_srv, Metricas::desligada()).await;
+    });
+
+    // Servidor de A (quem envia — mas também corre servidor, para poder ser
+    // avisado). O registo partilhado liga o /cancelar recebido ao token do
+    // envio, tal como na app.
+    let a = Identity::generate("A");
+    let canc_a: pombo_correio_rede::Cancelaveis = Default::default();
+    let escuta_a = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let porta_a = escuta_a.local_addr().unwrap().port();
+    drop(escuta_a);
+    let dd_a = dir.0.join("a/recebidos");
+    let cc_a = dir.0.join("a/conhecidos.json");
+    let canc_a_srv = canc_a.clone();
+    tokio::spawn(async move {
+        let _ = receber::servir(a, dd_a, cc_a, porta_a, pombo_correio_rede::silencio(), canc_a_srv, Metricas::desligada()).await;
+    });
+    tokio::time::sleep(Duration::from_millis(400)).await;
+
+    let origem = dir.0.join("grande.bin");
+    std::fs::write(&origem, vec![9u8; 200_000_000]).unwrap();
+
+    // Ouvinte de A que, como a app, regista o token do envio no registo de A
+    // assim que a transferência arranca — é o que o /cancelar vai acionar.
+    let reg_a = Arc::new(Registo::default());
+    let token_a = Arc::new(AtomicBool::new(false));
+    let ouvinte_a: pombo_correio_rede::Ouvinte = {
+        let reg = reg_a.clone();
+        let canc = canc_a.clone();
+        let tok = token_a.clone();
+        Arc::new(move |e: Evento| {
+            if let Evento::Oferta { id, .. } = &e {
+                canc.lock().unwrap().insert(id.clone(), tok.clone());
+            }
+            reg.ouvinte()(e);
+        })
+    };
+
+    // B cancela assim que vê a transferência no seu registo.
+    let vigia = canc_b.clone();
+    tokio::spawn(async move {
+        for _ in 0..2000 {
+            if let Some(s) = vigia.lock().unwrap().values().next() {
+                s.store(true, Relaxed);
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    });
+
+    let addr_b = format!("127.0.0.1:{porta_b}").parse().unwrap();
+    let a_id = Identity::generate("A-envio");
+    // A envia para B, anunciando a SUA porta de servidor para B a poder avisar.
+    let r = tokio::time::timeout(
+        Duration::from_secs(15),
+        enviar::enviar(&a_id, &origem, addr_b, ouvinte_a, token_a, &Metricas::desligada(), porta_a),
+    )
+    .await;
+    assert!(r.is_ok(), "o envio ficou preso");
+
+    // O essencial: A soube que foi cancelado — pelo canal à parte, não pela
+    // ligação cortada. É exatamente o que faltava.
+    assert!(reg_a.viu("cancelado"), "quem envia não deu por o cancelamento do outro lado");
+    assert!(!reg_a.viu("enviado"), "quem envia deu por concluído apesar de cancelado");
 }
 
 #[tokio::test]
@@ -229,7 +314,7 @@ async fn cancelar_antes_de_comecar_nao_rebenta() {
 
     let addr = format!("127.0.0.1:{porta}").parse().unwrap();
     let ja = Arc::new(AtomicBool::new(true));
-    enviar::enviar(&Identity::generate("e"), &origem, addr, reg.ouvinte(), ja, &Metricas::desligada())
+    enviar::enviar(&Identity::generate("e"), &origem, addr, reg.ouvinte(), ja, &Metricas::desligada(), 0)
         .await
         .unwrap();
 

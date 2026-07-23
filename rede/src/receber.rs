@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail};
 use axum::{
     Json, Router,
     body::Body,
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::StatusCode,
     routing::{get, post, put},
 };
@@ -28,6 +28,9 @@ use crate::{
 struct EmCurso {
     manifesto: Manifest,
     chave: TransferKey,
+    /// Porta do servidor de quem envia, anunciada na oferta. Zero = sem
+    /// servidor, não avisar de cancelamentos.
+    porta_resposta: u16,
 }
 
 struct Estado {
@@ -177,11 +180,10 @@ async fn propor(
         total: manifesto.expected_chunks(),
     });
 
-    estado
-        .em_curso
-        .lock()
-        .await
-        .insert(id.clone(), EmCurso { manifesto, chave });
+    estado.em_curso.lock().await.insert(
+        id.clone(),
+        EmCurso { manifesto, chave, porta_resposta: oferta.porta_resposta },
+    );
 
     Ok(Json(Aceite { id, tenho: ja }))
 }
@@ -203,13 +205,27 @@ impl std::fmt::Display for CanceladoPeloRecetor {
 }
 impl std::error::Error for CanceladoPeloRecetor {}
 
+/// Um dispositivo avisa que cancelou uma transferência. Aciona o sinal local
+/// correspondente — seja de um envio ou de uma receção — e o resto trata-se
+/// sozinho no ciclo respetivo.
+async fn cancelar_endpoint(
+    State(estado): State<Arc<Estado>>,
+    Path(id): Path<String>,
+) -> StatusCode {
+    if let Some(sinal) = estado.cancelaveis.lock().unwrap().get(&id) {
+        sinal.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    StatusCode::OK
+}
+
 async fn blocos(
     State(estado): State<Arc<Estado>>,
     Path(id): Path<String>,
     Query(De { de }): Query<De>,
+    ConnectInfo(quem_envia): ConnectInfo<std::net::SocketAddr>,
     corpo: Body,
 ) -> Result<String, (StatusCode, String)> {
-    receber_blocos(estado, id, de, corpo).await.map_err(|e| {
+    receber_blocos(estado, id, de, quem_envia.ip(), corpo).await.map_err(|e| {
         // 409 quando foi o próprio recetor a cancelar; qualquer outra coisa é
         // um pedido malformado ou uma falha.
         if e.downcast_ref::<CanceladoPeloRecetor>().is_some() {
@@ -220,11 +236,18 @@ async fn blocos(
     })
 }
 
-async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -> Result<String> {
+async fn receber_blocos(
+    estado: Arc<Estado>,
+    id: String,
+    de: u32,
+    ip_emissor: std::net::IpAddr,
+    corpo: Body,
+) -> Result<String> {
     let guarda = estado.em_curso.lock().await;
     let curso = guarda.get(&id).context("transferência desconhecida")?;
     let manifesto = curso.manifesto.clone();
     let chave = curso.chave.clone();
+    let porta_resposta = curso.porta_resposta;
     drop(guarda);
 
     let ja = tenho(&estado, &id, manifesto.chunk_size).await;
@@ -264,21 +287,12 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
         serde_json::json!({ "id": id, "ficheiro": manifesto.name, "tamanho": manifesto.size, "de_bloco": de, "total_blocos": total }),
     );
 
-    while indice < total {
-        // Parar aqui deixa em disco tudo o que já foi escrito, por isso retomar
-        // continua a valer. Sair da função fecha a ligação, e é isso que faz
-        // parar quem estava a enviar.
-        if cancelar.load(std::sync::atomic::Ordering::Relaxed) {
-            ficheiro.flush().await?;
-            estado.cancelaveis.lock().unwrap().remove(&id);
-            estado.em_curso.lock().await.remove(&id);
-            estado.metricas.registar("rececao_cancelada", serde_json::json!({ "id": id, "blocos": indice }));
-            (estado.ouvinte)(Evento::Cancelado { id: id.clone() });
-            // Erro de propósito, não `Ok`: uma resposta 200 diria a quem envia
-            // que correu tudo bem, e ele daria o envio por concluído. Este erro
-            // vira um 409, que quem envia reconhece como cancelamento e não como
-            // falha. O parcial fica em disco, por isso retomar continua a valer.
-            return Err(CanceladoPeloRecetor.into());
+    let cancelado = std::sync::atomic::Ordering::Relaxed;
+    'blocos: while indice < total {
+        // Cancelado localmente (a interface carregou em cancelar) ou por aviso
+        // de quem envia (o endpoint /cancelar acionou o mesmo sinal).
+        if cancelar.load(cancelado) {
+            break 'blocos;
         }
 
         let esperado = manifesto.plain_len(indice).context("índice fora do manifesto")? + SEAL_OVERHEAD;
@@ -291,7 +305,21 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
         while sobra.len() < esperado {
             match fluxo.next().await {
                 Some(pedaco) => sobra.extend_from_slice(&pedaco?),
-                None => bail!("fluxo acabou no bloco {indice} de {total}"),
+                None => {
+                    // O fluxo acabou antes de tempo. Pode ser um cancelamento de
+                    // quem envia cujo aviso ainda vem a caminho — dá-se uma folga
+                    // curta a ver se o sinal chega antes de o dar por falha.
+                    for _ in 0..5 {
+                        if cancelar.load(cancelado) {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    }
+                    if cancelar.load(cancelado) {
+                        break 'blocos;
+                    }
+                    bail!("fluxo acabou no bloco {indice} de {total}");
+                }
             }
         }
         fases.rede += t_rede.elapsed();
@@ -333,15 +361,27 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
         }
     }
 
-    let t_disco = std::time::Instant::now();
     ficheiro.flush().await?;
-    fases.disco += t_disco.elapsed();
     drop(ficheiro);
+    estado.cancelaveis.lock().unwrap().remove(&id);
+    estado.em_curso.lock().await.remove(&id);
+
+    // Saiu do ciclo sem chegar ao fim: foi cancelamento. O parcial fica em
+    // disco (retomar continua a valer). Avisa-se quem envia por uma ligação
+    // nova, e devolve-se 409 — que ele reconhece — para o caso de a resposta
+    // ainda lhe chegar apesar de estar a meio do upload.
+    if indice < total {
+        estado.metricas.registar("rececao_cancelada", serde_json::json!({ "id": id, "blocos": indice }));
+        // Avisa quem envia, se ele tiver servidor (porta anunciada na oferta).
+        if porta_resposta != 0 {
+            crate::avisar_cancelamento(&format!("http://{ip_emissor}:{porta_resposta}"), &id).await;
+        }
+        (estado.ouvinte)(Evento::Cancelado { id });
+        return Err(CanceladoPeloRecetor.into());
+    }
 
     let final_ = estado.destino.join(nome_seguro(&manifesto.name));
     tokio::fs::rename(&caminho, &final_).await?;
-    estado.cancelaveis.lock().unwrap().remove(&id);
-    estado.em_curso.lock().await.remove(&id);
 
     let s = comeco.elapsed().as_secs_f64();
     let mut resumo = fases.json();
@@ -380,6 +420,7 @@ pub async fn servir(
         .route("/identidade", get(identidade))
         .route("/transferencia", post(propor))
         .route("/transferencia/{id}/blocos", put(blocos))
+        .route("/cancelar/{id}", post(cancelar_endpoint))
         .with_state(estado.clone());
 
     let escuta = tokio::net::TcpListener::bind(("0.0.0.0", porta)).await?;
@@ -395,7 +436,13 @@ pub async fn servir(
     });
     let _anuncio = anuncio;
 
-    axum::serve(escuta, app).await?;
+    // `into_make_service_with_connect_info` para o `blocos` saber o endereço de
+    // quem envia, e assim o poder avisar num cancelamento.
+    axum::serve(
+        escuta,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
