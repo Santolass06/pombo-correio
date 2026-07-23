@@ -46,6 +46,10 @@ problema em nenhuma delas.
 
 ## Workflow
 
+O guia operacional condensado — o que seguir a cada sessão — está em
+**CLAUDE.md** (carregado automaticamente). Esta secção guarda a versão completa,
+com a fundamentação e o histórico.
+
 1. Trabalho dividido em **sprints**. Cada sprint acaba em algo que corre e se
    testa — não em código a meio.
 2. **Commits por unidade coerente**, não só no fim do sprint. Um sprint são

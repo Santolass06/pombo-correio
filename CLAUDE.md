@@ -1,0 +1,74 @@
+# CLAUDE.md — como trabalhar neste projeto
+
+Guia operacional, carregado a cada sessão. O plano completo, a arquitetura e o
+histórico estão em **PLANO.md** (fonte de verdade do plano). Como correr, em
+**COMO_CORRER.md**.
+
+Pombo-Correio: partilha de ficheiros entre os dispositivos de casa, byte-exata,
+sem serviços de terceiros. Android, iOS (PWA), macOS, Windows, Linux x64+arm64.
+
+## Estrutura
+
+```
+core/          Rust puro. Protocolo, identidade, cifra, blocos Merkle. Compila nativo E wasm32.
+rede/          Descoberta (mDNS), envio, receção. NÃO escreve no terminal — comunica por Evento.
+cli/           Binário `pombo`. Um ouvinte que imprime os eventos.
+ui/            Tauri v2 + Svelte 5. A app. src-tauri/ é a ponte para a rede.
+```
+
+O CLI e a app só diferem no que fazem aos `Evento`s — a lógica é a mesma, em `rede/`.
+
+## Comandos
+
+```sh
+# App — compila-se pela CLI do Tauri, NUNCA por cargo (senão a janela não carrega).
+cd ui && npm run app          # dev (debug — cripto lenta, ver abaixo)
+cd ui && npm run app:build    # release, o que se usa a sério
+
+# CLI
+cargo build --release -p pombo-correio     # -p, senão arrasta a árvore do Tauri
+
+# Testes
+cargo test -p pombo-correio-core -p pombo-correio-rede -p pombo-correio
+cargo clippy --workspace --all-targets     # tem de dar zero
+```
+
+## Workflow
+
+Sprints; commits por unidade coerente; tag `sprint-N` no fim. PLANO.md atualizado
+à medida. Implementação **local** (o remoto não tem rota para a LAN/Pi/Tailscale).
+Cada lógica não-trivial deixa **um teste que falha se ela partir**.
+
+**As três regras que custaram caro (segue-as sempre):**
+
+1. **Desenhar antes de implementar** o que envolve duas partes, protocolo, estado
+   ou timing. Escreve em PLANO.md, por extenso, o caminho feliz **e os de falha**,
+   e responde a: **o que é que cada lado observa, e quando?**. Foi saltar isto que
+   fez o cancelamento nascer partido três vezes.
+2. **Pré-mortem, uma linha, para mudanças de protocolo:** *se esta ligação morrer
+   agora, o que conclui cada lado?*.
+3. **Honestidade sobre onde algo foi provado.** Loopback, build debug e uma-só-
+   máquina **não** provam comportamento distribuído nem desempenho real. Distingue
+   sempre "verificado em loopback" de "validado entre máquinas". Uma ponta
+   distribuída só fecha com validação em máquinas reais.
+
+## Armadilhas já pagas (não repetir)
+
+- **Velocidade a 2 MB/s = build debug.** A cripto sem otimizações é dezenas de
+  vezes mais lenta. Para uso real, release nos dois lados. (O perfil dev já
+  otimiza as dependências, mas não iguala.)
+- **Verificar a app = provar que a interface carregou**, não só que o processo
+  não rebentou. O `identidade` só é chamado pelo frontend — serve de prova.
+- **Os bytes dos ficheiros nunca atravessam o IPC do Tauri** (serializa para
+  JSON e colapsa). O Rust é dono do ficheiro; à WebView só vão eventos.
+- **Escolha de IP: LAN antes do Tailscale.** A gama CGNAT (100.64/10) fica abaixo
+  de qualquer LAN, senão o tráfego passa pelo relay do Tailscale a ~2 MB/s.
+- **Cancelamento vai por canal à parte** (`POST /cancelar/{id}`), não pela ligação
+  da transferência, que está a ser cortada.
+- **`/tmp` é tmpfs (RAM).** Testes com ficheiros grandes vão para `/var/tmp`.
+- **Testes com timing usam `#[tokio::test(flavor = "multi_thread")]`**, senão a
+  tarefa que dispara o cancelamento fica esfomeada e o teste fica flaky.
+
+## Idioma
+
+Tudo em português de Portugal — código, comentários, mensagens, interface.
