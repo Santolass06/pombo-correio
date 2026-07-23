@@ -267,7 +267,15 @@ impl From<Evento> for ParaInterface {
 fn nome_do_dispositivo() -> String {
     #[cfg(windows)]
     let bruto = std::env::var("COMPUTERNAME").ok();
-    #[cfg(not(windows))]
+    // No Android não há `/etc/hostname` útil (dava sempre "localhost"); o modelo
+    // do aparelho (ro.product.model) é o que a pessoa reconhece na lista.
+    #[cfg(target_os = "android")]
+    let bruto = std::process::Command::new("getprop")
+        .arg("ro.product.model")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok());
+    #[cfg(all(not(windows), not(target_os = "android")))]
     let bruto = std::fs::read_to_string("/etc/hostname").ok();
 
     bruto
@@ -278,6 +286,12 @@ fn nome_do_dispositivo() -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // No Android, o foreground service que mantém a app a receber em segundo
+    // plano é um serviço Kotlin nativo (RecetorService), arrancado pela
+    // MainActivity — não um plugin. A tentativa com o plugin de segundo plano
+    // ficou registada no PLANO.md: a arquitetura headless dele exige símbolos
+    // JNI que não temos, e rebentava o processo. O serviço nativo é simples e
+    // fiável. O servidor de receção continua a correr no processo (no `setup`).
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {

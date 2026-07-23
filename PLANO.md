@@ -705,16 +705,37 @@ Testado num OnePlus Pad (OPD2403), Android 16, ARM64, por USB (adb).
   **Consequência:** o *foreground service* deixa de ser só para "ecrã desligado"
   — é necessário para a app **aceitar ligações de todo** de forma fiável.
 
+**Peça A — foreground service ✅ (serviço nativo, não o plugin)**
+
+Provado no tablet: app em segundo plano + ecrã desligado + **sem** isenção de
+bateria → recebe um ficheiro byte-exato. `isForeground=true`, tipo `specialUse`.
+
+- **O `tauri-plugin-background-service` foi abandonado.** A arquitetura headless
+  dele exige que a app exporte símbolos JNI (`Java_..._HeadlessBridge_startCore`
+  etc.) que não temos; sem eles rebentava no `onStartCommand` e o `START_STICKY`
+  reiniciava o processo **sem a atividade** — logo sem o servidor Rust, que vive
+  no `setup`. Foi ativamente pior do que não ter serviço. Risco de plugin jovem
+  que o plano já previa.
+- **Substituído por um serviço Kotlin nativo** (`RecetorService.kt`, ~70 linhas):
+  chama `startForeground()` diretamente, `START_NOT_STICKY` (um reinício sem
+  atividade ficaria sem servidor; um FGS raramente é morto, e se for a pessoa
+  reabre), `stopWithTask` (pára quando a app é retirada). Arrancado pela
+  `MainActivity`. O servidor Rust continua no `setup`.
+
+**Peça B — MulticastLock ✅ (no mesmo serviço)**
+
+Adquirido no `onCreate` do `RecetorService`, libertado no `onDestroy`. Provado:
+o PC passou a descobrir o tablet por mDNS (`dispositivo — 192.168.1.235`), que
+antes não aparecia.
+
 **Por fazer**
-- [ ] **Foreground service** (`tauri-plugin-background-service` ou serviço nativo):
-      exigido pela descoberta acima, e para receber com o ecrã desligado.
-- [ ] **mDNS na descoberta**: precisa de `MulticastLock` (código Android nativo),
-      senão o tablet não vê nem é visto — só funciona por IP direto.
 - [ ] **Enviar do Android**: o seletor devolve um URI `content://`, não um
-      caminho; `enviar` abre por caminho. Precisa de `tauri-plugin-android-fs`
-      ou de copiar para cache antes de enviar.
-- [ ] Partilha pelo share sheet do sistema.
-- [ ] Cleartext e permissões (multicast, network state) já postos no manifesto.
+      caminho; `enviar` abre por caminho. `tauri-plugin-android-fs` dá um
+      `std::fs::File` real do URI (ver desenho da peça C).
+- [ ] Partilha pelo share sheet do sistema (peça D).
+- [ ] Nome do dispositivo no Android: o `getprop ro.product.model` já está no
+      código, mas a identidade do teste foi criada antes e ficou "dispositivo";
+      regenera com `pm clear` ou numa instalação limpa.
 
 #### Desenho do que falta (send e receive igualmente importantes)
 
