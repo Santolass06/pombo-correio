@@ -684,11 +684,37 @@ QR, dispositivos de confiança, prazo dos links, modo simples. Ficaram de fora e
 vez de aparecerem sem função — o histórico e o QR entram quando houver onde os
 guardar, os links em S7.
 
-### S6 — Android
+### S6 — Android ⏳ em curso
 
-- [ ] `tauri-plugin-android-fs` e `tauri-plugin-background-service`.
+Testado num OnePlus Pad (OPD2403), Android 16, ARM64, por USB (adb).
+
+**Feito e provado**
+- [x] Compila para ARM64, instala e arranca no tablet.
+- [x] A interface **renderiza** (verificado pelo DOM via DevTools da WebView — o
+      `screencap` mostra preto porque não captura a camada de hardware da
+      WebView, mas o conteúdo está lá, tema escuro incluído).
+- [x] O servidor escuta em `0.0.0.0:53318`.
+- [x] **Recebe um ficheiro do PC byte-exato** (hash confirmado), com métricas por
+      fase a funcionar. ~3,4 MB/s em debug (cripto lenta, como no desktop).
+
+**Descoberta que muda o desenho**
+- **O OxygenOS bloqueia ligações de entrada para apps sob restrição de bateria.**
+  Sintoma: ping passa, porta fechada dá RST, mas a porta da app dá *timeout* —
+  o SYN chega e é descartado localmente. Confirmado: tirar a app da restrição
+  (`dumpsys deviceidle whitelist +`) fez a ligação externa passar (200 em 9 ms).
+  **Consequência:** o *foreground service* deixa de ser só para "ecrã desligado"
+  — é necessário para a app **aceitar ligações de todo** de forma fiável.
+
+**Por fazer**
+- [ ] **Foreground service** (`tauri-plugin-background-service` ou serviço nativo):
+      exigido pela descoberta acima, e para receber com o ecrã desligado.
+- [ ] **mDNS na descoberta**: precisa de `MulticastLock` (código Android nativo),
+      senão o tablet não vê nem é visto — só funciona por IP direto.
+- [ ] **Enviar do Android**: o seletor devolve um URI `content://`, não um
+      caminho; `enviar` abre por caminho. Precisa de `tauri-plugin-android-fs`
+      ou de copiar para cache antes de enviar.
 - [ ] Partilha pelo share sheet do sistema.
-- [ ] Transferência com o ecrã desligado.
+- [ ] Cleartext e permissões (multicast, network state) já postos no manifesto.
 
 ### S7 — Relay e link sem instalação
 

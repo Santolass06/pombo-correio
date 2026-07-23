@@ -68,6 +68,17 @@ Cada lógica não-trivial deixa **um teste que falha se ela partir**.
 - **`/tmp` é tmpfs (RAM).** Testes com ficheiros grandes vão para `/var/tmp`.
 - **Testes com timing usam `#[tokio::test(flavor = "multi_thread")]`**, senão a
   tarefa que dispara o cancelamento fica esfomeada e o teste fica flaky.
+- **Android: `screencap` mostra a WebView a preto** (camada de hardware não
+  capturável). Para ver o que está renderizado, inspeciona o DOM pelo DevTools
+  (`adb forward` ao socket `webview_devtools_remote_<pid>`, depois DevTools
+  Protocol por WebSocket — o Node 22 tem `WebSocket` nativo).
+- **Android bloqueia ligações de entrada para apps sob restrição de bateria**
+  (OxygenOS e afins): ping passa, porta da app dá timeout. Precisa de foreground
+  service. Para testar à mão: `adb shell dumpsys deviceidle whitelist +<pkg>`.
+- **Android `app_data_dir()` é a raiz `/data/data/<pkg>/`**, não `files/`. Os
+  recebidos ficam em `<raiz>/recebidos/`. Inspeciona com `adb shell run-as <pkg>`.
+- **mDNS no Android precisa de `MulticastLock`**; sem ele não há descoberta, só
+  IP direto.
 
 ## Idioma
 
