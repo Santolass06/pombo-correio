@@ -212,6 +212,68 @@ cifra e blocos que o Linux.
 
 ---
 
+## Ideias por implementar
+
+Não são sprints. São direções discutidas e consideradas fazíveis, guardadas
+para não se perderem — com as armadilhas já marcadas, para a ideia não voltar
+mais bonita do que é.
+
+### Relay como capacidade, não como dispositivo
+
+Hoje o relay são "os dois servidores de casa". A generalização certa: **qualquer
+nó estável e alcançável anuncia a capacidade de relay**, e a rede escolhe quem
+está de pé. O A10 e o Pi são só os que mais provavelmente qualificam. Encaixa no
+desenho ativo-ativo que o S7 já tem — é a forma certa de o desenhar, não uma
+funcionalidade à parte.
+
+- **Ranquear por adequação**, não aceitar qualquer voluntário: tempo de
+  atividade, alcançabilidade, e *não estar a bateria*.
+- **Telemóvel-como-relay é permitido em último recurso, mas não se desenha a UX
+  à volta dele.** Falha exatamente no cenário que o motiva — "sem energia em
+  casa, dou host no Android" é o telemóvel a bateria, em dados móveis atrás de
+  CGNAT, com o SO a matar processos em segundo plano. No iOS nem servidor pode
+  correr. É o pior nó possível precisamente quando lhe pegarias.
+
+### Mandar remotamente um dispositivo de confiança começar a dar host
+
+Anda em cima do canal de notificações autenticado que o S7 precisa de ter, por
+isso não é grátis mas está no caminho. **Inegociável: o comando tem de ser
+assinado por um dispositivo de confiança.** Abrir serviços por ordem remota é
+uma superfície de ataque apetitosa; a assinatura Ed25519 que já temos resolve.
+Depois do S7 existir.
+
+### Suporte remoto: ver o ecrã + voz
+
+Caso de uso concreto e valioso: **ver o ecrã de um familiar e falar com ele para
+o ajudar**. É um segundo produto, mas reutiliza a base de identidade,
+emparelhamento e descoberta (`core/` e parte do `rede/`) — só a camada de
+transporte é que muda.
+
+- **Precisa de WebRTC** (o mesmo que adiámos no furo de NAT — passa a ter dois
+  motivos para existir) e de plugins nativos de captura de ecrã no Android.
+- **A voz é quase de borla** depois de haver vídeo: é mais uma faixa na mesma
+  ligação. O instinto de juntar voice chat está certo.
+- **Vários a assistir funciona para números pequenos.** Um emissor para N
+  familiares são N ligações diretas; para uma família chega. Só dezenas de
+  espetadores exigiriam um servidor a redistribuir, que o A10 e o Pi não
+  aguentariam — mas não é o caso.
+- **O muro é o iPhone.** Uma PWA no iOS **não captura o próprio ecrã** — o Safari
+  deixa *ver* um ecrã partilhado, não *partilhar* o dele. Ajudar com o Windows
+  ou o Android de alguém: fácil. Ajudar com o *iPhone* dele: exige app iOS
+  nativa (99 €/ano). É o dispositivo onde mais se precisa de ajuda e o único que
+  a PWA não alcança — e é isto, não a partilha de ficheiros, que justificaria a
+  conta Apple.
+
+### Controlo remoto — decisão separada, marcada de propósito
+
+"Ajudar o avô" tende a virar *"clicar por ele"*, e isso é **controlo remoto**,
+não partilha de ecrã. Salto enorme de complexidade e de superfície de segurança,
+e proibido pela raiz no iOS. Ver+voz resolve ~70% dos casos ("carrega no botão
+azul em cima"); controlar resolve o resto mas é outro monstro. Fica marcado à
+parte para não entrar disfarçado de screen sharing.
+
+---
+
 ## TODO — ASAP
 
 - [ ] **Não listar o próprio dispositivo na descoberta.** Cada aparelho anuncia-se
