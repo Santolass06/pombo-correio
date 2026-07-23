@@ -56,10 +56,12 @@ impl Registo {
     }
 }
 
-// Runtime de várias threads de propósito: o cancelamento é accionado por uma
-// tarefa à parte, e numa thread só ela ficava esfomeada pelo trabalho da
-// transferência quando os testes correm em paralelo, disparando tarde demais.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+// Várias threads, e mais do que as mínimas: emissor e recetor partilham aqui um
+// runtime (na vida real são máquinas separadas, com cores próprios), e a
+// transferência satura-o com criptografia. Sem folga, a vigia e o handler do
+// /cancelar ficavam esfomeados e o aviso chegava tarde — contenção que só
+// existe no teste.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cancelar_para_e_guarda_o_que_ja_passou() {
     let dir = Temp::novo("meio");
     let recetor = Identity::generate("recetor");
@@ -124,6 +126,17 @@ async fn cancelar_para_e_guarda_o_que_ja_passou() {
         .map(|d| d.filter_map(Result::ok).any(|e| e.path().extension().is_some_and(|x| x == "parcial")))
         .unwrap_or(false);
     assert!(ha_parcial, "não guardou o que já tinha passado — retomar deixa de valer");
+
+    // E — o buraco que faltava — quem RECEBE deu por isso. O aviso do emissor
+    // chegou-lhe por uma ligação nova enquanto ele ainda esperava pelo fluxo, e
+    // mostra cancelamento em vez de uma falha por truncagem. É este o sentido
+    // que estava partido: o emissor cancelava, o recetor continuava a receber.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        reg_r.viu("cancelado"),
+        "quem recebe não deu por o cancelamento do emissor — continuou a receber"
+    );
+    assert!(!reg_r.viu("recebido"), "quem recebe deu o ficheiro por completo apesar do cancelamento");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

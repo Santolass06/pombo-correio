@@ -110,11 +110,24 @@ pub const PORTA_PADRAO: u16 = 53318;
 /// É best-effort: se o outro lado não tiver servidor (o CLI a enviar, por
 /// exemplo) ou já tiver desligado, não há nada a fazer e não é erro.
 pub(crate) async fn avisar_cancelamento(base: &str, id: &str) {
-    let _ = reqwest::Client::new()
-        .post(format!("{base}/cancelar/{id}"))
-        .timeout(std::time::Duration::from_secs(2))
-        .send()
-        .await;
+    let cliente = reqwest::Client::new();
+    let url = format!("{base}/cancelar/{id}");
+    // Tenta mais do que uma vez: o aviso tem de chegar antes de o outro lado
+    // desistir do fluxo cortado, e um único POST pode falhar ou atrasar-se se o
+    // servidor do outro lado estiver ocupado a receber. Best-effort — se nenhuma
+    // tentativa passar, não é erro (o outro lado pode nem ter servidor).
+    for _ in 0..3 {
+        if cliente
+            .post(&url)
+            .timeout(std::time::Duration::from_secs(2))
+            .send()
+            .await
+            .is_ok_and(|r| r.status().is_success())
+        {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
 }
 
 /// Para onde vão os acontecimentos.

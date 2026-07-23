@@ -146,6 +146,26 @@ pub async fn enviar(
         ))
         .await?;
 
+    // Vigia à parte: espera que o cancelamento seja acionado e avisa quem recebe
+    // por uma ligação nova, no instante em que acontece — em paralelo com o
+    // envio, sem depender do timing do fluxo. Enquanto quem recebe ainda processa
+    // os blocos em curso, o aviso chega e ele para pela verificação no topo do
+    // ciclo. Abortada assim que o envio termina.
+    let vigia = {
+        let cancelar = cancelar.clone();
+        let base = base.clone();
+        let id = aceite.id.clone();
+        tokio::spawn(async move {
+            loop {
+                if cancelar.load(Relaxed) {
+                    crate::avisar_cancelamento(&base, &id).await;
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+    };
+
     let m = manifesto.clone();
     let ouvinte_fluxo = ouvinte.clone();
     let id_fluxo = aceite.id.clone();
@@ -164,6 +184,9 @@ pub async fn enviar(
             // Parar antes de ler o bloco seguinte: o que já saiu fica em disco do
             // outro lado, por isso cancelar não deita fora o trabalho feito.
             if cancelar_fluxo.load(Relaxed) {
+                // Para de enviar. O aviso a quem recebe é dado por uma tarefa
+                // vigia à parte (ver abaixo), para não depender do timing deste
+                // fluxo.
                 break;
             }
 
@@ -200,14 +223,16 @@ pub async fn enviar(
         .send()
         .await;
 
+    // O envio acabou (de que maneira for): a vigia já não é precisa. Se cancelou,
+    // ela já disparou o aviso; se não, estava só à espera.
+    vigia.abort();
+
     // O cancelamento vem primeiro: interromper o fluxo deixa o servidor a
     // receber menos do que esperava, o que ele reporta como erro — mas isso é a
     // consequência do cancelamento, não uma falha a mostrar como tal.
     if cancelar.load(Relaxed) {
         metricas.registar("envio_cancelado", serde_json::json!({ "id": aceite.id }));
-        // Avisa quem recebe por uma ligação nova — a da transferência está a ser
-        // cortada e o aviso não passaria por ela.
-        crate::avisar_cancelamento(&base, &aceite.id).await;
+        // O aviso a quem recebe foi dado pela vigia, no instante do cancelamento.
         ouvinte(Evento::Cancelado { id: aceite.id });
         return Ok(());
     }

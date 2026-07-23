@@ -31,6 +31,11 @@ struct EmCurso {
     /// Porta do servidor de quem envia, anunciada na oferta. Zero = sem
     /// servidor, não avisar de cancelamentos.
     porta_resposta: u16,
+    /// Sinal de cancelamento desta transferência. Criado **aqui**, quando a
+    /// oferta é aceite — não quando o PUT começa. Senão há uma janela entre os
+    /// dois em que um aviso /cancelar chega e não encontra token, e o
+    /// cancelamento perde-se (era o bug do emissor cancelar cedo).
+    cancelar: crate::Cancelar,
 }
 
 struct Estado {
@@ -180,9 +185,11 @@ async fn propor(
         total: manifesto.expected_chunks(),
     });
 
+    let cancelar: crate::Cancelar = Default::default();
+    estado.cancelaveis.lock().unwrap().insert(id.clone(), cancelar.clone());
     estado.em_curso.lock().await.insert(
         id.clone(),
-        EmCurso { manifesto, chave, porta_resposta: oferta.porta_resposta },
+        EmCurso { manifesto, chave, porta_resposta: oferta.porta_resposta, cancelar },
     );
 
     Ok(Json(Aceite { id, tenho: ja }))
@@ -248,6 +255,7 @@ async fn receber_blocos(
     let manifesto = curso.manifesto.clone();
     let chave = curso.chave.clone();
     let porta_resposta = curso.porta_resposta;
+    let cancelar = curso.cancelar.clone();
     drop(guarda);
 
     let ja = tenho(&estado, &id, manifesto.chunk_size).await;
@@ -261,11 +269,6 @@ async fn receber_blocos(
         .append(true)
         .open(&caminho)
         .await?;
-
-    // Sinal de cancelamento desta receção, para que quem tem a app à frente lhe
-    // possa mandar parar. Fica registado pelo identificador enquanto dura.
-    let cancelar: crate::Cancelar = Default::default();
-    estado.cancelaveis.lock().unwrap().insert(id.clone(), cancelar.clone());
 
     let total = manifesto.expected_chunks();
     let mut indice = de;
@@ -308,8 +311,9 @@ async fn receber_blocos(
                 None => {
                     // O fluxo acabou antes de tempo. Pode ser um cancelamento de
                     // quem envia cujo aviso ainda vem a caminho — dá-se uma folga
-                    // curta a ver se o sinal chega antes de o dar por falha.
-                    for _ in 0..5 {
+                    // a ver se o sinal chega. 2 s cobre um aviso atrasado por
+                    // carga; num cancelamento real chega em milissegundos.
+                    for _ in 0..20 {
                         if cancelar.load(cancelado) {
                             break;
                         }
@@ -318,6 +322,15 @@ async fn receber_blocos(
                     if cancelar.load(cancelado) {
                         break 'blocos;
                     }
+                    // Não foi cancelamento: a ligação caiu. O parcial fica em
+                    // disco, mas tem de se emitir um evento terminal — senão a
+                    // interface fica presa em "a passar" para sempre.
+                    estado.cancelaveis.lock().unwrap().remove(&id);
+                    estado.em_curso.lock().await.remove(&id);
+                    (estado.ouvinte)(Evento::Falhou {
+                        id: id.clone(),
+                        erro: "a ligação a quem enviava caiu — podes pedir de novo".into(),
+                    });
                     bail!("fluxo acabou no bloco {indice} de {total}");
                 }
             }
