@@ -47,6 +47,14 @@ impl Drop for Anuncio {
     }
 }
 
+/// Impressão digital curta, tal como vai no anúncio.
+///
+/// Um só sítio a decidir a forma, para que o anúncio e o filtro do próprio
+/// dispositivo comparem exatamente a mesma coisa.
+pub fn impressao_curta(eu: &PublicIdentity) -> String {
+    hex::encode(eu.fingerprint())[..16].to_string()
+}
+
 /// Anuncia este dispositivo na rede local.
 pub fn anunciar(eu: &PublicIdentity, porta: u16) -> Result<Anuncio> {
     let daemon = ServiceDaemon::new().context("não consegui arrancar o mDNS")?;
@@ -54,11 +62,11 @@ pub fn anunciar(eu: &PublicIdentity, porta: u16) -> Result<Anuncio> {
     // O nome de anfitrião tem de ser único na rede; o nome legível não serve,
     // porque pode repetir-se. A impressão digital resolve, e como só entram
     // dígitos hexadecimais não há caracteres a escapar.
-    let fp = hex::encode(eu.fingerprint());
-    let anfitriao = format!("pombo-{}.local.", &fp[..16]);
+    let fp = impressao_curta(eu);
+    let anfitriao = format!("pombo-{fp}.local.");
 
     let propriedades: HashMap<String, String> =
-        HashMap::from([(CHAVE_FP.to_string(), fp[..16].to_string())]);
+        HashMap::from([(CHAVE_FP.to_string(), fp)]);
 
     // Endereço vazio: a biblioteca deteta sozinha os das interfaces ativas.
     // Fixar um IP aqui partiria em qualquer máquina com Wi-Fi e cabo, ou com o
@@ -92,11 +100,16 @@ fn escolher_ip(enderecos: impl Iterator<Item = std::net::IpAddr>) -> Option<std:
     ips.into_iter().next()
 }
 
-/// Procura dispositivos durante `prazo`.
+/// Procura dispositivos durante `prazo`, sem contar o próprio.
 ///
 /// É preciso um prazo porque o mDNS não tem fim: as respostas vão chegando e
 /// nada indica que chegaram todas. Espera-se um bocado e mostra-se o que houver.
-pub fn procurar(prazo: Duration) -> Result<Vec<Descoberto>> {
+///
+/// `ignorar` é a impressão digital deste dispositivo: como cada aparelho também
+/// se vê a si próprio na rede, filtra-se pela impressão — nunca pelo IP, que é
+/// múltiplo (Wi-Fi, cabo, Tailscale) e muda, nem pelo nome, que se pode repetir
+/// entre aparelhos distintos. A impressão deriva das chaves e é única.
+pub fn procurar(prazo: Duration, ignorar: Option<&str>) -> Result<Vec<Descoberto>> {
     let daemon = ServiceDaemon::new().context("não consegui arrancar o mDNS")?;
     let recetor = daemon.browse(SERVICO).context("não consegui procurar")?;
 
@@ -109,6 +122,18 @@ pub fn procurar(prazo: Duration) -> Result<Vec<Descoberto>> {
         };
 
         if let ServiceEvent::ServiceResolved(servico) = evento {
+            let impressao = servico
+                .txt_properties
+                .get_property_val_str(CHAVE_FP)
+                .map(str::to_string);
+
+            // Sou eu próprio — não me mostro a mim mesmo. O `is_some` evita que
+            // um `ignorar` a `None` coincida com um anúncio sem impressão e o
+            // esconda por engano.
+            if ignorar.is_some() && impressao.as_deref() == ignorar {
+                continue;
+            }
+
             let Some(ip) = escolher_ip(servico.addresses.iter().map(|s| s.to_ip_addr())) else {
                 continue;
             };
@@ -121,14 +146,7 @@ pub fn procurar(prazo: Duration) -> Result<Vec<Descoberto>> {
 
             achados.insert(
                 servico.fullname.clone(),
-                Descoberto {
-                    nome,
-                    endereco: SocketAddr::new(ip, servico.port),
-                    impressao: servico
-                        .txt_properties
-                        .get_property_val_str(CHAVE_FP)
-                        .map(str::to_string),
-                },
+                Descoberto { nome, endereco: SocketAddr::new(ip, servico.port), impressao },
             );
         }
     }
@@ -145,7 +163,7 @@ pub fn procurar(prazo: Duration) -> Result<Vec<Descoberto>> {
 /// Um endereço literal usa-se tal e qual — é o que serve o Tailscale e tudo o
 /// que esteja fora da rede local. Só se recorre ao mDNS quando o que veio não
 /// se parece com um endereço, o que evita esperar pela rede à toa.
-pub fn resolver(destino: &str, porta_omissao: u16) -> Result<SocketAddr> {
+pub fn resolver(destino: &str, porta_omissao: u16, ignorar: Option<&str>) -> Result<SocketAddr> {
     if let Ok(a) = destino.parse::<SocketAddr>() {
         return Ok(a);
     }
@@ -154,7 +172,7 @@ pub fn resolver(destino: &str, porta_omissao: u16) -> Result<SocketAddr> {
     }
 
     println!("À procura de \"{destino}\" na rede local...");
-    let encontrados = procurar(Duration::from_secs(3))?;
+    let encontrados = procurar(Duration::from_secs(3), ignorar)?;
 
     let iguais: Vec<_> = encontrados
         .iter()
@@ -242,19 +260,32 @@ mod tests {
     }
 
     #[test]
+    fn impressao_curta_e_estavel_e_deriva_da_identidade() {
+        use pombo_correio_core::identity::Identity;
+        let id = Identity::generate("x");
+        let a = impressao_curta(&id.public());
+        // Estável entre chamadas...
+        assert_eq!(a, impressao_curta(&id.public()));
+        assert_eq!(a.len(), 16);
+        // ...e diferente para outra identidade — é isto que garante que o filtro
+        // do próprio dispositivo nunca esconde um aparelho diferente.
+        assert_ne!(a, impressao_curta(&Identity::generate("x").public()));
+    }
+
+    #[test]
     fn endereco_literal_dispensa_a_rede() {
         // Escrever o endereço tem de continuar a funcionar: é o caminho do
         // Tailscale e de tudo o que esteja fora da rede local.
         assert_eq!(
-            resolver("192.168.1.50:9999", 53318).unwrap(),
+            resolver("192.168.1.50:9999", 53318, None).unwrap(),
             "192.168.1.50:9999".parse().unwrap()
         );
         assert_eq!(
-            resolver("192.168.1.50", 53318).unwrap(),
+            resolver("192.168.1.50", 53318, None).unwrap(),
             "192.168.1.50:53318".parse().unwrap()
         );
         assert_eq!(
-            resolver("100.64.0.1", 53318).unwrap(),
+            resolver("100.64.0.1", 53318, None).unwrap(),
             "100.64.0.1:53318".parse().unwrap()
         );
     }

@@ -54,6 +54,32 @@ cargo clippy --workspace --all-targets
 cd ui && npm run check
 ```
 
+## Métricas de diagnóstico
+
+Cada transferência regista o que fez em `<dados>/metricas/eventos.jsonl` — uma
+linha JSON por acontecimento. Serve para diagnosticar problemas entre
+dispositivos, que quem desenvolve não consegue observar de outra forma.
+
+O acontecimento mais útil é o `rececao_fim` (e as amostras `rececao_amostra` a
+cada segundo), com o **tempo por fase**:
+
+```
+{"tipo":"rececao_fim","mb_por_s":99.4,"rede_ms":366,"decifra_ms":1146,"verifica_ms":197,"disco_ms":158,...}
+```
+
+Como ler: a fase que domina é o gargalo.
+- `disco_ms` alto num Raspberry Pi → o cartão SD é o limite (troca por NVMe).
+- `rede_ms` alto → a ligação, ou o outro lado a enviar devagar.
+- `decifra_ms` alto → CPU (esperado que seja a maior fatia; só é problema se o
+  total for lento e as outras fases forem baixas).
+
+Para inspecionar, do lado que recebe:
+
+```sh
+tail -n 5 ~/.local/share/pt.pombo.correio/metricas/eventos.jsonl        # app
+tail -n 5 ~/.local/share/pombo/metricas/eventos.jsonl                   # CLI
+```
+
 ## Onde ficam os dados
 
 | Sistema | Caminho |

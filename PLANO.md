@@ -276,14 +276,28 @@ parte para não entrar disfarçado de screen sharing.
 
 ## TODO — ASAP
 
-- [ ] **Não listar o próprio dispositivo na descoberta.** Cada aparelho anuncia-se
-  por mDNS e também se vê a si próprio, o que não faz sentido e deixa enviar para
-  si mesmo por engano. Filtrar em `rede/src/descoberta.rs::procurar` — comparar a
-  impressão digital anunciada (`CHAVE_FP`) com a deste dispositivo e descartar a
-  correspondência. Exige passar a impressão digital própria a `procurar`, e por
-  isso à ponte Tauri (`dispositivos`) e ao comando `pombo dispositivos`.
-  Cuidado: dois aparelhos distintos podem ter o mesmo *nome*, por isso o filtro
-  tem de ser pela impressão digital, nunca pelo nome.
+- [x] **Não listar o próprio dispositivo na descoberta.** Feito: `procurar`
+  recebe a impressão digital própria (`impressao_curta`) e descarta o anúncio que
+  coincide. Pela impressão, não pelo IP (múltiplo e mutável) nem pelo nome (que
+  se repete entre aparelhos distintos).
+
+## Diagnóstico
+
+Registo de métricas em `<dados>/metricas/eventos.jsonl` (`rede/src/metricas.rs`),
+uma linha JSON por acontecimento. Existe porque validar entre dispositivos é
+difícil: quem desenvolve não vê o Pi nem a rede de casa. A peça central é o
+**tempo por fase** da receção — `rede_ms`, `decifra_ms`, `verifica_ms`,
+`disco_ms` — que aponta o gargalo sem adivinhação. Ver `COMO_CORRER.md`.
+
+Foi criado precisamente para o problema em aberto abaixo.
+
+## Em aberto
+
+- **Velocidade a 2 MB/s entre o Pi e a máquina, apesar de ~90 MB/s em loopback.**
+  A transferência não é lenta em si (medido nos dois lados da app); o que falta é
+  saber onde, na rede real, se perde o débito. As métricas por fase foram
+  acrescentadas para responder a isto — falta correr uma transferência real e ler
+  o `rececao_fim`. Suspeita principal: cartão SD do Pi (`disco_ms` a dominar).
 
 ---
 

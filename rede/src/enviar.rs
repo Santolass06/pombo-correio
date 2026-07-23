@@ -58,6 +58,7 @@ pub async fn enviar(
     destino: std::net::SocketAddr,
     ouvinte: Ouvinte,
     cancelar: Cancelar,
+    metricas: &crate::Metricas,
 ) -> Result<()> {
     // O `Display` de um endereço IPv6 já traz os parênteses retos que o URL
     // exige, por isso não é preciso tratá-lo à parte.
@@ -124,6 +125,12 @@ pub async fn enviar(
         ouvinte(Evento::Enviado { id: aceite.id.clone() });
         return Ok(());
     }
+
+    metricas.registar(
+        "envio_inicio",
+        serde_json::json!({ "id": aceite.id, "ficheiro": nome, "tamanho": manifesto.size, "de_bloco": aceite.tenho, "total_blocos": total, "destino": destino.to_string() }),
+    );
+    let comeco = std::time::Instant::now();
 
     // Um pedido só, com os blocos a sair em fluxo. Um pedido por bloco daria
     // um ida-e-volta por MiB e limitaria o débito à latência da ligação.
@@ -192,20 +199,33 @@ pub async fn enviar(
     // receber menos do que esperava, o que ele reporta como erro — mas isso é a
     // consequência do cancelamento, não uma falha a mostrar como tal.
     if cancelar.load(Relaxed) {
+        metricas.registar("envio_cancelado", serde_json::json!({ "id": aceite.id }));
         ouvinte(Evento::Cancelado { id: aceite.id });
         return Ok(());
     }
+
+    let s = comeco.elapsed().as_secs_f64();
+    let enviados = manifesto.size - aceite.tenho as u64 * manifesto.chunk_size as u64;
 
     // A partir daqui os erros já não sobem: há um cartão de transferência que
     // precisa de ser fechado, e deixar o erro propagar deixava-o preso para
     // sempre. Reporta-se pelo evento e devolve-se Ok.
     match envio {
-        Err(e) => ouvinte(Evento::Falhou { id: aceite.id, erro: amigavel(&e) }),
+        Err(e) => {
+            metricas.registar("envio_falhou", serde_json::json!({ "id": aceite.id, "erro": e.to_string() }));
+            ouvinte(Evento::Falhou { id: aceite.id, erro: amigavel(&e) })
+        }
         Ok(r) if !r.status().is_success() => ouvinte(Evento::Falhou {
             id: aceite.id,
             erro: r.text().await.unwrap_or_else(|_| "o destino recusou".into()),
         }),
-        Ok(_) => ouvinte(Evento::Enviado { id: aceite.id }),
+        Ok(_) => {
+            metricas.registar(
+                "envio_fim",
+                serde_json::json!({ "id": aceite.id, "bytes": enviados, "segundos": s, "mb_por_s": enviados as f64 / 1e6 / s.max(1e-9) }),
+            );
+            ouvinte(Evento::Enviado { id: aceite.id })
+        }
     }
     Ok(())
 }

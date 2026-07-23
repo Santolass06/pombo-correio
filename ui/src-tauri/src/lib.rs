@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use pombo_correio_core::identity::Identity;
-use pombo_correio_rede::{Cancelar, Cancelaveis, Evento, descoberta, enviar, receber};
+use pombo_correio_rede::{Cancelar, Cancelaveis, Evento, Metricas, descoberta, enviar, receber};
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 
@@ -26,6 +26,8 @@ struct Estado {
     /// de transferência — envios e receções. Partilhado com o servidor de
     /// receção, para que o mesmo botão cancele os dois casos.
     cancelaveis: Cancelaveis,
+    /// Registo de métricas, partilhado com o servidor e com cada envio.
+    metricas: Metricas,
 }
 
 /// Como a interface vê este dispositivo.
@@ -64,8 +66,13 @@ fn identidade(estado: tauri::State<'_, Estado>) -> Eu {
 /// Procura na rede local. Demora alguns segundos, por isso sai da thread da
 /// interface — senão a janela congelava enquanto procura.
 #[tauri::command]
-async fn dispositivos() -> Result<Vec<Vizinho>, String> {
-    tokio::task::spawn_blocking(|| descoberta::procurar(std::time::Duration::from_secs(3)))
+async fn dispositivos(estado: tauri::State<'_, Estado>) -> Result<Vec<Vizinho>, String> {
+    // Sem a própria impressão digital não se filtra o próprio dispositivo, que
+    // também se anuncia na rede.
+    let fp = descoberta::impressao_curta(&estado.eu.public());
+    tokio::task::spawn_blocking(move || {
+        descoberta::procurar(std::time::Duration::from_secs(3), Some(&fp))
+    })
         .await
         .map_err(|e| e.to_string())?
         .map(|v| {
@@ -88,12 +95,14 @@ async fn enviar_ficheiro(
     ficheiro: std::path::PathBuf,
     destino: String,
 ) -> Result<(), String> {
-    let endereco = tokio::task::spawn_blocking(move || descoberta::resolver(&destino, PORTA))
+    let fp = descoberta::impressao_curta(&app.state::<Estado>().eu.public());
+    let endereco = tokio::task::spawn_blocking(move || descoberta::resolver(&destino, PORTA, Some(&fp)))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
 
     let eu = copiar(&app.state::<Estado>().eu);
+    let metricas = app.state::<Estado>().metricas.clone();
     let cancelar: Cancelar = Default::default();
 
     // Este ouvinte, além de reencaminhar, gere o registo de cancelamento: só
@@ -120,7 +129,7 @@ async fn enviar_ficheiro(
     };
 
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = enviar::enviar(&eu, &ficheiro, endereco, ouvinte.clone(), cancelar).await {
+        if let Err(e) = enviar::enviar(&eu, &ficheiro, endereco, ouvinte.clone(), cancelar, &metricas).await {
             // Só chega aqui um erro anterior ao envio propriamente dito — ligar
             // ou resolver o destino. A partir do aceite, o próprio `enviar`
             // fecha a transferência por evento.
@@ -284,6 +293,8 @@ pub fn run() {
             // cancelar funcionar nos dois lados.
             let cancelaveis: Cancelaveis = Default::default();
             let cancelaveis_recetor = cancelaveis.clone();
+            let metricas = Metricas::no_diretorio(&dados);
+            let metricas_recetor = metricas.clone();
 
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = receber::servir(
@@ -293,6 +304,7 @@ pub fn run() {
                     PORTA,
                     ouvinte.clone(),
                     cancelaveis_recetor,
+                    metricas_recetor,
                 )
                 .await
                 {
@@ -303,7 +315,11 @@ pub fn run() {
                 }
             });
 
-            app.manage(Estado { eu, cancelaveis });
+            app.manage(Estado {
+                eu,
+                cancelaveis,
+                metricas,
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

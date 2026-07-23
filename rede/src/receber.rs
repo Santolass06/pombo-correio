@@ -19,8 +19,9 @@ use pombo_correio_core::{
 use tokio::io::AsyncWriteExt;
 
 use crate::{
-    Cancelaveis, Evento, Ouvinte,
+    Cancelaveis, Evento, Metricas, Ouvinte,
     conhecidos::Conhecidos,
+    metricas::{Fases, cronometrar},
     protocolo::{Aceite, Oferta},
 };
 
@@ -35,6 +36,7 @@ struct Estado {
     em_curso: tokio::sync::Mutex<HashMap<String, EmCurso>>,
     conhecidos: tokio::sync::Mutex<Conhecidos>,
     cancelaveis: Cancelaveis,
+    metricas: Metricas,
     ouvinte: Ouvinte,
 }
 
@@ -234,6 +236,16 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
     let mut ultimo_evento = std::time::Instant::now();
     let mut bytes_no_ultimo_evento: u64 = 0;
 
+    // Diagnóstico: tempo por fase, e uma amostra por segundo com a repartição
+    // acumulada. É isto que diz onde a velocidade se perde.
+    let comeco = std::time::Instant::now();
+    let mut fases = Fases::default();
+    let mut ultima_amostra = std::time::Instant::now();
+    estado.metricas.registar(
+        "rececao_inicio",
+        serde_json::json!({ "id": id, "ficheiro": manifesto.name, "tamanho": manifesto.size, "de_bloco": de, "total_blocos": total }),
+    );
+
     while indice < total {
         // Parar aqui deixa em disco tudo o que já foi escrito, por isso retomar
         // continua a valer. Sair da função fecha a ligação, e é isso que faz
@@ -242,26 +254,39 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
             ficheiro.flush().await?;
             estado.cancelaveis.lock().unwrap().remove(&id);
             estado.em_curso.lock().await.remove(&id);
-            (estado.ouvinte)(Evento::Cancelado { id });
-            return Ok("cancelado".into());
+            estado.metricas.registar("rececao_cancelada", serde_json::json!({ "id": id, "blocos": indice }));
+            (estado.ouvinte)(Evento::Cancelado { id: id.clone() });
+            // Erro de propósito, não `Ok`: uma resposta 200 diria a quem envia
+            // que correu tudo bem, e ele daria o envio por concluído. O erro
+            // fecha a ligação com um estado que o faz parar. O parcial fica em
+            // disco na mesma, por isso retomar continua a valer.
+            bail!("recebido cancelou a transferência {id}");
         }
 
         let esperado = manifesto.plain_len(indice).context("índice fora do manifesto")? + SEAL_OVERHEAD;
 
         // Encher até ter um bloco selado inteiro. O fluxo chega em pedaços de
         // tamanho arbitrário, que não coincidem com as fronteiras dos blocos.
+        // O tempo aqui é "rede", mas inclui esperar que o outro lado envie — se
+        // domina, o gargalo pode ser a ligação ou o emissor, não este disco.
+        let t_rede = std::time::Instant::now();
         while sobra.len() < esperado {
             match fluxo.next().await {
                 Some(pedaco) => sobra.extend_from_slice(&pedaco?),
                 None => bail!("fluxo acabou no bloco {indice} de {total}"),
             }
         }
+        fases.rede += t_rede.elapsed();
 
         let selado: Vec<u8> = sobra.drain(..esperado).collect();
-        let claro = open_chunk(&chave, indice, &selado).context("bloco não abre")?;
-        manifesto.verify_chunk(indice, &claro)?;
+        let claro = cronometrar(&mut fases.decifra, || open_chunk(&chave, indice, &selado))
+            .context("bloco não abre")?;
+        cronometrar(&mut fases.verifica, || manifesto.verify_chunk(indice, &claro))?;
 
+        let t_disco = std::time::Instant::now();
         ficheiro.write_all(&claro).await?;
+        fases.disco += t_disco.elapsed();
+
         indice += 1;
         movidos += claro.len() as u64;
 
@@ -278,15 +303,35 @@ async fn receber_blocos(estado: Arc<Estado>, id: String, de: u32, corpo: Body) -
                 bytes_por_seg,
             });
         }
+
+        if ultima_amostra.elapsed().as_secs_f64() >= 1.0 {
+            ultima_amostra = std::time::Instant::now();
+            let s = comeco.elapsed().as_secs_f64();
+            let mut amostra = fases.json();
+            amostra["blocos"] = indice.into();
+            amostra["bytes"] = movidos.into();
+            amostra["mb_por_s"] = (movidos as f64 / 1e6 / s.max(1e-9)).into();
+            estado.metricas.registar("rececao_amostra", amostra);
+        }
     }
 
+    let t_disco = std::time::Instant::now();
     ficheiro.flush().await?;
+    fases.disco += t_disco.elapsed();
     drop(ficheiro);
 
     let final_ = estado.destino.join(nome_seguro(&manifesto.name));
     tokio::fs::rename(&caminho, &final_).await?;
     estado.cancelaveis.lock().unwrap().remove(&id);
     estado.em_curso.lock().await.remove(&id);
+
+    let s = comeco.elapsed().as_secs_f64();
+    let mut resumo = fases.json();
+    resumo["id"] = id.clone().into();
+    resumo["bytes"] = movidos.into();
+    resumo["segundos"] = s.into();
+    resumo["mb_por_s"] = (movidos as f64 / 1e6 / s.max(1e-9)).into();
+    estado.metricas.registar("rececao_fim", resumo);
 
     (estado.ouvinte)(Evento::Recebido { id, caminho: final_ });
     Ok("ok".into())
@@ -299,6 +344,7 @@ pub async fn servir(
     porta: u16,
     ouvinte: Ouvinte,
     cancelaveis: Cancelaveis,
+    metricas: Metricas,
 ) -> Result<()> {
     tokio::fs::create_dir_all(&destino).await?;
 
@@ -308,6 +354,7 @@ pub async fn servir(
         em_curso: Default::default(),
         conhecidos: Conhecidos::carregar(conhecidos).into(),
         cancelaveis,
+        metricas,
         ouvinte: ouvinte.clone(),
     });
 

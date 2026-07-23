@@ -5,7 +5,7 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use pombo_correio_core::identity::Identity;
-use pombo_correio_rede::{Evento, Ouvinte, descoberta, enviar, receber, sem_cancelamento};
+use pombo_correio_rede::{Evento, Metricas, Ouvinte, descoberta, enviar, receber, sem_cancelamento};
 
 use progresso::Progresso;
 
@@ -190,19 +190,23 @@ async fn main() -> Result<()> {
                 porta,
                 ouvinte,
                 Default::default(),
+                Metricas::no_diretorio(&dados),
             )
             .await
         }
 
         Comando::Enviar { ficheiro, destino } => {
-            let endereco = descoberta::resolver(&destino, PORTA)?;
+            let fp = descoberta::impressao_curta(&eu.public());
+            let endereco = descoberta::resolver(&destino, PORTA, Some(&fp))?;
             println!("A preparar {}...", ficheiro.display());
-            enviar::enviar(&eu, &ficheiro, endereco, ouvinte, sem_cancelamento()).await
+            let metricas = Metricas::no_diretorio(&dados);
+            enviar::enviar(&eu, &ficheiro, endereco, ouvinte, sem_cancelamento(), &metricas).await
         }
 
         Comando::Dispositivos => {
             println!("À procura na rede local...");
-            let achados = descoberta::procurar(std::time::Duration::from_secs(3))?;
+            let fp = descoberta::impressao_curta(&eu.public());
+            let achados = descoberta::procurar(std::time::Duration::from_secs(3), Some(&fp))?;
 
             if achados.is_empty() {
                 println!(

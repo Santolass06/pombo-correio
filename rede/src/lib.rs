@@ -10,8 +10,11 @@
 pub mod conhecidos;
 pub mod descoberta;
 pub mod enviar;
+pub mod metricas;
 pub mod protocolo;
 pub mod receber;
+
+pub use metricas::Metricas;
 
 use std::sync::Arc;
 
