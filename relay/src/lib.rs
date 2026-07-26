@@ -6,5 +6,6 @@
 //! cifrado**, e é essa a razão de ser desta forma: é a única peça exposta à
 //! internet, e comprometê-la não expõe ficheiro nenhum.
 
+pub mod autenticado;
 pub mod deposito;
 pub mod servidor;

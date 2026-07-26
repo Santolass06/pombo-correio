@@ -19,10 +19,14 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
-use crate::deposito::{Deposito, VALIDADE};
+use crate::{
+    autenticado::{self, Autorizados},
+    deposito::{Deposito, VALIDADE},
+};
 
 struct Estado {
     deposito: Deposito,
+    autorizados: Autorizados,
     /// Depósitos com uma subida a decorrer. Duas subidas ao mesmo depósito
     /// escreveriam por cima uma da outra e o ficheiro sairia com blocos de
     /// ambas — indistinguível de corrupção, e só descoberto no fim, na
@@ -48,11 +52,25 @@ struct Criado {
 }
 
 /// Abre um depósito. O corpo é a oferta, e passa por aqui sem ser lida.
+///
+/// Assinado, e o remetente tem de estar na lista de casa: sem isso, qualquer um
+/// na internet enchia o disco. Note-se que a assinatura sozinha não chegaria —
+/// prova posse de uma chave, não pertença a esta casa.
 async fn criar(
     State(e): State<Arc<Estado>>,
     Query(q): Query<Criar>,
+    cabecalhos: HeaderMap,
     oferta: String,
 ) -> Result<Json<Criado>, Erro> {
+    let prova = autenticado::verificar(
+        &cabecalhos,
+        "deposito",
+        &format!("{}|{}", q.para, q.tamanho),
+    )?;
+    if !e.autorizados.deixa(&prova.impressao) {
+        return Err(mau(StatusCode::FORBIDDEN, "este relay não é teu"));
+    }
+
     let id = e
         .deposito
         .criar(&q.para, q.tamanho, oferta)
@@ -211,14 +229,14 @@ async fn apagar(State(e): State<Arc<Estado>>, Path(id): Path<String>) -> Result<
         .map_err(|x| mau(StatusCode::NOT_FOUND, x))
 }
 
-/// O que está à espera de alguém.
+/// O que está à espera de quem pergunta.
 ///
-/// **Sem autenticação nesta peça** — entra em R2, com assinatura Ed25519. Por
-/// agora só diz identificadores, que já são imprevisíveis; mas quem souber uma
-/// impressão digital fica a saber quanta coisa espera por essa pessoa, e isso
-/// não fica assim.
-async fn caixa(State(e): State<Arc<Estado>>, Path(impressao): Path<String>) -> Json<Vec<String>> {
-    Json(e.deposito.caixa_de(&impressao).await.unwrap_or_default())
+/// **Não leva a impressão digital no caminho**, e é de propósito: ela sai das
+/// chaves que vêm assinadas no pedido, por isso não há sequer forma de pedir a
+/// caixa de outra pessoa. Um parâmetro convidaria a tentar.
+async fn caixa(State(e): State<Arc<Estado>>, cabecalhos: HeaderMap) -> Result<Json<Vec<String>>, Erro> {
+    let prova = autenticado::verificar(&cabecalhos, "caixa", "")?;
+    Ok(Json(e.deposito.caixa_de(&prova.impressao).await.unwrap_or_default()))
 }
 
 async fn saude() -> impl IntoResponse {
@@ -238,13 +256,14 @@ fn rotas(estado: Arc<Estado>) -> Router {
             get(estado_do_deposito).put(subir).delete(apagar),
         )
         .route("/deposito/{id}/blocos", get(descer))
-        .route("/caixa/{impressao}", get(caixa))
+        .route("/caixa", get(caixa))
         .with_state(estado)
 }
 
-pub async fn servir(raiz: std::path::PathBuf, porta: u16) -> Result<()> {
+pub async fn servir(raiz: std::path::PathBuf, porta: u16, autorizados: Autorizados) -> Result<()> {
     let estado = Arc::new(Estado {
         deposito: Deposito::novo(raiz)?,
+        autorizados,
         a_subir: Default::default(),
     });
 
@@ -272,9 +291,11 @@ pub async fn servir(raiz: std::path::PathBuf, porta: u16) -> Result<()> {
 /// testes, que não podem fixar portas sem colidirem entre si.
 pub async fn servir_em_porta_livre(
     raiz: std::path::PathBuf,
+    autorizados: Autorizados,
 ) -> Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
     let estado = Arc::new(Estado {
         deposito: Deposito::novo(raiz)?,
+        autorizados,
         a_subir: Default::default(),
     });
 

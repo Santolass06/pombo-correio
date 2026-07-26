@@ -6,6 +6,9 @@
 
 use std::path::PathBuf;
 
+use pombo_correio_core::identity::Identity;
+use pombo_correio_relay::autenticado::{self, Autorizados};
+
 struct Temp(PathBuf);
 
 impl Temp {
@@ -31,27 +34,71 @@ impl Drop for Temp {
 
 async fn relay(nome: &str) -> (String, Temp) {
     let dir = Temp::nova(nome);
-    let (endereco, _) = pombo_correio_relay::servidor::servir_em_porta_livre(dir.0.clone())
-        .await
-        .unwrap();
+    let (endereco, _) =
+        pombo_correio_relay::servidor::servir_em_porta_livre(dir.0.clone(), Autorizados::abertos())
+            .await
+            .unwrap();
     (format!("http://{endereco}"), dir)
 }
 
+fn agora() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+/// Assina um pedido como o cliente a sério fará.
+fn assinar(eu: &Identity, acao: &str, extra: &str) -> reqwest::header::HeaderMap {
+    let p = eu.public();
+    let impressao = hex::encode(p.fingerprint())[..16].to_string();
+    let t = agora();
+    let sig = eu.sign(autenticado::mensagem(acao, &impressao, extra, t).as_bytes());
+
+    let mut h = reqwest::header::HeaderMap::new();
+    h.insert(
+        "x-pombo-identidade",
+        format!("{}{}", hex::encode(p.verifying), hex::encode(p.encrypting))
+            .parse()
+            .unwrap(),
+    );
+    h.insert("x-pombo-instante", t.to_string().parse().unwrap());
+    h.insert("x-pombo-assinatura", hex::encode(sig).parse().unwrap());
+    h
+}
+
+fn impressao_de(eu: &Identity) -> String {
+    hex::encode(eu.public().fingerprint())[..16].to_string()
+}
+
 async fn criar(base: &str, para: &str, tamanho: u64, oferta: &str) -> String {
+    criar_como(&Identity::generate("emissor"), base, para, tamanho, oferta)
+        .await
+        .expect("devia ter criado")
+}
+
+async fn criar_como(
+    eu: &Identity,
+    base: &str,
+    para: &str,
+    tamanho: u64,
+    oferta: &str,
+) -> Option<String> {
     #[derive(serde::Deserialize)]
     struct R {
         id: String,
     }
-    reqwest::Client::new()
+    let r = reqwest::Client::new()
         .post(format!("{base}/deposito?para={para}&tamanho={tamanho}"))
+        .headers(assinar(eu, "deposito", &format!("{para}|{tamanho}")))
         .body(oferta.to_string())
         .send()
         .await
-        .unwrap()
-        .json::<R>()
-        .await
-        .unwrap()
-        .id
+        .unwrap();
+    if !r.status().is_success() {
+        return None;
+    }
+    Some(r.json::<R>().await.unwrap().id)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -233,14 +280,63 @@ async fn apagado_deixa_de_existir_e_leva_os_bytes() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_caixa_de_um_nao_e_a_do_outro() {
     let (base, _d) = relay("caixas").await;
-    let meu = criar(&base, "impressao-a", 10, "{}").await;
-    let _dele = criar(&base, "impressao-b", 10, "{}").await;
+    let eu = Identity::generate("eu");
+    let ele = Identity::generate("ele");
 
-    let caixa: Vec<String> = reqwest::get(format!("{base}/caixa/impressao-a"))
+    let meu = criar(&base, &impressao_de(&eu), 10, "{}").await;
+    let _dele = criar(&base, &impressao_de(&ele), 10, "{}").await;
+
+    let caixa: Vec<String> = reqwest::Client::new()
+        .get(format!("{base}/caixa"))
+        .headers(assinar(&eu, "caixa", ""))
+        .send()
         .await
         .unwrap()
         .json()
         .await
         .unwrap();
     assert_eq!(caixa, vec![meu]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_caixa_sem_assinatura_nao_se_ve() {
+    // Antes do R2 bastava saber a impressão digital de alguém — que é pública,
+    // anda anunciada na rede local — para saber quanta coisa esperava por ela.
+    let (base, _d) = relay("caixa-nua").await;
+    let r = reqwest::get(format!("{base}/caixa")).await.unwrap();
+    assert_eq!(r.status(), reqwest::StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn depositar_sem_assinatura_nao_da()  {
+    let (base, _d) = relay("dep-nu").await;
+    let r = reqwest::Client::new()
+        .post(format!("{base}/deposito?para=abc123&tamanho=10"))
+        .body("{}")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), reqwest::StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn de_fora_de_casa_nao_se_deposita() {
+    // Assinar prova posse de uma chave, não pertença a esta casa: sem a lista,
+    // qualquer um na internet enchia o disco.
+    let dir = Temp::nova("lista");
+    let lista = dir.0.join("autorizados.txt");
+    let de_casa = Identity::generate("de casa");
+    std::fs::write(&lista, format!("{}\n", impressao_de(&de_casa))).unwrap();
+
+    let (endereco, _) = pombo_correio_relay::servidor::servir_em_porta_livre(
+        dir.0.clone(),
+        Autorizados::do_ficheiro(&lista).unwrap(),
+    )
+    .await
+    .unwrap();
+    let base = format!("http://{endereco}");
+
+    assert!(criar_como(&de_casa, &base, "abc123", 10, "{}").await.is_some());
+    let estranho = Identity::generate("estranho");
+    assert!(criar_como(&estranho, &base, "abc123", 10, "{}").await.is_none());
 }

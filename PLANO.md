@@ -982,20 +982,45 @@ menos o último. É esta conta que mantém o relay ignorante.
 
 #### Peças, por ordem de dependência
 
-- [ ] **R1 — depósito opaco.** `relay/` em axum: `POST /deposito` (devolve o id),
-      `PUT /deposito/{id}?de=N` (subir, retomável), `GET /deposito/{id}`
-      (cabeçalho: oferta selada e bytes já lá), `GET /deposito/{id}/blocos` com
-      `Range` (descer, retomável), TTL com limpeza. Testável em loopback.
-- [ ] **R2 — registo de dispositivos e caixa autenticada.** `POST /registo` com a
-      `PublicIdentity` auto-assinada; `GET /caixa` assinada com Ed25519 e um
-      instante, para o relay saber que é mesmo o dono a perguntar o que tem à
-      espera. Sem isto, qualquer um lista a caixa alheia — não lê nada, mas fica
-      a saber quanto e quando, e pode gastar a largura de banda de casa.
+- [x] **R1 — depósito opaco ✅** `relay/` em axum: `POST /deposito` (devolve o
+      id), `PUT /deposito/{id}?de=N` (subir, retomável), `GET /deposito/{id}`
+      (oferta selada e bytes já lá), `GET /deposito/{id}/blocos` com `Range`
+      (descer, retomável), validade com limpeza de hora a hora. 16 testes, 8 em
+      loopback com servidor e cliente HTTP a sério.
+- [x] **R2 — caixa autenticada ✅** `GET /caixa` assinada com Ed25519 e um
+      instante. Sem isto, quem soubesse a impressão digital de alguém — que é
+      pública, anda anunciada na rede local — listava a caixa alheia: não lia
+      nada, mas ficava a saber quanto esperava por essa pessoa e podia ir buscar
+      os depósitos, gastando o upload de casa. `POST /deposito` também assinado,
+      mais uma lista de quem é de casa.
+
+  **O registo de dispositivos que o plano previa não chegou a ser preciso**, e é
+  uma simplificação que vale a pena explicar: a impressão digital **deriva das
+  chaves**. Quem pergunta manda as suas chaves públicas e assina; o relay
+  confirma que a impressão sai mesmo dessas chaves. Não precisa de ter visto o
+  dispositivo antes nem de guardar nada — some um endpoint, um ficheiro de
+  estado, e toda a sincronização que R4 lhe ia dedicar.
+
+  **A impressão digital não vai no caminho do URL**, de propósito: sai das
+  chaves assinadas, por isso não há sequer forma de pedir a caixa de outra
+  pessoa. Um parâmetro convidava a tentar.
+
+  Cuidado que fica registado, porque é a parte que a assinatura **não** resolve:
+  assinar prova posse de uma chave, não pertença a esta casa — gerar um par novo
+  custa microssegundos. Para depositar exige-se também estar na lista
+  (`--autorizados`, uma impressão por linha). Sem essa lista, qualquer um na
+  internet enchia o disco. E **nada disto substitui TLS**: uma assinatura
+  interceptada repete-se dentro dos 5 minutos de tolerância, e o conteúdo do
+  pedido vai em claro. O sigilo do canal é do TLS, que o relay leva quando for
+  exposto.
 - [ ] **R3 — o cliente desce a escada.** Direto → relay, e ao abrir a app
       pergunta pela caixa. É aqui que o "o destino não está disponível" deixa de
       ser um beco.
 - [ ] **R4 — dois nós ativo-ativo.** Cliente corre ambos em paralelo e fica com o
-      primeiro. Blobs não replicam; só o registo, por vetor de versões.
+      primeiro. Blobs não replicam. O registo também não, agora que R2 mostrou
+      que não existe — **o vetor de versões deixou de ter o que sincronizar**.
+      Sobra a lista de autorizados, que é um ficheiro de texto pequeno e se copia
+      à mão.
 - [ ] **R5 — página sem instalação.** *Depende do `core/` em WASM* — o browser
       tem de decifrar e verificar sozinho, senão a chave passaria pelo servidor e
       todo o modelo caía. Por isso **faz-se junto do S8**, que traz o WASM de
