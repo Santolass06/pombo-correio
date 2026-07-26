@@ -1013,11 +1013,36 @@ menos o último. É esta conta que mantém o relay ignorante.
   interceptada repete-se dentro dos 5 minutos de tolerância, e o conteúdo do
   pedido vai em claro. O sigilo do canal é do TLS, que o relay leva quando for
   exposto.
-- [ ] **R3 — o cliente desce a escada.** Direto → relay, e ao abrir a app
-      pergunta pela caixa. É aqui que o "o destino não está disponível" deixa de
-      ser um beco.
-- [ ] **R4 — dois nós ativo-ativo.** Cliente corre ambos em paralelo e fica com o
-      primeiro. Blobs não replicam. O registo também não, agora que R2 mostrou
+- [x] **R3 — o cliente desce a escada ✅** Direto → relay, e ao abrir a app
+      pergunta pela caixa. O "destino não disponível" deixou de ser um beco.
+
+  Três coisas que o desenho obrigou a mudar, e que valem mais do que o código:
+
+  1. **`conhecidos.json` guarda a chave pública**, não só o nome. Sem ela não há
+     envelope. Daí a regra: **só se envia pelo relay para quem já se conheceu
+     diretamente** — pedir a chave ao relay seria deixá-lo escolher para quem os
+     ficheiros abrem. O formato antigo continua a ler-se.
+  2. **O caminho de decifrar-verificar-escrever passou a existir uma vez só**
+     (`receber::escoar`). É aí que vive a garantia byte-exata: a LAN e o relay
+     entregam bytes de sítios diferentes, mas o que se lhes faz tem de ser
+     igual. Duas cópias seriam duas definições de "chegou bem".
+  3. **`Depositado` é um estado à parte de `Enviado`.** Dizer "enviado" quando o
+     ficheiro está num servidor e a outra pessoa ainda nem sabe dele é o género
+     de mentira que faz alguém desligar o telemóvel convencido de que já estava.
+     Na interface: "Guardado em casa".
+
+  O identificador visível continua a ser a raiz de Merkle: um ficheiro começado
+  na LAN e acabado pelo relay reencontra o seu parcial. Sem ficheiro `relays` na
+  pasta de dados nada disto existe, e a app comporta-se como antes.
+
+  **Por fechar aqui:** se a app morrer entre criar o depósito e acabar de subir,
+  o identificador do relay perde-se e uma nova tentativa cria outro depósito. O
+  órfão desaparece pela validade de 7 dias. Retomar dentro da mesma tentativa
+  funciona (3 tentativas, cada uma a recomeçar na fronteira do bloco).
+- [~] **R4 — dois nós ativo-ativo.** *Metade feita:* o cliente tenta os nós pela
+      ordem do ficheiro e usa o primeiro que responda ao `/saude`; ao buscar,
+      passa por todos, porque um em baixo não pode impedir o outro de entregar.
+      **Falta pôr os dois de pé no A10 e no Pi 5** — precisa das máquinas. Blobs não replicam. O registo também não, agora que R2 mostrou
       que não existe — **o vetor de versões deixou de ter o que sincronizar**.
       Sobra a lista de autorizados, que é um ficheiro de texto pequeno e se copia
       à mão.
