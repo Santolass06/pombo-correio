@@ -56,6 +56,16 @@ export const enviarFicheiro = (ficheiro: string, destino: Vizinho) =>
 export const enviarAndroid = (destino: Vizinho) =>
   invoke<void>("enviar_android", { destino });
 
+/// Um ficheiro que outra app partilhou para cá pela folha de partilha.
+export type Partilhado = { uri: string; nome: string };
+
+/// O que outra app partilhou para cá desde a última pergunta. Consome: a
+/// resposta só vem uma vez, porque o URI não vale fora desta sessão da app.
+export const partilhaPendente = () => invoke<Partilhado[]>("partilha_pendente");
+
+export const enviarPartilhados = (destino: Vizinho, ficheiros: Partilhado[]) =>
+  invoke<void>("enviar_partilhados", { destino, ficheiros });
+
 /// O WebView do Android identifica-se no user agent; chega para escolher o
 /// caminho de envio certo sem mais um plugin de plataforma.
 export const eAndroid = () => /Android/i.test(navigator.userAgent);

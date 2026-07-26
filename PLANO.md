@@ -350,7 +350,7 @@ Foi criado precisamente para o problema em aberto abaixo.
 - [x] **S3 — Transferência sobre HTTP**
 - [x] **S4 — Descoberta e dispositivos conhecidos**
 - [x] **S5 — Interface e desktop** (falta Windows)
-- [ ] **S6 — Android**
+- [x] **S6 — Android**
 - [ ] **S7 — Relay e link sem instalação**
 - [ ] **S8 — PWA iOS**
 
@@ -684,7 +684,7 @@ QR, dispositivos de confiança, prazo dos links, modo simples. Ficaram de fora e
 vez de aparecerem sem função — o histórico e o QR entram quando houver onde os
 guardar, os links em S7.
 
-### S6 — Android ⏳ em curso
+### S6 — Android ✅
 
 Testado num OnePlus Pad (OPD2403), Android 16, ARM64, por USB (adb).
 
@@ -784,8 +784,69 @@ a sua regressão (`rede/tests/dica_de_endereco.rs`). O caminho de recurso — a
 busca por mDNS quando a dica não serve — **não** está provado em teste, porque
 depende de multicast; só se dá por validado entre máquinas reais.
 
-**Por fazer**
-- [ ] Partilha pelo share sheet do sistema (peça D).
+**Peça D — partilhar de outra app para o Pombo-Correio ✅**
+
+O caminho inverso do C: em vez de abrir o seletor de dentro da app, é a Galeria
+(ou o Ficheiros, ou o WhatsApp) que oferece "Pombo-Correio" na folha de partilha.
+
+*Desenho — o que cada lado observa, e quando*
+
+O Android entrega os ficheiros como URIs `content://` num `Intent`, e a permissão
+de leitura vale **enquanto a atividade que o recebeu viver**. Não é persistível
+(`takePersistableUriPermission` só funciona para `OPEN_DOCUMENT`), por isso o URI
+não pode ser guardado para outra sessão. Isto decide o desenho todo.
+
+1. **Kotlin** (`MainActivity`) apanha o intent — em `onCreate` se a app estava
+   fechada, em `onNewIntent` se já estava aberta (`launchMode="singleTask"`) — e
+   escreve os URIs, um por linha, em `<dados>/partilha-pendente`. Mesmo truque do
+   `nome-dispositivo`: sem ponte JNI nova, só um ficheiro.
+2. **Rust** (`partilha_pendente`) lê **e apaga** o ficheiro, e resolve o nome
+   legível de cada URI pelo plugin.
+3. **Interface** guarda a lista em memória, mostra "a partilhar: N ficheiros" e
+   troca o botão de cada dispositivo — em vez de abrir o seletor, envia estes.
+4. **Rust** (`enviar_partilhados`) envia-os **um a um**, cada um a sua
+   transferência com o seu identificador e o seu botão de cancelar.
+
+*Onde a interface volta a perguntar:* ao montar (arranque a frio) e no
+`visibilitychange` (a app estava em segundo plano e a partilha trouxe-a à frente
+— o `onNewIntent` corre antes do `onResume`, por isso o ficheiro já lá está).
+
+*Pré-mortem — o processo morre entre a partilha e a escolha do destino:* o URI em
+memória perde-se e o ficheiro em disco descreveria uma permissão que já não
+existe. Por isso **cada intent reescreve o ficheiro, e um intent que não é
+partilha apaga-o**: o ficheiro nunca descreve nada senão o intent atual. Sem esta
+regra, uma partilha nunca consumida ressuscitaria numa sessão seguinte e falharia
+com um erro de permissão incompreensível. É o que
+`partilha_pendente_consome_uma_vez` protege.
+
+*Cancelar um de três não afeta os outros:* cada ficheiro leva o seu próprio sinal
+de cancelamento, criado dentro do ciclo.
+
+*Provado no tablet, com a folha de partilha a sério*
+
+Conduzido pela app **Ficheiros** do sistema (`uiautomator`), não por um intent
+fabricado — a distinção interessa, ver abaixo:
+
+| | resultado |
+|---|---|
+| O Android lista "Pombo-Correio" ao partilhar | ✅ (`SEND` e `SEND_MULTIPLE`) |
+| Um ficheiro: nome certo na app, e chega ao PC | ✅ `prova-partilha.bin`, SHA-256 igual |
+| Dois ficheiros de uma vez | ✅ 3 MB + 500 kB, ambos com SHA-256 igual |
+
+**Um intent fabricado por `adb` não serve de teste.** A primeira tentativa foi
+`am start -a SEND --grant-read-uri-permission`, e falhou com "não consegui abrir
+o ficheiro" — mas por razão nenhuma nossa: o `dumpsys activity permissions` não
+mostrava concessão para a app, porque o `shell` não pode conceder um URI do
+MediaStore a terceiros. O sintoma (o nome a aparecer como "ficheiro", e depois a
+abertura a falhar) era indistinguível de um bug real, e teria mandado corrigir
+código que estava certo. Com a partilha a sério, a concessão aparece no
+`dumpsys` e tudo funciona à primeira.
+
+**Segunda armadilha, do mesmo género:** um `input tap` acertava numa caixa "Abrir
+com" esquecida por cima da app — a `uiautomator` mostrava a app e o toque ia para
+outro lado. Este caminho **não** precisa de gesto real (ao contrário do seletor
+SAF da peça C, que precisa), por isso passou-se a carregar no botão pelo DOM via
+DevTools, que é determinista.
 
 #### Desenho do que falta (send e receive igualmente importantes)
 
@@ -879,12 +940,74 @@ Prioridade menor.
 
 ### S7 — Relay e link sem instalação
 
-- [ ] `relay/` em axum: depósito cifrado com TTL, registo de dispositivos.
-- [ ] Ativo-ativo no A10 e no Pi 5; cliente corre ambos em paralelo.
-- [ ] Sincronização do registo por vetor de versões.
-- [ ] Página de descarregamento com a chave no fragmento do URL.
-- [ ] Notificações push.
+Em branch própria (`s7-relay`), com o `main` sempre verde: o S7 mexe no formato
+de fio e tem uma ponta que só se valida com os servidores de casa de pé. O `main`
+tem de continuar a ser o que se instala nos aparelhos da família a meio disto.
+
+#### O que o relay é — e o que não pode ser
+
+**Não pode ser um `receber::servir`.** O recetor de hoje abre o envelope com a
+sua identidade e verifica cada bloco contra o manifesto; o relay não é o
+destinatário, não tem chave, e não pode ter. O relay é mais burro de propósito:
+guarda **bytes opacos** com um identificador, e devolve-os. Não sabe o nome do
+ficheiro (vai no manifesto selado), não sabe o tamanho em claro, não distingue um
+vídeo de um PDF. Comprometê-lo não expõe ficheiro nenhum — é a razão de existir
+deste desenho, e é ele que está exposto à internet.
+
+Quem verifica continua a ser quem recebe: `open_chunk` + `verify_chunk` contra o
+manifesto, exatamente como na LAN. **A garantia byte-exata não muda de dono.**
+
+#### O identificador no relay não é a raiz de Merkle
+
+Na LAN o identificador é a raiz de Merkle, e é bom que seja: duas tentativas do
+mesmo ficheiro reencontram o trabalho a meio. No relay seria um erro por duas
+razões:
+
+1. **Confirmação de conteúdo.** Quem desconfie de que passou por ali um ficheiro
+   concreto calcula-lhe a raiz e pergunta. Num relay exposto à internet, isso
+   deita fora metade do que o ciframento comprou.
+2. **Colisão entre pessoas.** Dois envios do mesmo ficheiro para destinatários
+   diferentes partilhariam depósito.
+
+Logo: **identificador aleatório de 128 bits**, gerado pelo relay. É também o que
+vai no link sem instalação, e é por ser imprevisível que o link se aguenta.
+
+#### Retoma: blocos de um lado, bytes do outro
+
+A subida para o relay retoma como hoje (`?de=N`, em blocos) porque quem envia
+conhece o manifesto. A descida retoma por `Range` **em bytes**, porque o relay
+não sabe o que é um bloco. Quem recebe converte: o bloco *k* começa no byte
+`k * (chunk_size + SEAL_OVERHEAD)` — todos os blocos selados têm tamanho fixo
+menos o último. É esta conta que mantém o relay ignorante.
+
+#### Peças, por ordem de dependência
+
+- [ ] **R1 — depósito opaco.** `relay/` em axum: `POST /deposito` (devolve o id),
+      `PUT /deposito/{id}?de=N` (subir, retomável), `GET /deposito/{id}`
+      (cabeçalho: oferta selada e bytes já lá), `GET /deposito/{id}/blocos` com
+      `Range` (descer, retomável), TTL com limpeza. Testável em loopback.
+- [ ] **R2 — registo de dispositivos e caixa autenticada.** `POST /registo` com a
+      `PublicIdentity` auto-assinada; `GET /caixa` assinada com Ed25519 e um
+      instante, para o relay saber que é mesmo o dono a perguntar o que tem à
+      espera. Sem isto, qualquer um lista a caixa alheia — não lê nada, mas fica
+      a saber quanto e quando, e pode gastar a largura de banda de casa.
+- [ ] **R3 — o cliente desce a escada.** Direto → relay, e ao abrir a app
+      pergunta pela caixa. É aqui que o "o destino não está disponível" deixa de
+      ser um beco.
+- [ ] **R4 — dois nós ativo-ativo.** Cliente corre ambos em paralelo e fica com o
+      primeiro. Blobs não replicam; só o registo, por vetor de versões.
+- [ ] **R5 — página sem instalação.** *Depende do `core/` em WASM* — o browser
+      tem de decifrar e verificar sozinho, senão a chave passaria pelo servidor e
+      todo o modelo caía. Por isso **faz-se junto do S8**, que traz o WASM de
+      qualquer maneira, em vez de o trazer duas vezes.
+- [ ] **R6 — push.** FCM no Android, Web Push no iOS. Precisa de contas e chaves
+      de serviço — decisão do utilizador, não técnica.
 - [ ] Binários musl para amd64 e arm64.
+
+**Depende de decisões que ainda não estão tomadas:** como expor os servidores à
+internet (domínio, IP público ou CGNAT). Enquanto não estiverem, R1–R4 fazem-se e
+validam-se em loopback e na LAN; a ponta pela internet fica marcada como não
+provada.
 
 ### S8 — PWA iOS
 

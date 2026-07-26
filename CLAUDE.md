@@ -88,10 +88,20 @@ Cada lógica não-trivial deixa **um teste que falha se ela partir**.
   logcat dá o corte exato — o toque (`input_interaction`), o disparo do
   `Intent` (`START u0`) e o desenho (`wm_activity_launch_time`). Duas vezes
   neste projeto a causa "óbvia" era a errada.
+- **Um intent de partilha fabricado por `adb` não prova nada.** O `shell` não
+  consegue conceder um URI do MediaStore a outra app, por isso
+  `am start -a SEND --grant-read-uri-permission` chega sem permissão e a
+  abertura falha — igualzinho a um bug nosso. Confirma a concessão em
+  `dumpsys activity permissions | grep -A3 <pkg>`; se não aparecer lá, o teste é
+  que está partido. Para testar a sério, conduz a app **Ficheiros** por
+  `uiautomator` (selecionar → Partilhar → Pombo-Correio).
 - **`adb shell input tap` só acerta com a app em primeiro plano.** Em segundo
   plano o DevTools continua a responder (a WebView sobrevive), o que dá a
   ilusão de que a app está à frente, mas o toque vai para o ecrã inicial.
-  Confirma com `dumpsys activity activities | grep topResumedActivity`.
+  Confirma com `dumpsys activity activities | grep topResumedActivity`. E uma
+  caixa de diálogo esquecida por cima (um "Abrir com") come o toque sem a
+  `uiautomator` a mostrar. **Só o seletor SAF exige gesto real**; para o resto,
+  carrega no botão pelo DOM via DevTools, que é determinista.
 
 ## Idioma
 

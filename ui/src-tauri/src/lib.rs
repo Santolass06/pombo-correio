@@ -108,8 +108,40 @@ async fn endereco_de(app: &tauri::AppHandle, destino: &Vizinho) -> Result<std::n
     .map_err(|e| e.to_string())
 }
 
-/// Envia um ficheiro. Devolve assim que o envio arranca; o resto conta-se por
+/// Põe ficheiros a caminho do destino e devolve logo; o resto conta-se por
 /// acontecimentos, para a interface não ficar presa à espera.
+///
+/// **Um de cada vez, de propósito:** em paralelo dividiriam a mesma rede e
+/// acabariam todos mais tarde. Cada um leva o seu sinal de cancelamento, para o
+/// botão de um não parar os outros.
+fn despachar(
+    app: &tauri::AppHandle,
+    fontes: Vec<Box<dyn pombo_correio_rede::Fonte>>,
+    endereco: std::net::SocketAddr,
+) {
+    let eu = copiar(&app.state::<Estado>().eu);
+    let metricas = app.state::<Estado>().metricas.clone();
+    let app = app.clone();
+
+    tauri::async_runtime::spawn(async move {
+        for fonte in fontes {
+            let cancelar: Cancelar = Default::default();
+            let ouvinte = ouvinte_de_envio(app.clone(), cancelar.clone());
+            // A app corre servidor na PORTA, por isso quem recebe pode avisá-la
+            // de um cancelamento por esse endereço.
+            if let Err(e) =
+                enviar::enviar_fonte(&eu, fonte.as_ref(), endereco, ouvinte.clone(), cancelar, &metricas, PORTA).await
+            {
+                // Só chega aqui um erro anterior ao envio propriamente dito —
+                // ligar ou abrir a origem. A partir do aceite, o próprio
+                // `enviar` fecha a transferência por evento.
+                ouvinte(Evento::Falhou { id: String::new(), erro: e.to_string() });
+            }
+        }
+    });
+}
+
+/// Envia um ficheiro escolhido pelo diálogo do desktop.
 #[tauri::command]
 async fn enviar_ficheiro(
     app: tauri::AppHandle,
@@ -117,24 +149,7 @@ async fn enviar_ficheiro(
     destino: Vizinho,
 ) -> Result<(), String> {
     let endereco = endereco_de(&app, &destino).await?;
-
-    let eu = copiar(&app.state::<Estado>().eu);
-    let metricas = app.state::<Estado>().metricas.clone();
-    let cancelar: Cancelar = Default::default();
-    let ouvinte = ouvinte_de_envio(app.clone(), cancelar.clone());
-
-    tauri::async_runtime::spawn(async move {
-        // A app corre servidor na PORTA, por isso quem recebe pode avisá-la de
-        // um cancelamento por esse endereço.
-        let fonte = pombo_correio_rede::FonteCaminho(ficheiro);
-        if let Err(e) = enviar::enviar_fonte(&eu, &fonte, endereco, ouvinte.clone(), cancelar, &metricas, PORTA).await {
-            // Só chega aqui um erro anterior ao envio propriamente dito — ligar
-            // ou resolver o destino. A partir do aceite, o próprio `enviar`
-            // fecha a transferência por evento.
-            ouvinte(Evento::Falhou { id: String::new(), erro: e.to_string() });
-        }
-    });
-
+    despachar(&app, vec![Box::new(pombo_correio_rede::FonteCaminho(ficheiro))], endereco);
     Ok(())
 }
 
@@ -224,20 +239,105 @@ async fn enviar_android(app: tauri::AppHandle, destino: Vizinho) -> Result<(), S
             return Ok(()); // cancelado, sem erro
         };
 
-        let eu = copiar(&app.state::<Estado>().eu);
-        let metricas = app.state::<Estado>().metricas.clone();
-        let cancelar: Cancelar = Default::default();
-        let ouvinte = ouvinte_de_envio(app.clone(), cancelar.clone());
-        let fonte = FonteAndroid { app: app.clone(), uri, nome };
+        despachar(&app, vec![Box::new(FonteAndroid { app: app.clone(), uri, nome })], endereco);
+        Ok(())
+    }
+}
 
-        tauri::async_runtime::spawn(async move {
-            if let Err(e) =
-                enviar::enviar_fonte(&eu, &fonte, endereco, ouvinte.clone(), cancelar, &metricas, PORTA).await
-            {
-                ouvinte(Evento::Falhou { id: String::new(), erro: e.to_string() });
-            }
-        });
+/// Um ficheiro que outra app partilhou para cá, à espera de destino.
+#[derive(Serialize, Deserialize, Clone)]
+struct Partilhado {
+    uri: String,
+    nome: String,
+}
 
+/// Lê e **apaga** a lista de URIs que a `MainActivity` deixou em disco.
+///
+/// Apagar não é limpeza, é correção: a permissão de leitura de um `content://`
+/// partilhado morre com a atividade que o recebeu, por isso entregar o mesmo URI
+/// uma segunda vez seria entregar uma coisa que já não abre.
+///
+/// Fora do Android só o teste lhe pega — não há folha de partilha em mais lado
+/// nenhum — mas fica compilada em toda a parte para a regra "consome uma vez"
+/// ter teste onde é cómodo corrê-lo.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn consumir_pendentes(caminho: &std::path::Path) -> Vec<String> {
+    let Ok(texto) = std::fs::read_to_string(caminho) else {
+        return Vec::new();
+    };
+    let _ = std::fs::remove_file(caminho);
+    texto
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// O que outra app partilhou para cá desde a última vez que se perguntou.
+///
+/// A interface pergunta ao montar e sempre que a janela volta a ficar visível —
+/// é por aí que entra uma partilha com a app já aberta.
+#[tauri::command]
+fn partilha_pendente(app: tauri::AppHandle) -> Vec<Partilhado> {
+    #[cfg(not(target_os = "android"))]
+    {
+        // Só o Android tem folha de partilha; no desktop não há nada à espera.
+        let _ = app;
+        Vec::new()
+    }
+    #[cfg(target_os = "android")]
+    {
+        use tauri_plugin_android_fs::{AndroidFsExt, FsUri};
+
+        let Ok(dados) = app.path().app_data_dir() else {
+            return Vec::new();
+        };
+        let afs = app.android_fs();
+        consumir_pendentes(&dados.join("partilha-pendente"))
+            .into_iter()
+            .map(|uri| {
+                let nome = afs
+                    .get_name(&FsUri::from_uri(uri.clone()))
+                    .unwrap_or_else(|_| "ficheiro".into());
+                Partilhado { uri, nome }
+            })
+            .collect()
+    }
+}
+
+/// Envia o que outra app partilhou para cá.
+///
+/// Os URIs vêm da interface, e não do disco: o ficheiro já foi consumido em
+/// `partilha_pendente`, de propósito.
+#[tauri::command]
+async fn enviar_partilhados(
+    app: tauri::AppHandle,
+    destino: Vizinho,
+    ficheiros: Vec<Partilhado>,
+) -> Result<(), String> {
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, destino, ficheiros);
+        Err("só no Android".into())
+    }
+    #[cfg(target_os = "android")]
+    {
+        if ficheiros.is_empty() {
+            return Ok(());
+        }
+        let endereco = endereco_de(&app, &destino).await?;
+        let fontes = ficheiros
+            .into_iter()
+            .map(|f| {
+                Box::new(FonteAndroid {
+                    app: app.clone(),
+                    uri: tauri_plugin_android_fs::FsUri::from_uri(f.uri),
+                    nome: f.nome,
+                }) as Box<dyn pombo_correio_rede::Fonte>
+            })
+            .collect();
+        despachar(&app, fontes, endereco);
         Ok(())
     }
 }
@@ -454,8 +554,31 @@ pub fn run() {
             dispositivos,
             enviar_ficheiro,
             enviar_android,
+            partilha_pendente,
+            enviar_partilhados,
             cancelar
         ])
         .run(tauri::generate_context!())
         .expect("a aplicação não arrancou");
+}
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    #[test]
+    fn partilha_pendente_consome_uma_vez() {
+        let dir = std::env::temp_dir().join(format!("pombo-partilha-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("partilha-pendente");
+        std::fs::write(&f, "content://a\n\ncontent://b\n").unwrap();
+
+        assert_eq!(consumir_pendentes(&f), ["content://a", "content://b"]);
+        // A segunda leitura tem de vir vazia. Um URI de partilha não vale fora
+        // da sessão que o recebeu; ressuscitá-lo daria um erro de permissão que
+        // ninguém saberia ler.
+        assert!(consumir_pendentes(&f).is_empty());
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

@@ -8,10 +8,13 @@
     eAndroid,
     enviarAndroid,
     enviarFicheiro,
+    enviarPartilhados,
     identidade,
+    partilhaPendente,
     tamanhoLegivel,
     type Eu,
     type Evento,
+    type Partilhado,
     type Vizinho,
   } from "./lib/api";
 
@@ -37,6 +40,8 @@
   let aba = $state<"dispositivos" | "transferencias" | "definicoes">("dispositivos");
   let tema = $state<"auto" | "light" | "dark">("auto");
   let aviso = $state("");
+  /** Ficheiros que outra app partilhou para cá e ainda não têm destino. */
+  let partilha = $state<Partilhado[]>([]);
 
   const emCurso = $derived(transferencias.filter((t) => t.estado === "a_correr"));
 
@@ -47,10 +52,16 @@
     (async () => {
       eu = await identidade();
       procurar();
+      verPartilha();
       const off = await aoAcontecer(trata);
       if (vivo) parar.fn = off;
       else off();
     })();
+
+    // Uma partilha com a app já aberta não remonta nada: o Android traz a
+    // atividade à frente e a WebView volta a ficar visível. É o único aviso que
+    // temos de que há coisa nova à espera.
+    document.addEventListener("visibilitychange", aoVoltar);
 
     // Re-procura periódica: a descoberta mDNS não é instantânea, e um
     // dispositivo que só liga a app depois de nós não apareceria até se carregar
@@ -63,9 +74,28 @@
     return () => {
       vivo = false;
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", aoVoltar);
       parar.fn();
     };
   });
+
+  function aoVoltar() {
+    if (document.visibilityState === "visible") verPartilha();
+  }
+
+  /** Pergunta ao Rust se outra app partilhou ficheiros para cá. */
+  async function verPartilha() {
+    try {
+      const nova = await partilhaPendente();
+      if (nova.length === 0) return;
+      partilha = nova;
+      // Quem partilhou já escolheu o *quê*; o que falta é o *para onde*.
+      aba = "dispositivos";
+      procurar(true);
+    } catch (erro) {
+      aviso = String(erro);
+    }
+  }
 
   function trata(e: Evento) {
     if (e.tipo === "a_escutar") {
@@ -134,6 +164,13 @@
 
   async function enviarPara(destino: Vizinho) {
     try {
+      if (partilha.length > 0) {
+        // Só se larga a partilha depois de aceite: se o destino não estiver
+        // disponível, os ficheiros continuam à espera para se tentar outro.
+        await enviarPartilhados(destino, partilha);
+        partilha = [];
+        return;
+      }
       if (eAndroid()) {
         // O seletor abre-se do lado do Rust; devolve logo, o envio segue por eventos.
         await enviarAndroid(destino);
@@ -193,6 +230,18 @@
   {/if}
 
   {#if aba === "dispositivos"}
+    {#if partilha.length > 0}
+      <div class="card elev-sm linha" style="margin-bottom: var(--space-4)">
+        <div class="cresce">
+          <div class="card-title trunca">
+            {partilha.length === 1 ? partilha[0].nome : `${partilha.length} ficheiros`}
+          </div>
+          <div class="card-meta text-muted">Escolhe para onde enviar.</div>
+        </div>
+        <button class="btn btn-ghost" onclick={() => (partilha = [])}>Cancelar</button>
+      </div>
+    {/if}
+
     <div class="linha" style="margin-bottom: var(--space-4)">
       <h2 class="cresce" style="margin:0">Os teus dispositivos</h2>
       <!-- Envolvido de propósito: passado direto, o `onclick` entrega o evento
@@ -219,7 +268,7 @@
               <div class="card-meta text-muted trunca">{v.endereco}</div>
             </div>
             <button class="btn btn-primary btn-block-mobile" onclick={() => enviarPara(v)}>
-              Enviar ficheiro
+              {partilha.length > 0 ? "Enviar aqui" : "Enviar ficheiro"}
             </button>
           </div>
         {/each}
