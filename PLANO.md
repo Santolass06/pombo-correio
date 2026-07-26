@@ -1065,10 +1065,23 @@ menos o último. É esta conta que mantém o relay ignorante.
       de serviço — decisão do utilizador, não técnica.
 - [ ] Binários musl para amd64 e arm64.
 
-**Depende de decisões que ainda não estão tomadas:** como expor os servidores à
-internet (domínio, IP público ou CGNAT). Enquanto não estiverem, R1–R4 fazem-se e
-validam-se em loopback e na LAN; a ponta pela internet fica marcada como não
-provada.
+#### O que está bloqueado, e em quê
+
+Tudo o que se podia fazer e provar **daqui** está feito. O que falta não é
+trabalho por fazer — é trabalho que precisa de coisas que este lado não tem:
+
+| O que falta | O que precisa |
+|---|---|
+| R4, segunda metade | Pôr o `pombo-relay` de pé no A10 e no Pi 5 |
+| Ponta pela internet, e TLS | Decidir como expor os servidores: domínio, IP público ou CGNAT |
+| R5 (link sem instalação) e S8 (PWA) | `rustup target add wasm32-unknown-unknown` e o `wasm-pack`, que não estão instalados |
+| R6 (push) | Conta e chaves de serviço do FCM (Android) e do Web Push (iOS) |
+| S5 em Windows | A máquina Windows |
+
+Enquanto isso, o que está provado está provado **em loopback**: o protocolo, a
+retoma nos dois sentidos, e que o relay não vê nada. Comportamento pela internet
+e entre as duas máquinas de casa continua **por provar**, e é assim que fica
+escrito até alguém o correr lá.
 
 ### S8 — PWA iOS
 
