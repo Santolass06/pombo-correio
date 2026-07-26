@@ -5,7 +5,10 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use pombo_correio_core::identity::Identity;
-use pombo_correio_rede::{Evento, Metricas, Ouvinte, descoberta, enviar, receber, sem_cancelamento};
+use pombo_correio_rede::{
+    Evento, Metricas, Ouvinte, conhecidos::Conhecidos, descoberta, enviar, receber, relay,
+    sem_cancelamento,
+};
 
 use progresso::Progresso;
 
@@ -39,6 +42,11 @@ enum Comando {
     },
     /// Lista os dispositivos à espera na rede local.
     Dispositivos,
+    /// Vai buscar ao relay de casa o que estiver à espera deste dispositivo.
+    ///
+    /// Os relays lêem-se de `<dados>/relays`, um URL por linha. É por aqui que
+    /// se valida o caminho do relay entre máquinas reais.
+    Caixa,
     /// Mostra a identidade deste dispositivo.
     Identidade,
 }
@@ -92,7 +100,7 @@ fn nome_do_dispositivo() -> String {
 ///
 /// É só isto que distingue o CLI da interface gráfica — a lógica de
 /// transferência é a mesma nos dois.
-fn ouvinte_terminal() -> Ouvinte {
+fn ouvinte_terminal(dados: std::path::PathBuf) -> Ouvinte {
     // Uma barra por transferência: várias podem correr ao mesmo tempo.
     let barras: Arc<std::sync::Mutex<HashMap<String, Progresso>>> = Default::default();
 
@@ -106,6 +114,10 @@ fn ouvinte_terminal() -> Ouvinte {
 
         Evento::Destino { quem } => {
             println!("Destino: {} — {}", quem.label, quem.safety_number());
+            // Guardar a chave pública de quem recebe é o que torna possível, mais
+            // tarde, deixar-lhe um ficheiro no relay: fora da rede local não há a
+            // quem a pedir. Sem isto a escada nunca chegava a engatar.
+            let _ = Conhecidos::carregar(dados.join("conhecidos.json")).registar(&quem);
         }
 
         Evento::Oferta {
@@ -183,7 +195,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let dados = pasta_dados(cli.dados)?;
     let eu = Identity::load_or_create(&dados.join("identidade"), nome_do_dispositivo())?;
-    let ouvinte = ouvinte_terminal();
+    let ouvinte = ouvinte_terminal(dados.clone());
 
     match cli.comando {
         Comando::Receber { porta } => {
@@ -206,12 +218,60 @@ async fn main() -> Result<()> {
 
         Comando::Enviar { ficheiro, destino } => {
             let fp = descoberta::impressao_curta(&eu.public());
-            let endereco = descoberta::resolver(&destino, PORTA, Some(&fp))?;
-            println!("A preparar {}...", ficheiro.display());
             let metricas = Metricas::no_diretorio(&dados);
-            // Porta 0: o CLI a enviar não corre servidor, por isso quem recebe
-            // não o pode avisar de um cancelamento — mas o Ctrl+C basta.
-            enviar::enviar(&eu, &ficheiro, endereco, ouvinte, sem_cancelamento(), &metricas, 0).await
+            println!("A preparar {}...", ficheiro.display());
+
+            match descoberta::resolver(&destino, PORTA, Some(&fp)) {
+                // Porta 0: o CLI a enviar não corre servidor, por isso quem
+                // recebe não o pode avisar de um cancelamento — mas o Ctrl+C
+                // basta.
+                Ok(endereco) => {
+                    enviar::enviar(&eu, &ficheiro, endereco, ouvinte, sem_cancelamento(), &metricas, 0).await
+                }
+                Err(porque_nao) => {
+                    // Desce a escada, como a app. Sem chave pública de quem
+                    // recebe não há envelope — e só a temos de quem já cá passou.
+                    let relays = relay::configurados(&dados);
+                    let conhecidos = Conhecidos::carregar(dados.join("conhecidos.json"));
+                    let alvo = conhecidos.identidade(&destino);
+
+                    match (relays.first(), alvo) {
+                        (Some(base), Some(para)) => {
+                            println!("O destino não responde — a deixar no relay.");
+                            relay::depositar(&eu, &pombo_correio_rede::FonteCaminho(ficheiro), &para, base, ouvinte, sem_cancelamento(), &metricas).await
+                        }
+                        (Some(_), None) => Err(porque_nao.context(
+                            "e pelo relay também não: dá o destino pela impressão digital de alguém que já cá tenha passado",
+                        )),
+                        (None, _) => Err(porque_nao),
+                    }
+                }
+            }
+        }
+
+        Comando::Caixa => {
+            let relays = relay::configurados(&dados);
+            if relays.is_empty() {
+                println!(
+                    "Sem relay configurado.\n\
+                     Escreve os URLs em {}, um por linha.",
+                    dados.join("relays").display()
+                );
+                return Ok(());
+            }
+
+            let metricas = Metricas::no_diretorio(&dados);
+            let mut chegaram = 0;
+            for base in &relays {
+                // Um relay em baixo não pode impedir o outro de entregar. É o
+                // ponto todo de haver dois.
+                match relay::buscar(&eu, base, &dados.join("recebidos"), &dados.join("conhecidos.json"), ouvinte.clone(), Default::default(), &metricas).await {
+                    Ok(n) => chegaram += n,
+                    Err(e) => println!("  {base}: {e}"),
+                }
+            }
+            println!("{chegaram} ficheiro(s) trazidos do relay.");
+            Ok(())
         }
 
         Comando::Dispositivos => {

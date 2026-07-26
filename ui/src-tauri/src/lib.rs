@@ -280,6 +280,14 @@ fn ouvinte_de_envio(app: tauri::AppHandle, cancelar: Cancelar) -> pombo_correio_
     Arc::new(move |e: Evento| {
         let estado = app.state::<Estado>();
         match &e {
+            // Guardar a chave pública de quem recebe é o que torna possível, mais
+            // tarde, deixar-lhe um ficheiro no relay: fora da rede local não há a
+            // quem a pedir. Sem isto a escada nunca chegava a engatar.
+            Evento::Destino { quem } => {
+                if let Ok(dados) = app.path().app_data_dir() {
+                    let _ = Conhecidos::carregar(dados.join("conhecidos.json")).registar(quem);
+                }
+            }
             Evento::Oferta { id, .. } => {
                 estado.cancelaveis.lock().unwrap().insert(id.clone(), cancelar.clone());
             }

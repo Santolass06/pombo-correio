@@ -1035,6 +1035,17 @@ menos o último. É esta conta que mantém o relay ignorante.
   na LAN e acabado pelo relay reencontra o seu parcial. Sem ficheiro `relays` na
   pasta de dados nada disto existe, e a app comporta-se como antes.
 
+  **Provado com processos a sério, não só em teste** (dois `pombo` e um
+  `pombo-relay`, tudo em loopback):
+
+  | | resultado |
+  |---|---|
+  | Envio direto ensina a chave pública do destino | ✅ (era a peça que faltava para a escada engatar) |
+  | Destino desligado → cai para o relay sozinho | ✅ "Guardado no relay" |
+  | O nome do ficheiro em claro no disco do relay | ✅ zero ocorrências |
+  | O destino vai buscar e o SHA-256 bate | ✅ 2,5 MB idênticos |
+  | O depósito é apagado depois de entregue | ✅ pasta vazia |
+
   **Por fechar aqui:** se a app morrer entre criar o depósito e acabar de subir,
   o identificador do relay perde-se e uma nova tentativa cria outro depósito. O
   órfão desaparece pela validade de 7 dias. Retomar dentro da mesma tentativa
