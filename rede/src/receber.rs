@@ -55,7 +55,7 @@ struct Estado {
 /// ficheiro fecha isso, nos dois sistemas — o `Path` do Windows trata `/` e `\`
 /// como separadores, o do Unix só `/`, e nenhum dos dois deixa passar um `..`
 /// inteiro.
-fn nome_seguro(bruto: &str) -> String {
+pub(crate) fn nome_seguro(bruto: &str) -> String {
     let base = std::path::Path::new(bruto)
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -243,6 +243,142 @@ async fn blocos(
     })
 }
 
+/// Porque é que o escoamento parou.
+///
+/// Interessa distinguir: o fluxo a acabar antes do fim pode ser a ligação a cair
+/// **ou** um cancelamento de quem envia cujo aviso ainda vem a caminho, e os dois
+/// casos merecem tratamento diferente de quem chamou.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Fim {
+    Completo,
+    Cancelado,
+    /// O fluxo acabou antes do último bloco.
+    FluxoAcabou,
+}
+
+/// Decifra, verifica e escreve os blocos que forem chegando.
+///
+/// **É aqui que vive a garantia byte-exata**, e é por isso que existe uma só
+/// cópia: o caminho da rede local e o do relay entregam bytes de sítios
+/// diferentes, mas o que se lhes faz tem de ser exatamente o mesmo. Duplicar
+/// isto seria ter duas definições de "o ficheiro chegou bem".
+///
+/// Devolve quantos blocos estão feitos e porque parou. Não emite eventos
+/// terminais nem mexe em registos — isso é de quem chamou, que sabe o contexto.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn escoar(
+    mut fluxo: impl futures_util::Stream<Item = Result<bytes::Bytes, impl std::fmt::Display>> + Unpin,
+    manifesto: &Manifest,
+    chave: &TransferKey,
+    parcial: &std::path::Path,
+    de: u32,
+    id: &str,
+    ouvinte: &Ouvinte,
+    cancelar: &crate::Cancelar,
+    metricas: &Metricas,
+) -> Result<(u32, Fim)> {
+    let mut ficheiro = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(parcial)
+        .await?;
+
+    let total = manifesto.expected_chunks();
+    let mut indice = de;
+    let mut sobra: Vec<u8> = Vec::new();
+    let mut movidos: u64 = 0;
+    // Mesma cadência do lado que envia, e pela mesma razão: um evento por bloco
+    // inundaria o IPC e o débito mostrado ficaria para trás do real.
+    let mut ultimo_evento = std::time::Instant::now();
+    let mut bytes_no_ultimo_evento: u64 = 0;
+
+    // Diagnóstico: tempo por fase, e uma amostra por segundo com a repartição
+    // acumulada. É isto que diz onde a velocidade se perde.
+    let comeco = std::time::Instant::now();
+    let mut fases = Fases::default();
+    let mut ultima_amostra = std::time::Instant::now();
+
+    let relaxed = std::sync::atomic::Ordering::Relaxed;
+    while indice < total {
+        // Cancelado localmente (a interface carregou em cancelar) ou por aviso
+        // de quem envia (o endpoint /cancelar acionou o mesmo sinal).
+        if cancelar.load(relaxed) {
+            ficheiro.flush().await?;
+            return Ok((indice, Fim::Cancelado));
+        }
+
+        let esperado = manifesto.plain_len(indice).context("índice fora do manifesto")? + SEAL_OVERHEAD;
+
+        // Encher até ter um bloco selado inteiro. O fluxo chega em pedaços de
+        // tamanho arbitrário, que não coincidem com as fronteiras dos blocos.
+        // O tempo aqui é "rede", mas inclui esperar que o outro lado envie — se
+        // domina, o gargalo pode ser a ligação ou o emissor, não este disco.
+        let t_rede = std::time::Instant::now();
+        while sobra.len() < esperado {
+            match fluxo.next().await {
+                Some(Ok(pedaco)) => sobra.extend_from_slice(&pedaco),
+                Some(Err(e)) => {
+                    ficheiro.flush().await?;
+                    bail!("{e}");
+                }
+                None => {
+                    ficheiro.flush().await?;
+                    return Ok((indice, Fim::FluxoAcabou));
+                }
+            }
+        }
+        fases.rede += t_rede.elapsed();
+
+        let selado: Vec<u8> = sobra.drain(..esperado).collect();
+        let claro = cronometrar(&mut fases.decifra, || open_chunk(chave, indice, &selado))
+            .context("bloco não abre")?;
+        cronometrar(&mut fases.verifica, || manifesto.verify_chunk(indice, &claro))?;
+
+        let t_disco = std::time::Instant::now();
+        ficheiro.write_all(&claro).await?;
+        fases.disco += t_disco.elapsed();
+
+        indice += 1;
+        movidos += claro.len() as u64;
+
+        if indice >= total || ultimo_evento.elapsed().as_millis() >= 100 {
+            let dt = ultimo_evento.elapsed().as_secs_f64();
+            let bytes_por_seg = if dt > 0.0 { (movidos - bytes_no_ultimo_evento) as f64 / dt } else { 0.0 };
+            ultimo_evento = std::time::Instant::now();
+            bytes_no_ultimo_evento = movidos;
+            (ouvinte)(Evento::Progresso {
+                id: id.to_string(),
+                feitos: indice,
+                total,
+                bytes: movidos,
+                bytes_por_seg,
+            });
+        }
+
+        if ultima_amostra.elapsed().as_secs_f64() >= 1.0 {
+            ultima_amostra = std::time::Instant::now();
+            let s = comeco.elapsed().as_secs_f64();
+            let mut amostra = fases.json();
+            amostra["blocos"] = indice.into();
+            amostra["bytes"] = movidos.into();
+            amostra["mb_por_s"] = (movidos as f64 / 1e6 / s.max(1e-9)).into();
+            metricas.registar("rececao_amostra", amostra);
+        }
+    }
+
+    ficheiro.flush().await?;
+
+    let s = comeco.elapsed().as_secs_f64();
+    let mut resumo = fases.json();
+    resumo["id"] = id.into();
+    resumo["bytes"] = movidos.into();
+    resumo["segundos"] = s.into();
+    resumo["mb_por_s"] = (movidos as f64 / 1e6 / s.max(1e-9)).into();
+    metricas.registar("rececao_fim", resumo);
+
+    Ok((indice, Fim::Completo))
+}
+
 async fn receber_blocos(
     estado: Arc<Estado>,
     id: String,
@@ -264,118 +400,52 @@ async fn receber_blocos(
     }
 
     let caminho = parcial(&estado, &id);
-    let mut ficheiro = tokio::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&caminho)
-        .await?;
-
     let total = manifesto.expected_chunks();
-    let mut indice = de;
-    let mut fluxo = corpo.into_data_stream();
-    let mut sobra: Vec<u8> = Vec::new();
-    let mut movidos: u64 = 0;
-    // Mesma cadência do lado que envia, e pela mesma razão: um evento por bloco
-    // inundaria o IPC e o débito mostrado ficaria para trás do real.
-    let mut ultimo_evento = std::time::Instant::now();
-    let mut bytes_no_ultimo_evento: u64 = 0;
-
-    // Diagnóstico: tempo por fase, e uma amostra por segundo com a repartição
-    // acumulada. É isto que diz onde a velocidade se perde.
-    let comeco = std::time::Instant::now();
-    let mut fases = Fases::default();
-    let mut ultima_amostra = std::time::Instant::now();
     estado.metricas.registar(
         "rececao_inicio",
         serde_json::json!({ "id": id, "ficheiro": manifesto.name, "tamanho": manifesto.size, "de_bloco": de, "total_blocos": total }),
     );
 
+    let (mut indice, fim) = escoar(
+        corpo.into_data_stream(),
+        &manifesto,
+        &chave,
+        &caminho,
+        de,
+        &id,
+        &estado.ouvinte,
+        &cancelar,
+        &estado.metricas,
+    )
+    .await?;
+
     let cancelado = std::sync::atomic::Ordering::Relaxed;
-    'blocos: while indice < total {
-        // Cancelado localmente (a interface carregou em cancelar) ou por aviso
-        // de quem envia (o endpoint /cancelar acionou o mesmo sinal).
-        if cancelar.load(cancelado) {
-            break 'blocos;
-        }
-
-        let esperado = manifesto.plain_len(indice).context("índice fora do manifesto")? + SEAL_OVERHEAD;
-
-        // Encher até ter um bloco selado inteiro. O fluxo chega em pedaços de
-        // tamanho arbitrário, que não coincidem com as fronteiras dos blocos.
-        // O tempo aqui é "rede", mas inclui esperar que o outro lado envie — se
-        // domina, o gargalo pode ser a ligação ou o emissor, não este disco.
-        let t_rede = std::time::Instant::now();
-        while sobra.len() < esperado {
-            match fluxo.next().await {
-                Some(pedaco) => sobra.extend_from_slice(&pedaco?),
-                None => {
-                    // O fluxo acabou antes de tempo. Pode ser um cancelamento de
-                    // quem envia cujo aviso ainda vem a caminho — dá-se uma folga
-                    // a ver se o sinal chega. 2 s cobre um aviso atrasado por
-                    // carga; num cancelamento real chega em milissegundos.
-                    for _ in 0..20 {
-                        if cancelar.load(cancelado) {
-                            break;
-                        }
-                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                    }
-                    if cancelar.load(cancelado) {
-                        break 'blocos;
-                    }
-                    // Não foi cancelamento: a ligação caiu. O parcial fica em
-                    // disco, mas tem de se emitir um evento terminal — senão a
-                    // interface fica presa em "a passar" para sempre.
-                    estado.cancelaveis.lock().unwrap().remove(&id);
-                    estado.em_curso.lock().await.remove(&id);
-                    (estado.ouvinte)(Evento::Falhou {
-                        id: id.clone(),
-                        erro: "a ligação a quem enviava caiu — podes pedir de novo".into(),
-                    });
-                    bail!("fluxo acabou no bloco {indice} de {total}");
-                }
+    if fim == Fim::FluxoAcabou {
+        // Pode ser um cancelamento de quem envia cujo aviso ainda vem a caminho
+        // — dá-se uma folga a ver se o sinal chega. 2 s cobre um aviso atrasado
+        // por carga; num cancelamento real chega em milissegundos.
+        for _ in 0..20 {
+            if cancelar.load(cancelado) {
+                break;
             }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
-        fases.rede += t_rede.elapsed();
-
-        let selado: Vec<u8> = sobra.drain(..esperado).collect();
-        let claro = cronometrar(&mut fases.decifra, || open_chunk(&chave, indice, &selado))
-            .context("bloco não abre")?;
-        cronometrar(&mut fases.verifica, || manifesto.verify_chunk(indice, &claro))?;
-
-        let t_disco = std::time::Instant::now();
-        ficheiro.write_all(&claro).await?;
-        fases.disco += t_disco.elapsed();
-
-        indice += 1;
-        movidos += claro.len() as u64;
-
-        if indice >= total || ultimo_evento.elapsed().as_millis() >= 100 {
-            let dt = ultimo_evento.elapsed().as_secs_f64();
-            let bytes_por_seg = if dt > 0.0 { (movidos - bytes_no_ultimo_evento) as f64 / dt } else { 0.0 };
-            ultimo_evento = std::time::Instant::now();
-            bytes_no_ultimo_evento = movidos;
-            (estado.ouvinte)(Evento::Progresso {
+        if !cancelar.load(cancelado) {
+            // Não foi cancelamento: a ligação caiu. O parcial fica em disco, mas
+            // tem de se emitir um evento terminal — senão a interface fica presa
+            // em "a passar" para sempre.
+            estado.cancelaveis.lock().unwrap().remove(&id);
+            estado.em_curso.lock().await.remove(&id);
+            (estado.ouvinte)(Evento::Falhou {
                 id: id.clone(),
-                feitos: indice,
-                total,
-                bytes: movidos,
-                bytes_por_seg,
+                erro: "a ligação a quem enviava caiu — podes pedir de novo".into(),
             });
+            bail!("fluxo acabou no bloco {indice} de {total}");
         }
-
-        if ultima_amostra.elapsed().as_secs_f64() >= 1.0 {
-            ultima_amostra = std::time::Instant::now();
-            let s = comeco.elapsed().as_secs_f64();
-            let mut amostra = fases.json();
-            amostra["blocos"] = indice.into();
-            amostra["bytes"] = movidos.into();
-            amostra["mb_por_s"] = (movidos as f64 / 1e6 / s.max(1e-9)).into();
-            estado.metricas.registar("rececao_amostra", amostra);
-        }
+        // Foi cancelamento: cai no ramo de baixo, que já trata disto.
+        indice = indice.min(total.saturating_sub(1));
     }
 
-    ficheiro.flush().await?;
-    drop(ficheiro);
     estado.cancelaveis.lock().unwrap().remove(&id);
     estado.em_curso.lock().await.remove(&id);
 
@@ -395,14 +465,6 @@ async fn receber_blocos(
 
     let final_ = estado.destino.join(nome_seguro(&manifesto.name));
     tokio::fs::rename(&caminho, &final_).await?;
-
-    let s = comeco.elapsed().as_secs_f64();
-    let mut resumo = fases.json();
-    resumo["id"] = id.clone().into();
-    resumo["bytes"] = movidos.into();
-    resumo["segundos"] = s.into();
-    resumo["mb_por_s"] = (movidos as f64 / 1e6 / s.max(1e-9)).into();
-    estado.metricas.registar("rececao_fim", resumo);
 
     (estado.ouvinte)(Evento::Recebido { id, caminho: final_ });
     Ok("ok".into())

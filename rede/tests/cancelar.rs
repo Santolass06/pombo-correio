@@ -45,6 +45,7 @@ impl Registo {
                 Evento::Progresso { .. } => "progresso",
                 Evento::Recebido { .. } => "recebido",
                 Evento::Enviado { .. } => "enviado",
+                Evento::Depositado { .. } => "depositado",
                 Evento::Cancelado { .. } => "cancelado",
                 Evento::Falhou { .. } => "falhou",
             };

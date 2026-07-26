@@ -160,6 +160,15 @@ fn ouvinte_terminal() -> Ouvinte {
             println!("Enviado.");
         }
 
+        Evento::Depositado { id, para } => {
+            if let Some(mut p) = barras.lock().unwrap().remove(&id) {
+                p.fim();
+            }
+            // Não é "enviado": está num servidor de casa e o destino ainda nem
+            // sabe dele.
+            println!("Guardado no relay — chega a {para} quando ele abrir a app.");
+        }
+
         Evento::Cancelado { id } => {
             barras.lock().unwrap().remove(&id);
             println!("\n  Cancelado. O que já passou fica guardado — retomar continua a valer.");

@@ -2688,6 +2688,7 @@ version = "0.1.0"
 dependencies = [
  "pombo-correio-core",
  "pombo-correio-rede",
+ "reqwest",
  "serde",
  "serde_json",
  "tauri",
@@ -2724,6 +2725,7 @@ dependencies = [
  "hex",
  "mdns-sd",
  "pombo-correio-core",
+ "pombo-correio-relay",
  "reqwest",
  "serde",
  "serde_json",

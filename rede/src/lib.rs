@@ -12,6 +12,7 @@ pub mod descoberta;
 pub mod enviar;
 pub mod metricas;
 pub mod protocolo;
+pub mod relay;
 pub mod receber;
 
 pub use metricas::Metricas;
@@ -69,6 +70,14 @@ pub enum Evento {
 
     /// Envio completo.
     Enviado { id: String },
+
+    /// Ficou no relay, à espera de quem o vai buscar.
+    ///
+    /// Estado próprio e não `Enviado`, de propósito: dizer "enviado" quando o
+    /// ficheiro está num servidor e o destinatário ainda nem sabe dele é
+    /// mentira, e é o género de mentira que faz alguém desligar o telemóvel
+    /// convencido de que já está.
+    Depositado { id: String, para: String },
 
     /// Cancelado por quem enviava. O que já chegou fica em disco, por isso
     /// retomar continua a valer — cancelar não é perder o trabalho feito.

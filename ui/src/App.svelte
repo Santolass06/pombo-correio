@@ -3,6 +3,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import {
     aoAcontecer,
+    buscarNoRelay,
     cancelar,
     dispositivos,
     eAndroid,
@@ -24,7 +25,7 @@
     tamanho: number;
     feitos: number;
     total: number;
-    estado: "a_correr" | "pronto" | "cancelado" | "falhou";
+    estado: "a_correr" | "pronto" | "no_relay" | "cancelado" | "falhou";
     detalhe?: string;
     /** Velocidade em bytes por segundo, medida pelo Rust e só mostrada aqui. */
     velocidade: number;
@@ -53,6 +54,7 @@
       eu = await identidade();
       procurar();
       verPartilha();
+      buscarNoRelay().catch(() => {});
       const off = await aoAcontecer(trata);
       if (vivo) parar.fn = off;
       else off();
@@ -138,6 +140,16 @@
       if (e.tipo === "recebido")
         return { ...t, estado: "pronto" as const, feitos: t.total, detalhe: e.caminho };
       if (e.tipo === "enviado") return { ...t, estado: "pronto" as const, feitos: t.total };
+      // "No relay" não é "entregue": o ficheiro está num servidor de casa e a
+      // outra pessoa ainda nem sabe dele. Dizer "enviado" aqui faria alguém
+      // desligar o telemóvel convencido de que já estava.
+      if (e.tipo === "depositado")
+        return {
+          ...t,
+          estado: "no_relay" as const,
+          feitos: t.total,
+          detalhe: `Guardado em casa — chega a ${e.para} quando ele abrir a app`,
+        };
       if (e.tipo === "cancelado")
         return { ...t, estado: "cancelado" as const, detalhe: "Cancelado — o que já passou fica guardado" };
       if (e.tipo === "falhou") return { ...t, estado: "falhou" as const, detalhe: e.erro };
@@ -290,10 +302,12 @@
                 <div class="card-title trunca">{t.ficheiro}</div>
                 <div class="card-meta text-muted">{tamanhoLegivel(t.tamanho)}</div>
               </div>
-              <span class="tag {t.estado === 'a_correr' || t.estado === 'pronto' ? 'tag-accent' : 'tag-outline'}">
+              <span class="tag {t.estado === 'a_correr' || t.estado === 'pronto' || t.estado === 'no_relay' ? 'tag-accent' : 'tag-outline'}">
                 {t.estado === "pronto"
                   ? "Concluído"
-                  : t.estado === "falhou"
+                  : t.estado === "no_relay"
+                    ? "Guardado em casa"
+                    : t.estado === "falhou"
                     ? "Falhou"
                     : t.estado === "cancelado"
                       ? "Cancelado"

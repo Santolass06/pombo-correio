@@ -14,10 +14,35 @@ use std::{collections::HashMap, path::PathBuf};
 use anyhow::{Context, Result};
 use pombo_correio_core::identity::PublicIdentity;
 
+/// O que se guarda de cada dispositivo.
+///
+/// O formato antigo só tinha o nome. Pelo relay não chega: para embrulhar a
+/// chave da transferência é preciso a **chave pública** de quem recebe, e fora
+/// da rede local não há a quem a pedir — o relay não a pode saber, senão abria
+/// os ficheiros. Daí guardá-la aqui.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+enum Registado {
+    /// Formato atual.
+    Completo(PublicIdentity),
+    /// Formato antigo: só o nome. Lê-se para não perder a memória de quem já cá
+    /// passou; sobe a `Completo` no primeiro reencontro.
+    SoNome(String),
+}
+
+impl Registado {
+    fn nome(&self) -> &str {
+        match self {
+            Registado::Completo(p) => &p.label,
+            Registado::SoNome(n) => n,
+        }
+    }
+}
+
 pub struct Conhecidos {
     caminho: PathBuf,
-    /// Impressão digital em hexadecimal → nome com que se apresentou.
-    mapa: HashMap<String, String>,
+    /// Impressão digital em hexadecimal → o que se sabe dele.
+    mapa: HashMap<String, Registado>,
 }
 
 impl Conhecidos {
@@ -36,13 +61,28 @@ impl Conhecidos {
 
     /// Com que nome este dispositivo se apresentou da última vez, se já cá veio.
     pub fn nome_anterior(&self, quem: &PublicIdentity) -> Option<&str> {
-        self.mapa.get(&hex::encode(quem.fingerprint())).map(String::as_str)
+        self.mapa.get(&hex::encode(quem.fingerprint())).map(Registado::nome)
+    }
+
+    /// A identidade pública de quem tem esta impressão digital curta.
+    ///
+    /// É o que torna possível enviar pelo relay: sem a chave pública não há
+    /// envelope, e sem envelope o ficheiro teria de ir em claro. Devolve `None`
+    /// para quem só cá está no formato antigo — nesse caso só se envia depois de
+    /// voltar a haver contacto direto, e é isso que se diz a quem envia.
+    pub fn identidade(&self, impressao_curta: &str) -> Option<PublicIdentity> {
+        self.mapa.iter().find_map(|(fp, r)| match r {
+            Registado::Completo(p) if fp.starts_with(impressao_curta) => Some(p.clone()),
+            _ => None,
+        })
     }
 
     /// Grava o dispositivo como conhecido.
     pub fn registar(&mut self, quem: &PublicIdentity) -> Result<()> {
-        self.mapa
-            .insert(hex::encode(quem.fingerprint()), quem.label.clone());
+        self.mapa.insert(
+            hex::encode(quem.fingerprint()),
+            Registado::Completo(quem.clone()),
+        );
 
         if let Some(dir) = self.caminho.parent() {
             std::fs::create_dir_all(dir)?;
@@ -97,6 +137,44 @@ mod tests {
         // ...mas outro aparelho com o mesmo nome continua a ser um estranho.
         let impostor = Identity::generate("PC").public();
         assert_eq!(reg.nome_anterior(&impostor), None);
+        let _ = std::fs::remove_dir_all(c.parent().unwrap());
+    }
+
+    #[test]
+    fn o_formato_antigo_continua_a_ler_se() {
+        // Ficheiros de antes de o relay existir só tinham o nome. Perder a
+        // memória de quem já cá passou faria o número de segurança reaparecer
+        // para toda a gente — e ensinar a ignorá-lo é o pior que se lhe pode
+        // fazer.
+        let c = temp("antigo");
+        std::fs::create_dir_all(c.parent().unwrap()).unwrap();
+        let quem = Identity::generate("Telemóvel do avô").public();
+        let fp = hex::encode(quem.fingerprint());
+        std::fs::write(&c, format!(r#"{{"{fp}": "Telemóvel do avô"}}"#)).unwrap();
+
+        let mut reg = Conhecidos::carregar(c.clone());
+        assert_eq!(reg.nome_anterior(&quem), Some("Telemóvel do avô"));
+        // Mas sem chave pública não se pode enviar pelo relay.
+        assert!(reg.identidade(&fp[..16]).is_none());
+
+        // No reencontro seguinte, sobe a completo.
+        reg.registar(&quem).unwrap();
+        assert!(Conhecidos::carregar(c.clone()).identidade(&fp[..16]).is_some());
+        let _ = std::fs::remove_dir_all(c.parent().unwrap());
+    }
+
+    #[test]
+    fn a_chave_publica_volta_pela_impressao_curta() {
+        // É esta a peça que torna possível enviar pelo relay: fora da rede local
+        // não há a quem pedir a chave, e o relay não a pode saber.
+        let c = temp("chave");
+        let quem = Identity::generate("Tablet").public();
+        let mut reg = Conhecidos::carregar(c.clone());
+        reg.registar(&quem).unwrap();
+
+        let curta = &hex::encode(quem.fingerprint())[..16];
+        assert_eq!(Conhecidos::carregar(c.clone()).identidade(curta), Some(quem));
+        assert!(reg.identidade("0000000000000000").is_none());
         let _ = std::fs::remove_dir_all(c.parent().unwrap());
     }
 

@@ -110,3 +110,34 @@ Lá dentro: `identidade` (chaves privadas, `0600` em Unix), `conhecidos.json` e
 
 Apagar a `identidade` cria um dispositivo novo aos olhos dos outros, e o número
 de segurança muda — os outros voltam a avisar que é um dispositivo desconhecido.
+
+## Relay de casa (S7)
+
+O relay guarda ficheiros cifrados até o destinatário os vir buscar — serve
+quando os dois dispositivos não se alcançam, ou o destinatário está desligado.
+**Só vê texto cifrado**: não sabe o nome do ficheiro nem o consegue abrir.
+
+```sh
+cargo build --release -p pombo-correio-relay
+./target/release/pombo-relay --dados /var/lib/pombo-relay --porta 53319 \
+    --autorizados /etc/pombo/autorizados.txt
+```
+
+O `--autorizados` é um ficheiro com uma impressão digital por linha (a curta, 16
+dígitos hexadecimais; `#` faz comentário). **Passa a ser obrigatório assim que o
+relay esteja acessível de fora**: assinar prova posse de uma chave, não pertença
+a esta casa, e sem a lista qualquer um na internet enche o disco. A impressão de
+cada dispositivo vê-se em `pombo identidade`.
+
+Do lado dos clientes, um ficheiro `relays` na pasta de dados, um URL por linha:
+
+```sh
+printf 'https://casa.exemplo\nhttps://pi.exemplo\n' > ~/.local/share/pt.pombo.correio/relays
+```
+
+Tenta-se pela ordem do ficheiro e usa-se o primeiro que responder — é para isso
+que são dois. **Sem este ficheiro não há relay nenhum**, e a app comporta-se
+exatamente como antes.
+
+Os depósitos duram 7 dias e são limpos de hora a hora. Um ficheiro entregue é
+apagado do relay assim que está em disco do outro lado.

@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use pombo_correio_core::identity::Identity;
-use pombo_correio_rede::{Cancelar, Cancelaveis, Evento, Metricas, descoberta, enviar, receber};
+use pombo_correio_rede::{Cancelar, Cancelaveis, Evento, Metricas, conhecidos::Conhecidos, descoberta, enviar, receber};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
@@ -108,6 +108,78 @@ async fn endereco_de(app: &tauri::AppHandle, destino: &Vizinho) -> Result<std::n
     .map_err(|e| e.to_string())
 }
 
+/// Por onde o envio vai seguir. É a escada, decidida antes de se mexer um byte.
+enum Caminho {
+    /// Direto: o destino respondeu e está ali.
+    Direto(std::net::SocketAddr),
+    /// Pelo relay de casa, porque o destino não se alcança agora.
+    Relay {
+        base: String,
+        para: pombo_correio_core::identity::PublicIdentity,
+    },
+}
+
+/// Desce a escada: direto primeiro, relay depois.
+///
+/// A ordem não é estética. O caminho direto não sai de casa e anda à velocidade
+/// da LAN; o relay gasta o upload de casa **duas vezes** (entra e sai) e só
+/// entrega quando a outra pessoa abrir a app.
+async fn caminho_para(app: &tauri::AppHandle, destino: &Vizinho) -> Result<Caminho, String> {
+    let directo = endereco_de(app, destino).await;
+    if let Ok(e) = directo {
+        return Ok(Caminho::Direto(e));
+    }
+    let porque_nao = directo.unwrap_err();
+
+    let dados = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let Some(base) = primeiro_de_pe(descoberta_relay(&dados)).await else {
+        return Err(porque_nao);
+    };
+
+    // Sem a chave pública não há envelope, e sem envelope o ficheiro teria de ir
+    // em claro pelo relay — que é exatamente o que não pode acontecer.
+    let impressao = destino.impressao.as_deref().unwrap_or_default();
+    let Some(para) = Conhecidos::carregar(dados.join("conhecidos.json")).identidade(impressao) else {
+        return Err(format!(
+            "{porque_nao} — e nunca falei diretamente com este dispositivo, por isso também não o posso deixar no relay"
+        ));
+    };
+
+    Ok(Caminho::Relay { base, para })
+}
+
+fn descoberta_relay(dados: &std::path::Path) -> Vec<String> {
+    pombo_correio_rede::relay::configurados(dados)
+}
+
+/// Qual dos nós de casa está de pé. É para isto que são dois.
+///
+/// Pela ordem do ficheiro, e não em paralelo: com dois nós a diferença é uma
+/// ligação falhada de um segundo, e o código sequencial lê-se de uma vez.
+/// `ponytail: sequencial; happy eyeballs se alguma vez forem muitos nós.`
+///
+/// O tempo de ligação é curto de propósito — um servidor desligado não recusa a
+/// ligação, fica calado, e o sistema só desistiria ao fim de minutos.
+async fn primeiro_de_pe(relays: Vec<String>) -> Option<String> {
+    let cliente = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(2))
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .ok()?;
+
+    for base in relays {
+        let vivo = cliente
+            .get(format!("{base}/saude"))
+            .send()
+            .await
+            .is_ok_and(|r| r.status().is_success());
+        if vivo {
+            return Some(base);
+        }
+    }
+    None
+}
+
 /// Põe ficheiros a caminho do destino e devolve logo; o resto conta-se por
 /// acontecimentos, para a interface não ficar presa à espera.
 ///
@@ -117,7 +189,7 @@ async fn endereco_de(app: &tauri::AppHandle, destino: &Vizinho) -> Result<std::n
 fn despachar(
     app: &tauri::AppHandle,
     fontes: Vec<Box<dyn pombo_correio_rede::Fonte>>,
-    endereco: std::net::SocketAddr,
+    caminho: Caminho,
 ) {
     let eu = copiar(&app.state::<Estado>().eu);
     let metricas = app.state::<Estado>().metricas.clone();
@@ -127,11 +199,21 @@ fn despachar(
         for fonte in fontes {
             let cancelar: Cancelar = Default::default();
             let ouvinte = ouvinte_de_envio(app.clone(), cancelar.clone());
-            // A app corre servidor na PORTA, por isso quem recebe pode avisá-la
-            // de um cancelamento por esse endereço.
-            if let Err(e) =
-                enviar::enviar_fonte(&eu, fonte.as_ref(), endereco, ouvinte.clone(), cancelar, &metricas, PORTA).await
-            {
+
+            let r = match &caminho {
+                // A app corre servidor na PORTA, por isso quem recebe pode
+                // avisá-la de um cancelamento por esse endereço.
+                Caminho::Direto(endereco) => {
+                    enviar::enviar_fonte(&eu, fonte.as_ref(), *endereco, ouvinte.clone(), cancelar, &metricas, PORTA)
+                        .await
+                }
+                Caminho::Relay { base, para } => {
+                    pombo_correio_rede::relay::depositar(&eu, fonte.as_ref(), para, base, ouvinte.clone(), cancelar, &metricas)
+                        .await
+                }
+            };
+
+            if let Err(e) = r {
                 // Só chega aqui um erro anterior ao envio propriamente dito —
                 // ligar ou abrir a origem. A partir do aceite, o próprio
                 // `enviar` fecha a transferência por evento.
@@ -148,9 +230,48 @@ async fn enviar_ficheiro(
     ficheiro: std::path::PathBuf,
     destino: Vizinho,
 ) -> Result<(), String> {
-    let endereco = endereco_de(&app, &destino).await?;
-    despachar(&app, vec![Box::new(pombo_correio_rede::FonteCaminho(ficheiro))], endereco);
+    let caminho = caminho_para(&app, &destino).await?;
+    despachar(&app, vec![Box::new(pombo_correio_rede::FonteCaminho(ficheiro))], caminho);
     Ok(())
+}
+
+/// Vai ver ao relay se há coisa à espera.
+///
+/// Chamado ao abrir a app e de vez em quando pela interface. Sem push (que entra
+/// em R6), é assim que se dá pelo que chegou enquanto o aparelho estava
+/// desligado.
+#[tauri::command]
+async fn buscar_no_relay(app: tauri::AppHandle) -> Result<usize, String> {
+    let dados = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let relays = descoberta_relay(&dados);
+    if relays.is_empty() {
+        return Ok(0);
+    }
+
+    let eu = copiar(&app.state::<Estado>().eu);
+    let metricas = app.state::<Estado>().metricas.clone();
+    let cancelaveis = app.state::<Estado>().cancelaveis.clone();
+    let ouvinte = ouvinte_para(app.clone());
+
+    let mut chegaram = 0;
+    for base in relays {
+        // Um relay em baixo não pode impedir o outro de entregar. É o ponto todo
+        // de haver dois.
+        if let Ok(n) = pombo_correio_rede::relay::buscar(
+            &eu,
+            &base,
+            &dados.join("recebidos"),
+            &dados.join("conhecidos.json"),
+            ouvinte.clone(),
+            cancelaveis.clone(),
+            &metricas,
+        )
+        .await
+        {
+            chegaram += n;
+        }
+    }
+    Ok(chegaram)
 }
 
 /// Ouvinte de um envio: reencaminha para a WebView e gere o registo de
@@ -162,7 +283,10 @@ fn ouvinte_de_envio(app: tauri::AppHandle, cancelar: Cancelar) -> pombo_correio_
             Evento::Oferta { id, .. } => {
                 estado.cancelaveis.lock().unwrap().insert(id.clone(), cancelar.clone());
             }
-            Evento::Enviado { id } | Evento::Cancelado { id } | Evento::Falhou { id, .. } => {
+            Evento::Enviado { id }
+            | Evento::Depositado { id, .. }
+            | Evento::Cancelado { id }
+            | Evento::Falhou { id, .. } => {
                 estado.cancelaveis.lock().unwrap().remove(id);
             }
             _ => {}
@@ -212,7 +336,7 @@ async fn enviar_android(app: tauri::AppHandle, destino: Vizinho) -> Result<(), S
         // Antes do seletor, de propósito: se o destino já lá não estiver, mais
         // vale dizê-lo do que deixar escolher um ficheiro para nada. Custa
         // milissegundos enquanto a dica servir.
-        let endereco = endereco_de(&app, &destino).await?;
+        let caminho = caminho_para(&app, &destino).await?;
 
         // O seletor é bloqueante (abre uma atividade e espera), por isso fora da
         // thread da interface.
@@ -239,7 +363,7 @@ async fn enviar_android(app: tauri::AppHandle, destino: Vizinho) -> Result<(), S
             return Ok(()); // cancelado, sem erro
         };
 
-        despachar(&app, vec![Box::new(FonteAndroid { app: app.clone(), uri, nome })], endereco);
+        despachar(&app, vec![Box::new(FonteAndroid { app: app.clone(), uri, nome })], caminho);
         Ok(())
     }
 }
@@ -326,7 +450,7 @@ async fn enviar_partilhados(
         if ficheiros.is_empty() {
             return Ok(());
         }
-        let endereco = endereco_de(&app, &destino).await?;
+        let caminho = caminho_para(&app, &destino).await?;
         let fontes = ficheiros
             .into_iter()
             .map(|f| {
@@ -337,7 +461,7 @@ async fn enviar_partilhados(
                 }) as Box<dyn pombo_correio_rede::Fonte>
             })
             .collect();
-        despachar(&app, fontes, endereco);
+        despachar(&app, fontes, caminho);
         Ok(())
     }
 }
@@ -405,6 +529,9 @@ enum ParaInterface {
     #[serde(rename = "enviado")]
     Enviado { id: String },
 
+    #[serde(rename = "depositado")]
+    Depositado { id: String, para: String },
+
     #[serde(rename = "cancelado")]
     Cancelado { id: String },
 
@@ -458,6 +585,7 @@ impl From<Evento> for ParaInterface {
                 caminho: caminho.display().to_string(),
             },
             Evento::Enviado { id } => Self::Enviado { id },
+            Evento::Depositado { id, para } => Self::Depositado { id, para },
             Evento::Cancelado { id } => Self::Cancelado { id },
             Evento::Falhou { id, erro } => Self::Falhou { id, erro },
         }
@@ -556,6 +684,7 @@ pub fn run() {
             enviar_android,
             partilha_pendente,
             enviar_partilhados,
+            buscar_no_relay,
             cancelar
         ])
         .run(tauri::generate_context!())

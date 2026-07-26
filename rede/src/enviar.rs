@@ -55,6 +55,65 @@ async fn ler_bloco<R: AsyncReadExt + Unpin>(r: &mut R, buf: &mut [u8]) -> std::i
     Ok(cheio)
 }
 
+/// Os blocos selados a sair em fluxo, com progresso.
+///
+/// Uma cópia só, partilhada pelo caminho direto e pelo relay: o que muda entre
+/// os dois é para onde vão os bytes, nunca o que se lhes faz. `origem` tem de
+/// vir já posicionada no bloco `de`.
+pub(crate) fn fluxo_selado(
+    mut origem: tokio::fs::File,
+    m: Manifest,
+    chave: TransferKey,
+    de: u32,
+    id: String,
+    ouvinte: Ouvinte,
+    cancelar: Cancelar,
+) -> impl futures_util::Stream<Item = std::io::Result<bytes::Bytes>> {
+    let total = m.expected_chunks();
+    tipar(async_stream::try_stream! {
+        let mut buf = vec![0u8; m.chunk_size as usize];
+        let mut movidos: u64 = 0;
+        // Um evento por bloco inundaria o IPC do Tauri a mais de cem por segundo,
+        // e os eventos acumulavam-se ao ponto de o débito mostrado ficar preso
+        // muito abaixo do real. Uma cadência de 100 ms chega ao olho e mantém o
+        // canal livre; o último bloco desenha-se sempre, para a barra fechar.
+        let mut ultimo_evento = std::time::Instant::now();
+        let mut bytes_no_ultimo_evento: u64 = 0;
+
+        for indice in de..total {
+            // Parar antes de ler o bloco seguinte: o que já saiu fica em disco do
+            // outro lado, por isso cancelar não deita fora o trabalho feito.
+            if cancelar.load(Relaxed) {
+                // Para de enviar. O aviso ao outro lado é dado por uma tarefa
+                // vigia à parte, para não depender do timing deste fluxo.
+                break;
+            }
+
+            let esperado = m.plain_len(indice).expect("índice dentro do total");
+            let lido = ler_bloco(&mut origem, &mut buf[..esperado]).await?;
+            if lido != esperado {
+                Err(std::io::Error::other(format!(
+                    "o ficheiro mudou de tamanho a meio: esperava {esperado} bytes no bloco {indice}, li {lido}"
+                )))?;
+            }
+            yield bytes::Bytes::from(seal_chunk(&chave, indice, &buf[..esperado]));
+
+            // Depois do `yield`: o fluxo é preguiçoso e só chega aqui quando o
+            // bloco anterior saiu mesmo pela ligação. Contar antes mostraria o
+            // ritmo a que se lê do disco, não o que está a ir para a rede.
+            movidos += esperado as u64;
+            let feitos = indice + 1;
+            if feitos >= total || ultimo_evento.elapsed().as_millis() >= 100 {
+                let dt = ultimo_evento.elapsed().as_secs_f64();
+                let bytes_por_seg = if dt > 0.0 { (movidos - bytes_no_ultimo_evento) as f64 / dt } else { 0.0 };
+                ultimo_evento = std::time::Instant::now();
+                bytes_no_ultimo_evento = movidos;
+                ouvinte(Evento::Progresso { id: id.clone(), feitos, total, bytes: movidos, bytes_por_seg });
+            }
+        }
+    })
+}
+
 /// Envia um ficheiro identificado por um caminho no disco (desktop, CLI).
 ///
 /// Fino invólucro sobre [`enviar_fonte`]: só embrulha o caminho numa
@@ -181,53 +240,15 @@ pub async fn enviar_fonte(
         })
     };
 
-    let m = manifesto.clone();
-    let ouvinte_fluxo = ouvinte.clone();
-    let id_fluxo = aceite.id.clone();
-    let cancelar_fluxo = cancelar.clone();
-    let fluxo = tipar(async_stream::try_stream! {
-        let mut buf = vec![0u8; m.chunk_size as usize];
-        let mut movidos: u64 = 0;
-        // Um evento por bloco inundaria o IPC do Tauri a mais de cem por segundo,
-        // e os eventos acumulavam-se ao ponto de o débito mostrado ficar preso
-        // muito abaixo do real. Uma cadência de 100 ms chega ao olho e mantém o
-        // canal livre; o último bloco desenha-se sempre, para a barra fechar.
-        let mut ultimo_evento = std::time::Instant::now();
-        let mut bytes_no_ultimo_evento: u64 = 0;
-
-        for indice in aceite.tenho..total {
-            // Parar antes de ler o bloco seguinte: o que já saiu fica em disco do
-            // outro lado, por isso cancelar não deita fora o trabalho feito.
-            if cancelar_fluxo.load(Relaxed) {
-                // Para de enviar. O aviso a quem recebe é dado por uma tarefa
-                // vigia à parte (ver abaixo), para não depender do timing deste
-                // fluxo.
-                break;
-            }
-
-            let esperado = m.plain_len(indice).expect("índice dentro do total");
-            let lido = ler_bloco(&mut origem, &mut buf[..esperado]).await?;
-            if lido != esperado {
-                Err(std::io::Error::other(format!(
-                    "o ficheiro mudou de tamanho a meio: esperava {esperado} bytes no bloco {indice}, li {lido}"
-                )))?;
-            }
-            yield bytes::Bytes::from(seal_chunk(&chave, indice, &buf[..esperado]));
-
-            // Depois do `yield`: o fluxo é preguiçoso e só chega aqui quando o
-            // bloco anterior saiu mesmo pela ligação. Contar antes mostraria o
-            // ritmo a que se lê do disco, não o que está a ir para a rede.
-            movidos += esperado as u64;
-            let feitos = indice + 1;
-            if feitos >= total || ultimo_evento.elapsed().as_millis() >= 100 {
-                let dt = ultimo_evento.elapsed().as_secs_f64();
-                let bytes_por_seg = if dt > 0.0 { (movidos - bytes_no_ultimo_evento) as f64 / dt } else { 0.0 };
-                ultimo_evento = std::time::Instant::now();
-                bytes_no_ultimo_evento = movidos;
-                ouvinte_fluxo(Evento::Progresso { id: id_fluxo.clone(), feitos, total, bytes: movidos, bytes_por_seg });
-            }
-        }
-    });
+    let fluxo = fluxo_selado(
+        origem,
+        manifesto.clone(),
+        chave,
+        aceite.tenho,
+        aceite.id.clone(),
+        ouvinte.clone(),
+        cancelar.clone(),
+    );
 
     let envio = cliente
         .put(format!(

@@ -40,6 +40,7 @@ export type Evento =
     }
   | { tipo: "recebido"; id: string; caminho: string }
   | { tipo: "enviado"; id: string }
+  | { tipo: "depositado"; id: string; para: string }
   | { tipo: "cancelado"; id: string }
   | { tipo: "falhou"; id: string; erro: string };
 
@@ -71,6 +72,10 @@ export const enviarPartilhados = (destino: Vizinho, ficheiros: Partilhado[]) =>
 export const eAndroid = () => /Android/i.test(navigator.userAgent);
 
 export const cancelar = (id: string) => invoke<void>("cancelar", { id });
+
+/// Vai ver ao relay de casa se chegou coisa enquanto o aparelho esteve
+/// desligado. Devolve zero — sem falhar — se não houver relay configurado.
+export const buscarNoRelay = () => invoke<number>("buscar_no_relay");
 
 export const aoAcontecer = (f: (e: Evento) => void) =>
   listen<Evento>("pombo", (m) => f(m.payload));
