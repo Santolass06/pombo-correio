@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use pombo_correio_core::identity::Identity;
 use pombo_correio_rede::{Cancelar, Cancelaveis, Evento, Metricas, descoberta, enviar, receber};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
 /// Nome do acontecimento na WebView. Um só canal: a interface junta envios e
@@ -38,7 +38,10 @@ struct Eu {
 }
 
 /// Como a interface vê um dispositivo encontrado na rede.
-#[derive(Serialize)]
+///
+/// Também volta para cá tal e qual quando se envia: é o que permite aproveitar
+/// o endereço já descoberto em vez de o procurar de novo.
+#[derive(Serialize, Deserialize)]
 struct Vizinho {
     nome: String,
     endereco: String,
@@ -87,19 +90,33 @@ async fn dispositivos(estado: tauri::State<'_, Estado>) -> Result<Vec<Vizinho>, 
         .map_err(|e| e.to_string())
 }
 
+/// Para onde enviar, partindo do que a interface já tinha na lista.
+///
+/// O endereço vem como dica e confirma-se num instante; só se não servir é que
+/// se procura. Sem isto pagava-se a janela inteira da descoberta antes de cada
+/// envio — e no Android antes mesmo de o seletor de ficheiros abrir.
+async fn endereco_de(app: &tauri::AppHandle, destino: &Vizinho) -> Result<std::net::SocketAddr, String> {
+    let fp = descoberta::impressao_curta(&app.state::<Estado>().eu.public());
+    descoberta::resolver_com_dica(
+        destino.endereco.parse().ok(),
+        &destino.nome,
+        destino.impressao.as_deref(),
+        PORTA,
+        Some(&fp),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// Envia um ficheiro. Devolve assim que o envio arranca; o resto conta-se por
 /// acontecimentos, para a interface não ficar presa à espera.
 #[tauri::command]
 async fn enviar_ficheiro(
     app: tauri::AppHandle,
     ficheiro: std::path::PathBuf,
-    destino: String,
+    destino: Vizinho,
 ) -> Result<(), String> {
-    let fp = descoberta::impressao_curta(&app.state::<Estado>().eu.public());
-    let endereco = tokio::task::spawn_blocking(move || descoberta::resolver(&destino, PORTA, Some(&fp)))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
+    let endereco = endereco_de(&app, &destino).await?;
 
     let eu = copiar(&app.state::<Estado>().eu);
     let metricas = app.state::<Estado>().metricas.clone();
@@ -167,7 +184,7 @@ impl pombo_correio_rede::Fonte for FonteAndroid {
 /// devolve um `content://`), e envia. Comando separado do `enviar_ficheiro`
 /// porque o Android não trabalha com caminhos.
 #[tauri::command]
-async fn enviar_android(app: tauri::AppHandle, destino: String) -> Result<(), String> {
+async fn enviar_android(app: tauri::AppHandle, destino: Vizinho) -> Result<(), String> {
     #[cfg(not(target_os = "android"))]
     {
         let _ = (app, destino);
@@ -177,11 +194,10 @@ async fn enviar_android(app: tauri::AppHandle, destino: String) -> Result<(), St
     {
         use tauri_plugin_android_fs::AndroidFsExt;
 
-        let fp = descoberta::impressao_curta(&app.state::<Estado>().eu.public());
-        let endereco = tokio::task::spawn_blocking(move || descoberta::resolver(&destino, PORTA, Some(&fp)))
-            .await
-            .map_err(|e| e.to_string())?
-            .map_err(|e| e.to_string())?;
+        // Antes do seletor, de propósito: se o destino já lá não estiver, mais
+        // vale dizê-lo do que deixar escolher um ficheiro para nada. Custa
+        // milissegundos enquanto a dica servir.
+        let endereco = endereco_de(&app, &destino).await?;
 
         // O seletor é bloqueante (abre uma atividade e espera), por isso fora da
         // thread da interface.

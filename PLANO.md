@@ -728,7 +728,7 @@ Adquirido no `onCreate` do `RecetorService`, libertado no `onDestroy`. Provado:
 o PC passou a descobrir o tablet por mDNS (`dispositivo — 192.168.1.235`), que
 antes não aparecia.
 
-**Peça C — enviar do Android ⚠️ implementado, falta o teste do seletor**
+**Peça C — enviar do Android ✅ validado pelo utilizador**
 
 `tauri-plugin-android-fs` v29 dá `open_file_readable(uri) -> std::fs::File` e
 `get_name(uri)`. Implementado:
@@ -739,17 +739,53 @@ antes não aparecia.
   URI num `std::fs::File`, e envia. O frontend chama-o quando o user agent é
   Android; no desktop mantém o diálogo por caminho.
 - Compila (desktop e Android), instala, e **receber não regrediu** (hash igual).
-- **Falta validar o seletor a abrir de facto.** Invocá-lo pelo DevTools devolveu
-  sem abrir (o SAF lança uma atividade, provavelmente precisa do gesto real do
-  utilizador); e a lista estava vazia, por isso não houve botão para tocar por
-  adb. **É teste de utilizador:** tocar "Enviar ficheiro" no tablet e escolher.
+- **Seletor validado**: o utilizador tocou "Enviar ficheiro" no tablet, escolheu
+  e o ficheiro chegou. Confirmou-se depois, por adb, que a suspeita anterior
+  estava certa — o SAF precisa de um gesto real; invocá-lo pelo DevTools não
+  abre nada, e um `input tap` só funciona com a app em primeiro plano (com ela
+  em segundo plano o toque vai parar ao ecrã inicial).
+
+**Peça C.1 — os 3 segundos antes do seletor ✅**
+
+O utilizador reportou o envio "muito lento" — mas a abrir o seletor, não a
+transferir. Medido no relógio do tablet, com o toque dele e depois com um
+`input tap` sintético:
+
+| | toque do utilizador | toque sintético |
+|---|---|---|
+| toque → `Intent` OPEN_DOCUMENT | 3,149 s | 3,064 s |
+| `Intent` → seletor desenhado | 0,528 s (a frio) | 0,104 s (a quente) |
+
+Ou seja: **o Android fazia a parte dele em ~100 ms; os 3 segundos eram nossos.**
+A causa era `enviar_android` chamar `descoberta::resolver()` antes de abrir o
+seletor, e o `resolver` esperar a janela inteira do mDNS — `from_secs(3)`, fixa,
+sem sair mais cedo ao encontrar. Bate ao milissegundo.
+
+O absurdo era a busca ser desnecessária: a lista já tem o endereço e até o
+mostra no cartão. A interface passava só `v.nome` e o Rust deitava o endereço
+fora para o redescobrir. **O mesmo acontecia no desktop** (`enviar_ficheiro`),
+onde passava despercebido porque o seletor abre primeiro e os 3 s ficavam
+escondidos dentro do "a enviar".
+
+Correção — `descoberta::resolver_com_dica(dica, nome, impressao, ...)`:
+1. Confirma num pedido curto a `/identidade` quem está no endereço da dica.
+2. Serve → devolve na hora (milissegundos).
+3. Não serve → só aí paga a busca por nome.
+
+A confirmação da impressão digital **não é decoração**: ao passar a guardar
+endereços, abre-se a hipótese de um IP ter mudado de dono desde que a lista foi
+feita, e entregar o ficheiro ao dispositivo errado é bem pior do que demorar.
+Continua a não ser autenticação (quem autentica é o envelope) — serve só para
+detetar que o endereço envelheceu. O tempo de ligação é curto de propósito: um
+IP calado só desistiria ao fim de minutos, muito pior do que a busca evitada.
+
+Provado em loopback, com sabotagem deliberada a confirmar que cada teste apanha
+a sua regressão (`rede/tests/dica_de_endereco.rs`). O caminho de recurso — a
+busca por mDNS quando a dica não serve — **não** está provado em teste, porque
+depende de multicast; só se dá por validado entre máquinas reais.
 
 **Por fazer**
-- [ ] Validar o envio do Android (teste de utilizador com o seletor).
 - [ ] Partilha pelo share sheet do sistema (peça D).
-- [ ] Nome do dispositivo no Android: o `getprop ro.product.model` já está no
-      código, mas a identidade do teste foi criada antes e ficou "dispositivo";
-      regenera com `pm clear` ou numa instalação limpa.
 
 #### Desenho do que falta (send e receive igualmente importantes)
 

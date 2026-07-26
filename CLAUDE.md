@@ -79,6 +79,19 @@ Cada lógica não-trivial deixa **um teste que falha se ela partir**.
   recebidos ficam em `<raiz>/recebidos/`. Inspeciona com `adb shell run-as <pkg>`.
 - **mDNS no Android precisa de `MulticastLock`**; sem ele não há descoberta, só
   IP direto.
+- **A lista de dispositivos já traz o endereço — não o redescubras.** A janela
+  do mDNS é de 3 s fixos (não sai mais cedo ao encontrar), e pagá-la antes de
+  cada envio adiava tudo, no Android até o seletor de ficheiros abrir. Usa
+  `resolver_com_dica`. Guardar endereços obriga a confirmar a impressão digital
+  de quem lá está: um IP pode ter mudado de dono desde a listagem.
+- **Lentidão sentida: mede de que lado está antes de mexer.** No Android o
+  logcat dá o corte exato — o toque (`input_interaction`), o disparo do
+  `Intent` (`START u0`) e o desenho (`wm_activity_launch_time`). Duas vezes
+  neste projeto a causa "óbvia" era a errada.
+- **`adb shell input tap` só acerta com a app em primeiro plano.** Em segundo
+  plano o DevTools continua a responder (a WebView sobrevive), o que dá a
+  ilusão de que a app está à frente, mas o toque vai para o ecrã inicial.
+  Confirma com `dumpsys activity activities | grep topResumedActivity`.
 
 ## Idioma
 

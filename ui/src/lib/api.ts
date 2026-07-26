@@ -46,12 +46,14 @@ export type Evento =
 export const identidade = () => invoke<Eu>("identidade");
 export const dispositivos = () => invoke<Vizinho[]>("dispositivos");
 
-export const enviarFicheiro = (ficheiro: string, destino: string) =>
+/// O destino vai inteiro, e não só o nome: o endereço que já veio da lista
+/// poupa ao Rust a busca na rede antes de cada envio.
+export const enviarFicheiro = (ficheiro: string, destino: Vizinho) =>
   invoke<void>("enviar_ficheiro", { ficheiro, destino });
 
 /// No Android o seletor de ficheiros abre-se do lado do Rust (devolve um URI
 /// content://, não um caminho), por isso o envio é um comando próprio.
-export const enviarAndroid = (destino: string) =>
+export const enviarAndroid = (destino: Vizinho) =>
   invoke<void>("enviar_android", { destino });
 
 /// O WebView do Android identifica-se no user agent; chega para escolher o

@@ -235,6 +235,77 @@ pub fn resolver(destino: &str, porta_omissao: u16, ignorar: Option<&str>) -> Res
     }
 }
 
+/// Diz se em `endereco` está mesmo o dispositivo esperado.
+///
+/// Devolve `false` a qualquer falha. Não vale a pena distinguir "não respondeu"
+/// de "respondeu outra coisa": em ambos os casos o caminho certo é o mesmo —
+/// deitar a dica fora e procurar.
+///
+/// O tempo de ligação é curto de propósito. Um IP que já não tem ninguém não
+/// recusa a ligação, fica calado, e o sistema só desiste ao fim de minutos —
+/// esperar isso seria muito pior do que a busca que se está a evitar.
+async fn quem_esta_em(endereco: SocketAddr, impressao: Option<&str>) -> bool {
+    let Ok(cliente) = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(1))
+        .timeout(Duration::from_secs(3))
+        .build()
+    else {
+        return false;
+    };
+    let Ok(resposta) = cliente
+        .get(format!("http://{endereco}/identidade"))
+        .send()
+        .await
+    else {
+        return false;
+    };
+    let Ok(deles) = resposta.json::<PublicIdentity>().await else {
+        return false;
+    };
+    match impressao {
+        Some(esperada) => impressao_curta(&deles) == esperada,
+        // Sem impressão para comparar, ter respondido é quanto se pode exigir.
+        None => true,
+    }
+}
+
+/// Resolve um destino aproveitando o endereço que a lista já conhece.
+///
+/// A lista de dispositivos vem da descoberta e já traz o endereço de cada um;
+/// mandar o [`resolver`] procurá-lo outra vez custava os 3 segundos inteiros da
+/// janela de mDNS **antes** de o envio sequer começar — no Android, antes de o
+/// seletor de ficheiros abrir, que é onde mais se notava.
+///
+/// Aqui esse endereço entra como dica e confirma-se com um pedido curto. Só se
+/// a dica não servir — a máquina mudou de IP, ou o IP passou entretanto para
+/// outro dispositivo — é que se paga a busca.
+///
+/// A impressão comparada aqui **não autentica** ninguém (ver [`Descoberto`]):
+/// serve para não entregar o ficheiro ao dispositivo errado por o endereço
+/// estar velho. Quem autentica continua a ser o envelope, que só o dono da
+/// chave abre.
+pub async fn resolver_com_dica(
+    dica: Option<SocketAddr>,
+    destino: &str,
+    impressao: Option<&str>,
+    porta_omissao: u16,
+    ignorar: Option<&str>,
+) -> Result<SocketAddr> {
+    if let Some(d) = dica
+        && quem_esta_em(d, impressao).await
+    {
+        return Ok(d);
+    }
+
+    // A busca é bloqueante (espera a janela toda), por isso sai da thread do
+    // runtime.
+    let destino = destino.to_string();
+    let ignorar = ignorar.map(str::to_string);
+    tokio::task::spawn_blocking(move || resolver(&destino, porta_omissao, ignorar.as_deref()))
+        .await
+        .context("a busca pelo destino não chegou ao fim")?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

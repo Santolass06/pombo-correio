@@ -132,7 +132,7 @@
     }
   }
 
-  async function enviarPara(destino: string) {
+  async function enviarPara(destino: Vizinho) {
     try {
       if (eAndroid()) {
         // O seletor abre-se do lado do Rust; devolve logo, o envio segue por eventos.
@@ -195,7 +195,10 @@
   {#if aba === "dispositivos"}
     <div class="linha" style="margin-bottom: var(--space-4)">
       <h2 class="cresce" style="margin:0">Os teus dispositivos</h2>
-      <button class="btn btn-secondary" onclick={procurar} disabled={aProcurar}>
+      <!-- Envolvido de propósito: passado direto, o `onclick` entrega o evento
+           do rato como `quieto`, que sendo um objeto conta como verdadeiro — o
+           botão nunca acendia "À procura..." e os erros morriam calados. -->
+      <button class="btn btn-secondary" onclick={() => procurar()} disabled={aProcurar}>
         {aProcurar ? "À procura..." : "Procurar"}
       </button>
     </div>
@@ -215,7 +218,7 @@
               <div class="card-title trunca">{v.nome}</div>
               <div class="card-meta text-muted trunca">{v.endereco}</div>
             </div>
-            <button class="btn btn-primary btn-block-mobile" onclick={() => enviarPara(v.nome)}>
+            <button class="btn btn-primary btn-block-mobile" onclick={() => enviarPara(v)}>
               Enviar ficheiro
             </button>
           </div>
