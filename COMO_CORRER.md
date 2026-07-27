@@ -117,11 +117,40 @@ O relay guarda ficheiros cifrados até o destinatário os vir buscar — serve
 quando os dois dispositivos não se alcançam, ou o destinatário está desligado.
 **Só vê texto cifrado**: não sabe o nome do ficheiro nem o consegue abrir.
 
+Está instalado em **duas** máquinas de casa, cada uma como serviço de
+utilizador do systemd (`~/.config/systemd/user/pombo-relay.service`), com
+`Restart=always` e `linger` ligado — sobem sozinhas depois de um reinício, sem
+ninguém entrar na sessão.
+
+| máquina | endereço LAN | Tailscale |
+|---|---|---|
+| A10 (`andresantos-M11BB`) | `192.168.1.17:53319` | `andresantos-m11bb` |
+| Pi 5 (`raspberrypi`) | `192.168.1.232:53319` | `raspberrypi` |
+
+Para instalar noutra máquina:
+
 ```sh
 cargo build --release -p pombo-correio-relay
-./target/release/pombo-relay --dados /var/lib/pombo-relay --porta 53319 \
-    --autorizados /etc/pombo/autorizados.txt
+mkdir -p ~/.local/share/pombo-relay ~/.config/systemd/user
+cat > ~/.config/systemd/user/pombo-relay.service <<'EOF'
+[Unit]
+Description=Relay do Pombo-Correio
+After=network-online.target
+
+[Service]
+ExecStart=%h/CAMINHO/target/release/pombo-relay --dados %h/.local/share/pombo-relay --porta 53319
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+systemctl --user daemon-reload && systemctl --user enable --now pombo-relay
+sudo loginctl enable-linger $USER     # senão morre ao sair da sessão
 ```
+
+Ver como está: `systemctl --user status pombo-relay`, ou
+`curl http://localhost:53319/saude` (responde `pombo-relay`).
 
 O `--autorizados` é um ficheiro com uma impressão digital por linha (a curta, 16
 dígitos hexadecimais; `#` faz comentário). **Passa a ser obrigatório assim que o
@@ -132,11 +161,21 @@ cada dispositivo vê-se em `pombo identidade`.
 Do lado dos clientes, um ficheiro `relays` na pasta de dados, um URL por linha:
 
 ```sh
-printf 'https://casa.exemplo\nhttps://pi.exemplo\n' > ~/.local/share/pt.pombo.correio/relays
+# App: ~/.local/share/pt.pombo.correio/relays · CLI: ~/.local/share/pombo/relays
+cat > ~/.local/share/pombo/relays <<'EOF'
+# LAN primeiro (rápida), Tailscale a seguir (funciona de fora, e safa se o
+# DHCP mudar o IP). `#` faz comentário.
+http://192.168.1.17:53319
+http://192.168.1.232:53319
+http://andresantos-m11bb:53319
+http://raspberrypi:53319
+EOF
 ```
 
-Tenta-se pela ordem do ficheiro e usa-se o primeiro que responder — é para isso
-que são dois. **Sem este ficheiro não há relay nenhum**, e a app comporta-se
+Ao **depositar**, fica-se com o primeiro que responder ao `/saude` — é para
+isso que são dois. Ao **buscar**, passa-se por todos: um nó em baixo não pode
+impedir o outro de entregar, e um depósito preso num nó que caiu fica lá à
+espera de ele voltar (os blobs não se replicam, de propósito). **Sem este ficheiro não há relay nenhum**, e a app comporta-se
 exatamente como antes.
 
 Os depósitos duram 7 dias e são limpos de hora a hora. Um ficheiro entregue é

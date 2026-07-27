@@ -1050,13 +1050,36 @@ menos o último. É esta conta que mantém o relay ignorante.
   o identificador do relay perde-se e uma nova tentativa cria outro depósito. O
   órfão desaparece pela validade de 7 dias. Retomar dentro da mesma tentativa
   funciona (3 tentativas, cada uma a recomeçar na fronteira do bloco).
-- [~] **R4 — dois nós ativo-ativo.** *Metade feita:* o cliente tenta os nós pela
-      ordem do ficheiro e usa o primeiro que responda ao `/saude`; ao buscar,
-      passa por todos, porque um em baixo não pode impedir o outro de entregar.
-      **Falta pôr os dois de pé no A10 e no Pi 5** — precisa das máquinas. Blobs não replicam. O registo também não, agora que R2 mostrou
-      que não existe — **o vetor de versões deixou de ter o que sincronizar**.
-      Sobra a lista de autorizados, que é um ficheiro de texto pequeno e se copia
-      à mão.
+- [x] **R4 — dois nós ativo-ativo.** De pé no A10 e no Pi 5, cada um como
+      serviço de utilizador do systemd com `Restart=always` e `linger`, por isso
+      aguentam reinício. Ao depositar, o cliente fica com o primeiro que responda
+      ao `/saude`; ao buscar, passa por **todos**, porque um em baixo não pode
+      impedir o outro de entregar. Blobs não replicam. O registo também não,
+      agora que R2 mostrou que não existe — **o vetor de versões deixou de ter o
+      que sincronizar**. Sobra a lista de autorizados, um ficheiro de texto que
+      se copia à mão.
+
+  **O buraco que o teste em máquinas a sério destapou:** o CLI depositava em
+  `relays.first()`, não no que estivesse de pé. Com o primeiro nó em baixo o
+  degrau do relay morria inteiro, apesar de haver um segundo vivo. A app fazia
+  bem; o CLI não — a lógica existia em duplicado e só uma cópia estava certa.
+  Subiu para `rede::relay::primeiro_de_pe`, partilhada pelos dois.
+
+  **Validado entre o A10 (x86-64) e o Pi 5 (ARM64), builds release, LAN:**
+
+  | | resultado |
+  |---|---|
+  | Direto, 200 MB, x86-64 → ARM64 | ✅ SHA-256 igual, 5,0 s (≈3 s são a janela fixa do mDNS) |
+  | Destino em baixo → cai para o relay | ✅ depositou no A10, que é o primeiro da lista |
+  | Nome do ficheiro em claro no disco do relay | ✅ zero ocorrências, na máquina a sério |
+  | O outro lado vai à caixa e o SHA-256 bate | ✅ 50 MB idênticos |
+  | **A10 em baixo → depósito novo vai para o Pi** | ✅ sem ninguém mexer em nada |
+  | Buscar com um nó morto ainda entrega do vivo | ✅ diz o erro do morto e entrega na mesma |
+  | Depósito preso num nó que cai | ✅ espera, e chega quando o nó volta |
+
+  **O que isto ainda não prova:** nada disto saiu da LAN. Pela internet, com
+  latência e NAT pelo meio, continua por medir — e o degrau T2 (P2P direto) nem
+  existe ainda, por isso hoje um envio de fora gasta o upload de casa duas vezes.
 - [ ] **R5 — página sem instalação.** *Depende do `core/` em WASM* — o browser
       tem de decifrar e verificar sozinho, senão a chave passaria pelo servidor e
       todo o modelo caía. Por isso **faz-se junto do S8**, que traz o WASM de
@@ -1072,16 +1095,17 @@ trabalho por fazer — é trabalho que precisa de coisas que este lado não tem:
 
 | O que falta | O que precisa |
 |---|---|
-| R4, segunda metade | Pôr o `pombo-relay` de pé no A10 e no Pi 5 |
 | Ponta pela internet, e TLS | Decidir como expor os servidores: domínio, IP público ou CGNAT |
 | R5 (link sem instalação) e S8 (PWA) | `rustup target add wasm32-unknown-unknown` e o `wasm-pack`, que não estão instalados |
 | R6 (push) | Conta e chaves de serviço do FCM (Android) e do Web Push (iOS) |
 | S5 em Windows | A máquina Windows |
+| Android a ir buscar ao relay | O tablet (ficou sem bateria a meio) |
 
-Enquanto isso, o que está provado está provado **em loopback**: o protocolo, a
-retoma nos dois sentidos, e que o relay não vê nada. Comportamento pela internet
-e entre as duas máquinas de casa continua **por provar**, e é assim que fica
-escrito até alguém o correr lá.
+Onde é que cada coisa está provada, sem arredondar: o protocolo, a retoma nos
+dois sentidos e a opacidade do relay estão provados **em loopback**; o caminho
+direto, o degrau do relay e a queda de um nó estão provados **entre o A10 e o
+Pi 5, na LAN**; **pela internet não está provado nada**, e é assim que fica
+escrito até alguém o correr de fora de casa.
 
 ### S8 — PWA iOS
 
