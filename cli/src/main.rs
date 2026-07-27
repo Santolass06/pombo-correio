@@ -296,6 +296,9 @@ async fn main() -> Result<()> {
         Comando::Identidade => {
             println!("{}", eu.label);
             println!("Número de segurança: {}", eu.public().safety_number());
+            // A impressão curta é o que vai para a lista de autorizados do
+            // relay. Sem ela aqui, a lista só se conseguia escrever a adivinhar.
+            println!("Impressão: {}", descoberta::impressao_curta(&eu.public()));
             Ok(())
         }
     }
