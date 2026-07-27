@@ -231,11 +231,13 @@ async fn main() -> Result<()> {
                 Err(porque_nao) => {
                     // Desce a escada, como a app. Sem chave pública de quem
                     // recebe não há envelope — e só a temos de quem já cá passou.
-                    let relays = relay::configurados(&dados);
+                    // Qual dos nós, e não o primeiro da lista: o primeiro pode
+                    // estar em baixo, e é precisamente para isso que são dois.
+                    let de_pe = relay::primeiro_de_pe(relay::configurados(&dados)).await;
                     let conhecidos = Conhecidos::carregar(dados.join("conhecidos.json"));
                     let alvo = conhecidos.identidade(&destino);
 
-                    match (relays.first(), alvo) {
+                    match (de_pe.as_ref(), alvo) {
                         (Some(base), Some(para)) => {
                             println!("O destino não responde — a deixar no relay.");
                             relay::depositar(&eu, &pombo_correio_rede::FonteCaminho(ficheiro), &para, base, ouvinte, sem_cancelamento(), &metricas).await

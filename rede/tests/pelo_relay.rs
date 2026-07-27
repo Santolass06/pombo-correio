@@ -140,6 +140,25 @@ async fn o_ficheiro_atravessa_o_relay_byte_a_byte() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn salta_o_no_em_baixo_e_fica_com_o_de_pe() {
+    // O ponto todo de haver dois nós. E as duas maneiras de um nó estar em
+    // baixo são diferentes: a porta fechada recusa já, a máquina desligada fica
+    // calada — é a segunda que precisa do tempo-limite curto de ligação.
+    let (base, _r) = relay_de_pe("de-pe").await;
+
+    let escolhido = relay::primeiro_de_pe(vec![
+        "http://127.0.0.1:1".into(),   // recusa já
+        "http://192.0.2.1:53319".into(), // TEST-NET-1: cai no vazio
+        base.clone(),
+    ])
+    .await;
+    assert_eq!(escolhido.as_deref(), Some(base.as_str()));
+
+    // E se nenhum responder, diz que não — não devolve um ao calhas.
+    assert_eq!(relay::primeiro_de_pe(vec!["http://127.0.0.1:1".into()]).await, None);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_caixa_de_outro_nao_se_abre() {
     // O envelope é para o Bento. A Carla vê o depósito na sua caixa? Não — a
     // caixa é por impressão digital. E mesmo que fosse lá parar, não abria.

@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use pombo_correio_core::identity::Identity;
-use pombo_correio_rede::{Cancelar, Cancelaveis, Evento, Metricas, conhecidos::Conhecidos, descoberta, enviar, receber};
+use pombo_correio_rede::{Cancelar, Cancelaveis, Evento, Metricas, conhecidos::Conhecidos, descoberta, enviar, receber, relay};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
@@ -132,7 +132,7 @@ async fn caminho_para(app: &tauri::AppHandle, destino: &Vizinho) -> Result<Camin
     let porque_nao = directo.unwrap_err();
 
     let dados = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let Some(base) = primeiro_de_pe(descoberta_relay(&dados)).await else {
+    let Some(base) = relay::primeiro_de_pe(relay::configurados(&dados)).await else {
         return Err(porque_nao);
     };
 
@@ -146,38 +146,6 @@ async fn caminho_para(app: &tauri::AppHandle, destino: &Vizinho) -> Result<Camin
     };
 
     Ok(Caminho::Relay { base, para })
-}
-
-fn descoberta_relay(dados: &std::path::Path) -> Vec<String> {
-    pombo_correio_rede::relay::configurados(dados)
-}
-
-/// Qual dos nós de casa está de pé. É para isto que são dois.
-///
-/// Pela ordem do ficheiro, e não em paralelo: com dois nós a diferença é uma
-/// ligação falhada de um segundo, e o código sequencial lê-se de uma vez.
-/// `ponytail: sequencial; happy eyeballs se alguma vez forem muitos nós.`
-///
-/// O tempo de ligação é curto de propósito — um servidor desligado não recusa a
-/// ligação, fica calado, e o sistema só desistiria ao fim de minutos.
-async fn primeiro_de_pe(relays: Vec<String>) -> Option<String> {
-    let cliente = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(2))
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .ok()?;
-
-    for base in relays {
-        let vivo = cliente
-            .get(format!("{base}/saude"))
-            .send()
-            .await
-            .is_ok_and(|r| r.status().is_success());
-        if vivo {
-            return Some(base);
-        }
-    }
-    None
 }
 
 /// Põe ficheiros a caminho do destino e devolve logo; o resto conta-se por
@@ -243,7 +211,7 @@ async fn enviar_ficheiro(
 #[tauri::command]
 async fn buscar_no_relay(app: tauri::AppHandle) -> Result<usize, String> {
     let dados = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let relays = descoberta_relay(&dados);
+    let relays = relay::configurados(&dados);
     if relays.is_empty() {
         return Ok(0);
     }

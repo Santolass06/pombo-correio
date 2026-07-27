@@ -37,6 +37,34 @@ pub fn configurados(dados: &std::path::Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Qual dos nós de casa está de pé. É para isto que são dois.
+///
+/// Pela ordem do ficheiro, e não em paralelo: com dois nós a diferença é uma
+/// ligação falhada de um segundo, e o código sequencial lê-se de uma vez.
+/// `ponytail: sequencial; happy eyeballs se alguma vez forem muitos nós.`
+///
+/// O tempo de ligação é curto de propósito — um servidor desligado não recusa a
+/// ligação, fica calado, e o sistema só desistiria ao fim de minutos.
+pub async fn primeiro_de_pe(relays: Vec<String>) -> Option<String> {
+    let cliente = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(2))
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .ok()?;
+
+    for base in relays {
+        let vivo = cliente
+            .get(format!("{base}/saude"))
+            .send()
+            .await
+            .is_ok_and(|r| r.status().is_success());
+        if vivo {
+            return Some(base);
+        }
+    }
+    None
+}
+
 /// Onde o relay guarda um bloco selado.
 ///
 /// Todos os blocos selados têm o mesmo tamanho menos o último, por isso a
