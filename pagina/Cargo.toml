@@ -1,0 +1,22 @@
+[package]
+name = "pombo-correio-pagina"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+# `cdylib` é o que o wasm-pack empacota; `rlib` é o que deixa os testes correrem
+# em nativo, onde são baratos e rápidos.
+crate-type = ["cdylib", "rlib"]
+
+# O `wasm-opt` que vem agarrado ao wasm-pack é anterior às operações de memória
+# em bloco, que o Rust já emite por omissão — sem estas opções recusa o que o
+# compilador acabou de produzir. Ambas são de 2019 e qualquer browser atual as tem.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ['-O', '--enable-bulk-memory', '--enable-nontrapping-float-to-int']
+
+[dependencies]
+pombo-correio-core.workspace = true
+hex = "0.4.3"
+serde_json = "1.0"
+wasm-bindgen = "0.2"

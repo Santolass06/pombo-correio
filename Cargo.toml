@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core", "rede", "cli", "relay", "ui/src-tauri"]
+members = ["core", "rede", "cli", "relay", "pagina", "ui/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

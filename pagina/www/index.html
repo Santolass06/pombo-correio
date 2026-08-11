@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pombo-Correio</title>
+<style>
+/* Os mesmos tokens da app, para o link não parecer outro produto. Sem tipos de
+   letra externos: a página é servida pelo relay de casa e tem de abrir na mesma
+   se a internet estiver a meio gás. */
+:root {
+  color-scheme: light dark;
+  --bg: #f7f8fd; --surface: #ffffff; --texto: #23252e; --acento: #5d5294;
+  --divisoria: color-mix(in srgb, #23252e 12%, transparent);
+  --sombra: 0 1px 3px rgba(35,37,46,.10), 0 6px 18px rgba(35,37,46,.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161826; --surface: #232532; --texto: #e9e9ed; --acento: #9184d9;
+    --divisoria: color-mix(in srgb, #e9e9ed 16%, transparent);
+    --sombra: 0 0 0 1px #595d6c, 0 6px 18px rgba(0,0,0,.55);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100dvh; display: grid; place-items: center;
+  padding: 24px calc(16px + env(safe-area-inset-right, 0px))
+           calc(24px + env(safe-area-inset-bottom, 0px))
+           calc(16px + env(safe-area-inset-left, 0px));
+  background: var(--bg); color: var(--texto);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main {
+  width: 100%; max-width: 26rem; background: var(--surface);
+  border-radius: 16px; box-shadow: var(--sombra); padding: 24px;
+}
+h1 { margin: 0 0 4px; font-size: 1rem; font-weight: 600; letter-spacing: .01em; }
+.marca { color: var(--acento); }
+.ficheiro {
+  margin: 16px 0 4px; font-size: 1.25rem; font-weight: 600;
+  /* Um nome longo sem espaços não pode esticar o cartão. */
+  overflow-wrap: anywhere;
+}
+.pormenor { margin: 0; opacity: .7; font-size: .9rem; }
+button {
+  width: 100%; margin-top: 24px; padding: 12px 16px; border: 0;
+  border-radius: 10px; background: var(--acento); color: #fff;
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+button:disabled { opacity: .55; cursor: default; }
+progress { width: 100%; margin-top: 16px; height: 8px; }
+.aviso {
+  margin-top: 16px; padding: 12px; border-radius: 10px; font-size: .9rem;
+  border: 1px solid var(--divisoria);
+}
+.erro { color: #c8385a; }
+@media (prefers-color-scheme: dark) { .erro { color: #ff8fa6; } }
+.rodape {
+  margin: 20px 0 0; padding-top: 16px; border-top: 1px solid var(--divisoria);
+  font-size: .8rem; opacity: .65;
+}
+</style>
+</head>
+<body>
+<main>
+  <h1><span class="marca">Pombo-Correio</span></h1>
+  <div id="conteudo"><p class="pormenor">A carregar…</p></div>
+  <p class="rodape">
+    Este ficheiro é decifrado aqui, no teu dispositivo. A chave vai depois do
+    <code>#</code> no endereço, e essa parte nunca chega ao servidor.
+  </p>
+</main>
+<script type="module" src="/pagina/pagina.js"></script>
+</body>
+</html>
