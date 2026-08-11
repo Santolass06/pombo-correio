@@ -207,6 +207,11 @@ ExecStart=… pombo-relay --dados … --porta 53319 --pagina %h/pombo-pagina
 
 Sem `--pagina`, `/d/{id}` responde 404 e o resto do relay funciona na mesma.
 
+**Sem HTTPS, os ficheiros grandes não passam.** Por HTTP simples num IP da LAN a
+página não é *contexto seguro*, e o browser não expõe o `showSaveFilePicker` —
+sobra juntar tudo em memória, que estoira num vídeo. Não é a internet que exige
+TLS aqui, é o próprio browser, dentro de casa.
+
 Três coisas que convém saber antes de mandar um link a alguém:
 
 - **Chega tão longe quanto o endereço.** O link leva o endereço do nó que aceitou

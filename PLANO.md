@@ -1198,23 +1198,44 @@ menos o último. É esta conta que mantém o relay ignorante.
   | O mesmo link aberto duas vezes | ✅ entrega as duas (não se gasta) |
   | Um link na caixa de alguém | ✅ não aparece, nem na de quem o criou |
 
-  **O que o browser destapou e os testes em Rust não podiam:** fechar a caixa de
-  gravação deixava a página muda e uma rejeição por tratar na consola. Cancelar
-  não é falhar, e agora não diz nada — mas qualquer outro erro do seletor passou a
-  aparecer no ecrã em vez de só na consola.
+  **Validado nos dois nós a sério, pela LAN, com a página instalada como
+  `--pagina` no serviço do systemd:**
+
+  | | resultado |
+  |---|---|
+  | 12 MB pelo A10 (x86-64), aberto no browser | ✅ mesmos bytes, 0,5 s |
+  | 8 MB pelo Pi 5 (ARM64), aberto no browser x86-64 | ✅ mesmos bytes, 0,3 s |
+  | O mesmo `.wasm` a servir das duas arquiteturas | ✅ é o mesmo ficheiro, byte a byte |
+
+  **O que o browser destapou e os testes em Rust não podiam**, por ordem de
+  importância:
+
+  1. **Sem TLS não há `showSaveFilePicker`.** Servida por HTTP simples de um IP
+     da LAN, a página não é *contexto seguro*: `isSecureContext` é falso, e o
+     seletor de gravação — como o `crypto.subtle` — simplesmente não existe. O
+     caminho que escreve em disco à medida **nunca corre**, e sobra sempre o de
+     memória. Isto muda a ordem das coisas: o TLS deixa de ser só "para a
+     internet" e passa a ser o que destranca os ficheiros grandes, mesmo dentro
+     de casa. Um certificado do Tailscale (`tailscale cert`) resolve-o sem
+     depender de exposição nenhuma.
+  2. **Fechar a caixa de gravação** deixava a página muda e uma rejeição por
+     tratar na consola. Cancelar não é falhar, e agora não diz nada — mas
+     qualquer outro erro do seletor passou a aparecer no ecrã em vez de só lá.
 
   **O que isto ainda não prova, e é bastante:**
 
   - **Só Chromium.** O Safari do iPhone é precisamente onde o caminho de memória
     importa, e onde ele parte primeiro. Por medir.
-  - **O caminho do `showSaveFilePicker` não correu** — o Playwright intercepta o
-    seletor. O que foi validado byte a byte foi o de memória. O de disco, que é o
-    que serve os ficheiros grandes, está por exercitar num browser.
-  - **3 MB não é um vídeo.** O limite de memória do caminho de reserva não foi
-    tocado, quanto mais medido.
+  - **O caminho do `showSaveFilePicker` nunca correu**, e agora sabe-se que por
+    duas razões independentes: o Playwright intercepta o seletor, e sem TLS o
+    browser nem o expõe. Tudo o que foi validado byte a byte foi pelo caminho de
+    memória.
+  - **12 MB não é um vídeo.** O limite do caminho de memória não foi tocado,
+    quanto mais medido — e enquanto não houver TLS é o único caminho que existe.
   - **A espera pela subida** (o "ainda a ser enviado", a sondar de 3 em 3 s) só
     está coberta pela regra em Rust; o ecrã dessa fase nunca foi visto.
-  - **Nada disto saiu de `127.0.0.1`.**
+  - **Nada disto saiu da LAN**, e um link com `192.168.1.17` lá dentro só abre
+    dentro de casa.
 - [ ] **R6 — push.** FCM no Android, Web Push no iOS. Precisa de contas e chaves
       de serviço — decisão do utilizador, não técnica.
 - [ ] Binários musl para amd64 e arm64.
@@ -1226,8 +1247,9 @@ trabalho por fazer — é trabalho que precisa de coisas que este lado não tem:
 
 | O que falta | O que precisa |
 |---|---|
-| Ponta pela internet, e TLS | Decidir se o link sai por domínio próprio ou DDNS. **Sem CGNAT**, com IPv6 global, NAT de cone e UPnP — a rede de casa dá para tudo, falta o nome |
-| A página no Safari do iPhone | Um iPhone. É o browser onde o caminho de reserva parte primeiro |
+| **TLS** — agora o primeiro da fila | Sem ele o browser não dá `showSaveFilePicker` e os ficheiros grandes não passam, nem em casa. `tailscale cert` resolve sem expor nada; um domínio a sério resolve isso **e** a internet |
+| Ponta pela internet | Decidir se o link sai por domínio próprio ou DDNS. **Sem CGNAT**, com IPv6 global, NAT de cone e UPnP — a rede de casa dá para tudo, falta o nome |
+| A página no Safari do iPhone | Um iPhone. É o browser onde o caminho de memória parte primeiro |
 | R6 (push) | Conta e chaves de serviço do FCM (Android) e do Web Push (iOS) |
 | S5 em Windows | A máquina Windows |
 | Android a ir buscar ao relay | O tablet (ficou sem bateria a meio) |
