@@ -27,6 +27,9 @@ use crate::{
 struct Estado {
     deposito: Deposito,
     autorizados: Autorizados,
+    /// Pasta com a página do link sem instalação. `None` desliga o caminho todo
+    /// — quem não a instalar tem um relay que continua a servir a app na mesma.
+    pagina: Option<std::path::PathBuf>,
     /// Depósitos com uma subida a decorrer. Duas subidas ao mesmo depósito
     /// escreveriam por cima uma da outra e o ficheiro sairia com blocos de
     /// ambas — indistinguível de corrupção, e só descoberto no fim, na
@@ -243,6 +246,73 @@ async fn saude() -> impl IntoResponse {
     "pombo-relay"
 }
 
+/// Recusa tudo o que não seja um nome de ficheiro nosso.
+///
+/// Vem do URL e vai virar caminho em disco. Em vez de tentar limpar o que chega,
+/// aceita-se apenas o alfabeto que os nossos ficheiros usam — a mesma escolha do
+/// identificador de depósito, e pela mesma razão: é curto de ler e não tem
+/// cantos. Sem isto, `../../etc/passwd` saía pela porta da frente.
+fn caminho_de_pagina(pedido: &str) -> Option<std::path::PathBuf> {
+    let mut fora = std::path::PathBuf::new();
+    for parte in pedido.split('/') {
+        let aceitavel = !parte.is_empty()
+            && parte != ".."
+            && parte
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-'));
+        if !aceitavel {
+            return None;
+        }
+        fora.push(parte);
+    }
+    (!fora.as_os_str().is_empty()).then_some(fora)
+}
+
+/// O tipo de conteúdo pelo sufixo.
+///
+/// O `.wasm` é o que obriga a existir esta função: servido como
+/// `octet-stream`, o `instantiateStreaming` recusa-o e a página não arranca.
+fn tipo_de(ficheiro: &std::path::Path) -> &'static str {
+    match ficheiro.extension().and_then(|e| e.to_str()) {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") => "text/javascript; charset=utf-8",
+        Some("wasm") => "application/wasm",
+        Some("css") => "text/css; charset=utf-8",
+        Some("json") => "application/json",
+        _ => "application/octet-stream",
+    }
+}
+
+async fn ficheiro_da_pagina(estado: &Estado, relativo: &std::path::Path) -> Result<Response, Erro> {
+    let raiz = estado
+        .pagina
+        .as_ref()
+        .ok_or_else(|| mau(StatusCode::NOT_FOUND, "este relay não serve a página"))?;
+
+    let caminho = raiz.join(relativo);
+    let bytes = tokio::fs::read(&caminho)
+        .await
+        .map_err(|_| mau(StatusCode::NOT_FOUND, "não existe"))?;
+
+    Ok(([(header::CONTENT_TYPE, tipo_de(&caminho))], bytes).into_response())
+}
+
+/// A página do link. **O identificador não é usado aqui para nada** — quem o lê
+/// é o JavaScript, a partir da barra de endereço, junto com a chave que vem
+/// depois do `#` e que nunca chega até cá.
+async fn pagina_do_link(State(e): State<Arc<Estado>>) -> Result<Response, Erro> {
+    ficheiro_da_pagina(&e, std::path::Path::new("index.html")).await
+}
+
+async fn recurso_da_pagina(
+    State(e): State<Arc<Estado>>,
+    Path(caminho): Path<String>,
+) -> Result<Response, Erro> {
+    let relativo =
+        caminho_de_pagina(&caminho).ok_or_else(|| mau(StatusCode::NOT_FOUND, "não existe"))?;
+    ficheiro_da_pagina(&e, &relativo).await
+}
+
 /// As rotas, num sítio só — senão o servidor de testes e o a sério divergem, e a
 /// diferença aparece em produção.
 fn rotas(estado: Arc<Estado>) -> Router {
@@ -257,15 +327,34 @@ fn rotas(estado: Arc<Estado>) -> Router {
         )
         .route("/deposito/{id}/blocos", get(descer))
         .route("/caixa", get(caixa))
+        // O link sem instalação: a página, e o que ela precisa de carregar.
+        .route("/d/{id}", get(pagina_do_link))
+        .route("/pagina/{*caminho}", get(recurso_da_pagina))
         .with_state(estado)
 }
 
-pub async fn servir(raiz: std::path::PathBuf, porta: u16, autorizados: Autorizados) -> Result<()> {
-    let estado = Arc::new(Estado {
+/// Monta o estado partilhado. Num sítio só, senão o servidor de testes e o a
+/// sério divergem — a mesma razão de `rotas`.
+fn montar(
+    raiz: std::path::PathBuf,
+    autorizados: Autorizados,
+    pagina: Option<std::path::PathBuf>,
+) -> Result<Arc<Estado>> {
+    Ok(Arc::new(Estado {
         deposito: Deposito::novo(raiz)?,
         autorizados,
+        pagina,
         a_subir: Default::default(),
-    });
+    }))
+}
+
+pub async fn servir(
+    raiz: std::path::PathBuf,
+    porta: u16,
+    autorizados: Autorizados,
+    pagina: Option<std::path::PathBuf>,
+) -> Result<()> {
+    let estado = montar(raiz, autorizados, pagina)?;
 
     // A limpeza corre à parte e não bloqueia nada. De hora a hora chega: a
     // validade é de dias, e o que importa é que aconteça sem ninguém se lembrar.
@@ -293,11 +382,16 @@ pub async fn servir_em_porta_livre(
     raiz: std::path::PathBuf,
     autorizados: Autorizados,
 ) -> Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
-    let estado = Arc::new(Estado {
-        deposito: Deposito::novo(raiz)?,
-        autorizados,
-        a_subir: Default::default(),
-    });
+    servir_em_porta_livre_com_pagina(raiz, autorizados, None).await
+}
+
+/// Como o anterior, mas com a página do link instalada.
+pub async fn servir_em_porta_livre_com_pagina(
+    raiz: std::path::PathBuf,
+    autorizados: Autorizados,
+    pagina: Option<std::path::PathBuf>,
+) -> Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
+    let estado = montar(raiz, autorizados, pagina)?;
 
     let escuta = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
     let endereco = escuta.local_addr()?;
@@ -315,6 +409,37 @@ mod testes {
         let mut h = HeaderMap::new();
         h.insert(header::RANGE, v.parse().unwrap());
         h
+    }
+
+    #[test]
+    fn o_caminho_da_pagina_nao_sai_da_pasta() {
+        // Vem do URL e vira caminho em disco. Sem isto, o relay — que é a peça
+        // exposta à internet — servia o disco todo.
+        assert!(caminho_de_pagina("../../etc/passwd").is_none());
+        assert!(caminho_de_pagina("wasm/../../segredo").is_none());
+        assert!(caminho_de_pagina("/etc/passwd").is_none());
+        assert!(caminho_de_pagina("").is_none());
+        // O `%2e%2e` já chega descodificado do axum, por isso é o mesmo caso.
+        assert!(caminho_de_pagina("..").is_none());
+
+        assert_eq!(
+            caminho_de_pagina("wasm/pombo_correio_pagina_bg.wasm"),
+            Some(std::path::PathBuf::from("wasm/pombo_correio_pagina_bg.wasm"))
+        );
+        assert_eq!(
+            caminho_de_pagina("pagina.js"),
+            Some(std::path::PathBuf::from("pagina.js"))
+        );
+    }
+
+    #[test]
+    fn o_wasm_sai_com_o_tipo_que_o_browser_exige() {
+        // Servido como octet-stream, o `instantiateStreaming` recusa-o e a
+        // página não arranca — falha que só aparece no browser.
+        use std::path::Path;
+        assert_eq!(tipo_de(Path::new("x.wasm")), "application/wasm");
+        assert_eq!(tipo_de(Path::new("x.js")), "text/javascript; charset=utf-8");
+        assert_eq!(tipo_de(Path::new("index.html")), "text/html; charset=utf-8");
     }
 
     #[test]

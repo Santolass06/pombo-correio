@@ -22,6 +22,13 @@ struct Cli {
     /// microssegundos.
     #[arg(long)]
     autorizados: Option<std::path::PathBuf>,
+
+    /// Pasta com a página do link sem instalação (o `pagina/www` construído).
+    ///
+    /// Sem ela, `/d/{id}` responde 404 e o resto do relay funciona na mesma —
+    /// os links é que deixam de abrir.
+    #[arg(long)]
+    pagina: Option<std::path::PathBuf>,
 }
 
 #[tokio::main]
@@ -36,5 +43,5 @@ async fn main() -> Result<()> {
         }
     };
 
-    pombo_correio_relay::servidor::servir(cli.dados, cli.porta, autorizados).await
+    pombo_correio_relay::servidor::servir(cli.dados, cli.porta, autorizados, cli.pagina).await
 }

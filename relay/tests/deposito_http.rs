@@ -340,3 +340,86 @@ async fn de_fora_de_casa_nao_se_deposita() {
     let estranho = Identity::generate("estranho");
     assert!(criar_como(&estranho, &base, "abc123", 10, "{}").await.is_none());
 }
+
+/// A página do link: o relay serve ficheiros de uma pasta, e essa pasta é a
+/// única coisa que ele serve de disco. Vale a pena testá-lo com um servidor a
+/// sério, porque o que aqui parte é o caminho vindo do URL.
+mod pagina {
+    use super::*;
+
+    async fn relay_com_pagina(nome: &str) -> (String, Temp, Temp) {
+        let dados = Temp::nova(nome);
+        let www = Temp::nova(&format!("{nome}-www"));
+        std::fs::write(www.0.join("index.html"), "<!doctype html><p>olá</p>").unwrap();
+        std::fs::create_dir_all(www.0.join("wasm")).unwrap();
+        std::fs::write(www.0.join("wasm/modulo_bg.wasm"), b"\0asm-a-fingir").unwrap();
+        // O ficheiro que ninguém pode conseguir alcançar a partir do URL.
+        std::fs::write(dados.0.join("segredo.txt"), "isto não sai daqui").unwrap();
+
+        let (endereco, _) = pombo_correio_relay::servidor::servir_em_porta_livre_com_pagina(
+            dados.0.clone(),
+            Autorizados::abertos(),
+            Some(www.0.clone()),
+        )
+        .await
+        .unwrap();
+        (format!("http://{endereco}"), dados, www)
+    }
+
+    #[tokio::test]
+    async fn o_identificador_do_link_devolve_sempre_a_pagina() {
+        // Qualquer `/d/{id}` dá a mesma página: quem lê o identificador é o
+        // JavaScript, da barra de endereço, junto com a chave que vem depois do
+        // `#` e que nunca chega ao servidor.
+        let (base, _d, _w) = relay_com_pagina("serve").await;
+
+        let r = reqwest::get(format!("{base}/d/{}", "ab".repeat(16))).await.unwrap();
+        assert!(r.status().is_success());
+        assert_eq!(r.headers()["content-type"], "text/html; charset=utf-8");
+        assert!(r.text().await.unwrap().contains("olá"));
+    }
+
+    #[tokio::test]
+    async fn o_wasm_sai_com_o_tipo_certo() {
+        // Com o tipo errado o `instantiateStreaming` recusa-o e a página não
+        // arranca — e isso só se vê num browser, longe daqui.
+        let (base, _d, _w) = relay_com_pagina("tipo").await;
+
+        let r = reqwest::get(format!("{base}/pagina/wasm/modulo_bg.wasm")).await.unwrap();
+        assert!(r.status().is_success());
+        assert_eq!(r.headers()["content-type"], "application/wasm");
+        assert_eq!(r.bytes().await.unwrap().as_ref(), b"\0asm-a-fingir");
+    }
+
+    #[tokio::test]
+    async fn nao_se_sai_da_pasta_da_pagina() {
+        // O relay é a peça exposta à internet. Sem esta guarda, servia o disco.
+        let (base, _d, _w) = relay_com_pagina("fuga").await;
+
+        for tentativa in [
+            "../segredo.txt",
+            "../../etc/passwd",
+            "wasm/../../segredo.txt",
+            "%2e%2e/segredo.txt",
+        ] {
+            let r = reqwest::get(format!("{base}/pagina/{tentativa}")).await.unwrap();
+            assert!(
+                !r.status().is_success(),
+                "{tentativa} não podia ter sido servido"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn sem_pagina_instalada_o_resto_do_relay_continua_a_servir() {
+        // Quem não instalar a página tem um relay igual ao de antes, só sem links.
+        let (base, _d) = relay("sem-pagina").await;
+
+        assert!(!reqwest::get(format!("{base}/d/{}", "ab".repeat(16)))
+            .await
+            .unwrap()
+            .status()
+            .is_success());
+        assert!(reqwest::get(format!("{base}/saude")).await.unwrap().status().is_success());
+    }
+}
