@@ -1277,8 +1277,57 @@ Limitação assumida: um endereço `…ts.net` **só abre de dentro da tailnet**
 telemóvel de uma visita continua a faltar a decisão de exposição à internet — e é
 aí, e só aí, que o `--autorizados` passa a ser obrigatório.
 
-**Por provar:** nada disto correu. Falta o interruptor na consola do Tailscale e
-três comandos com `sudo` nos dois nós, que este lado não pode dar.
+##### O que aconteceu ao correr — e onde encalhou
+
+O interruptor **já estava ligado** na tailnet (o `CertDomains` no
+`tailscale status --json` vinha preenchido). No Pi 5, que tem `sudo` sem
+password, o `tailscale serve --bg --https=443 http://127.0.0.1:53319` ficou
+configurado e a responder:
+
+```
+https://raspberrypi.tail455bb7.ts.net/  -->  proxy http://127.0.0.1:53319
+```
+
+**Mas o certificado não emite.** Seis tentativas, sempre o mesmo:
+
+```
+acme: order …/acme/order/3225785821/… status: invalid
+```
+
+O que se apurou, por eliminação:
+
+| Hipótese | Verificação | Veredicto |
+|---|---|---|
+| HTTPS desligado na tailnet | `CertDomains` preenchido | ❌ não é |
+| Relógio do Pi fora de horas | `timedatectl`: sincronizado | ❌ não é |
+| CAA de `ts.net` a barrar o Let's Encrypt | `0 issue "letsencrypt.org"`, sem restrição de método | ❌ não é |
+| Limite de falhas do Let's Encrypt | O erro seria *rate limit*, e é `invalid` desde a 1.ª tentativa | ❌ não é |
+| DNS não propagou | Os 3 servidores autoritativos do `ts.net` (dnsimple) devolvem o registo | ❌ não é |
+| **O token novo nunca é publicado** | **✅ é isto** | |
+
+A prova: `_acme-challenge.raspberrypi.tail455bb7.ts.net` tem **exatamente 4**
+registos TXT, os das 4 primeiras tentativas. Da 5.ª em diante o `tailscaled`
+regista `starting SetDNS call...`, espera ~20 s, regista `did SetDNS` — e **o
+conjunto continua com 4**. O token daquela encomenda nunca chega ao DNS, o Let's
+Encrypt procura-o, não o encontra entre os 4 velhos, e invalida. Determinista.
+
+É do lado do Tailscale — o `SetDNS` diz que sim e não escreve. Daqui não se
+conserta: os registos presos vivem na zona `ts.net`, que é deles.
+
+**Por tentar, por esta ordem:**
+
+1. **Repetir passado um dia.** Se aquilo limpa os `_acme-challenge` velhos
+   sozinho, o problema desaparece sem mais nada. É o mais provável, e é grátis.
+2. **Provar no A10** (`sudo tailscale set --operator=$USER` e depois
+   `tailscale cert andresantos-m11bb.tail455bb7.ts.net`). Se **ali** emitir, o
+   problema é do nome do Pi e não da tailnet — e o HTTPS pode arrancar já só com
+   o A10 a servir a página.
+3. Se ambos falharem, é caso de suporte do Tailscale, com este diagnóstico.
+
+**Estado honesto:** o `tailscale serve` está de pé no Pi e cai sozinho para o
+lugar certo quando o certificado emitir. Enquanto não emitir, **o HTTPS não
+existe** e o R5 continua limitado à memória do browser. Nenhum link em `https://`
+foi aberto por browser nenhum.
 
 #### O que está bloqueado, e em quê
 

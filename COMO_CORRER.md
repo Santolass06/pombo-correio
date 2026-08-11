@@ -268,6 +268,31 @@ A partir daqui a mesma máquina responde nos dois sítios:
 
 Para desfazer: `tailscale serve reset`.
 
+### Se o certificado não emitir
+
+Sintoma: o `https://` fica pendurado ~20 s e não responde. Em
+`sudo journalctl -u tailscaled -f`:
+
+```
+cert("…"): starting SetDNS call...
+cert("…"): did SetDNS
+cert("…"): acme: WaitOrder: OrderError status "invalid"
+```
+
+Antes de culpar o Let's Encrypt, **conta os tokens do desafio**:
+
+```sh
+dig +short TXT _acme-challenge.<máquina>.<tailnet>.ts.net @ns1.dnsimple.com
+```
+
+Tenta outra vez e conta de novo. **Se o número não subir**, o `SetDNS` está a
+dizer que sim sem escrever: o token daquela encomenda nunca chega ao DNS, o
+Let's Encrypt não o encontra, e invalida — sempre, por muitas vezes que se
+repita. Não é propagação, é do lado do Tailscale, e daqui não se conserta.
+
+Nesse caso: esperar um dia (costuma limpar os registos velhos sozinho), tentar na
+**outra** máquina para perceber se é só aquele nome, e só depois abrir suporte.
+
 ### O ficheiro `relays` decide o que sai no link
 
 O link leva o endereço do **primeiro relay que responder ao `/saude`**. Para os
