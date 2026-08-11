@@ -214,7 +214,8 @@ Sem `--pagina`, `/d/{id}` responde 404 e o resto do relay funciona na mesma.
 **Sem HTTPS, os ficheiros grandes não passam.** Por HTTP simples num IP da LAN a
 página não é *contexto seguro*, e o browser não expõe o `showSaveFilePicker` —
 sobra juntar tudo em memória, que estoira num vídeo. Não é a internet que exige
-TLS aqui, é o próprio browser, dentro de casa.
+TLS aqui, é o próprio browser, dentro de casa. Como se resolve: **HTTPS pelo
+Tailscale**, na secção a seguir.
 
 Três coisas que convém saber antes de mandar um link a alguém:
 
@@ -224,3 +225,72 @@ Três coisas que convém saber antes de mandar um link a alguém:
   baixo, o link não abre até ela voltar.
 - **Não se gasta ao ser aberto.** Ao contrário da caixa, a página não apaga o
   depósito — quem tiver o endereço busca as vezes que quiser durante os 7 dias.
+
+## HTTPS pelo Tailscale
+
+Sem TLS o browser trata a página do link como insegura e fecha-lhe a porta do
+disco — os ficheiros grandes ficam de fora, mesmo dentro de casa. O Tailscale
+resolve isto **sem expor nada à internet**: emite um certificado verdadeiro (Let's
+Encrypt) para o nome `<máquina>.<tailnet>.ts.net`, e o `tailscale serve` termina o
+TLS à frente do relay e **renova o certificado sozinho**.
+
+Por isso o relay não fala TLS e não vai falar: seria código nosso, ficheiros de
+certificado em disco e um temporizador de renovação, para fazer pior o que a
+plataforma já faz.
+
+### Uma vez, na tailnet
+
+Na consola: **[login.tailscale.com/admin/dns](https://login.tailscale.com/admin/dns)**
+→ secção **HTTPS Certificates** → **Enable HTTPS**. É um interruptor, vale para a
+tailnet toda, e não abre nada ao exterior — só autoriza a emissão de certificados
+para os nomes `*.ts.net` que já existem.
+
+Confirmar sem entrar na consola:
+
+```sh
+tailscale status --json | grep -A2 CertDomains   # vazio = ainda não está ligado
+```
+
+### Em cada máquina que serve o relay
+
+```sh
+sudo tailscale set --operator=$USER          # uma vez, para não precisar de sudo a seguir
+tailscale serve --bg --https=443 http://127.0.0.1:53319
+tailscale serve status                       # confirma
+```
+
+A partir daqui a mesma máquina responde nos dois sítios:
+
+| endereço | quem alcança | contexto seguro? |
+|---|---|---|
+| `http://192.168.1.17:53319` | qualquer um na LAN | ❌ |
+| `https://andresantos-m11bb.tail455bb7.ts.net` | quem tem Tailscale | ✅ |
+
+Para desfazer: `tailscale serve reset`.
+
+### O ficheiro `relays` decide o que sai no link
+
+O link leva o endereço do **primeiro relay que responder ao `/saude`**. Para os
+links saírem em `https://`, o endereço do Tailscale tem de vir primeiro:
+
+```sh
+cat > ~/.local/share/pombo/relays <<'EOF'
+# Primeiro o HTTPS: é o que faz o link do R5 servir para ficheiros grandes.
+https://andresantos-m11bb.tail455bb7.ts.net
+https://raspberrypi.tail455bb7.ts.net
+# LAN como rede de segurança, se o Tailscale estiver em baixo.
+http://192.168.1.17:53319
+http://192.168.1.232:53319
+EOF
+```
+
+O preço, dito alto: o depósito passa a subir pelo Tailscale em vez de ir direto
+pela LAN. Dentro de casa o Tailscale liga-se diretamente e a diferença é pequena,
+mas **não é nenhuma** — e se a ligação cair para o relay DERP, cai para ~2 MB/s.
+Só afeta o degrau do relay; os envios diretos entre aparelhos continuam a escolher
+a LAN primeiro.
+
+**Isto continua a não chegar a quem não tem Tailscale.** Um link
+`…ts.net` só abre de dentro da tailnet. Para o telemóvel de uma visita é preciso
+decidir a exposição à internet — domínio próprio ou DDNS —, e aí o `--autorizados`
+passa a ser obrigatório.

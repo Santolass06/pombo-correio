@@ -2,7 +2,8 @@
 
 Guia operacional, carregado a cada sessão. O plano completo, a arquitetura e o
 histórico estão em **PLANO.md** (fonte de verdade do plano). Como correr, em
-**COMO_CORRER.md**.
+**COMO_CORRER.md**. O **README.md** é a porta de entrada para quem chega de fora —
+resumo, estado e o que ainda não é verdade; não repete os outros dois.
 
 Pombo-Correio: partilha de ficheiros entre os dispositivos de casa, byte-exata,
 sem serviços de terceiros. Android, iOS (PWA), macOS, Windows, Linux x64+arm64.

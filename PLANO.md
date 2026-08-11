@@ -1238,7 +1238,47 @@ menos o último. É esta conta que mantém o relay ignorante.
     dentro de casa.
 - [ ] **R6 — push.** FCM no Android, Web Push no iOS. Precisa de contas e chaves
       de serviço — decisão do utilizador, não técnica.
+- [ ] **R7 — TLS.** Decidido e escrito abaixo; falta correr três comandos com
+      `sudo` nos dois nós. Sem ele o link não serve para ficheiros grandes.
 - [ ] Binários musl para amd64 e arm64.
+
+#### R7 — TLS: a decisão, e porque não se escreve código
+
+A restrição que o R5 destapou: sem TLS o browser não considera a página um
+*contexto seguro*, não expõe o `showSaveFilePicker`, e o único caminho que sobra
+junta o ficheiro todo em memória. **Um vídeo não passa, nem dentro de casa.**
+
+Três hipóteses, e o que cada uma custa:
+
+| | Como | O que custa |
+|---|---|---|
+| Relay a falar TLS | `rustls` no `relay/`, ficheiros de certificado em disco, temporizador de renovação | Uma dependência grande, mais código nosso no caminho crítico, e a renovação passa a ser problema nosso — a falhar em silêncio daqui a 90 dias |
+| Certificado auto-assinado | Um comando | O browser bloqueia na mesma. Um aviso vermelho a uma pessoa da família é uma falha, não um obstáculo |
+| **`tailscale serve` à frente** ✅ | Um comando por máquina | O depósito passa a subir pelo Tailscale em vez da LAN, e o link só abre de dentro da tailnet |
+
+Escolhida a terceira. **O relay não fala TLS e não vai falar**: seria escrever, e
+depois manter, uma versão pior do que a plataforma já faz melhor — incluindo a
+renovação, que é a parte que costuma partir sozinha meses depois.
+
+O que muda no protocolo: **nada**. O `depositar_ligacao` já constrói o link a
+partir do endereço base do relay que aceitou o depósito, portanto basta o ficheiro
+`relays` ter o endereço `https://…ts.net` em primeiro lugar para os links saírem
+em HTTPS. É configuração, não código.
+
+Pré-mortem — *se o `tailscale serve` morrer agora, o que conclui cada lado?* O
+`/saude` em `https://…` deixa de responder, o cliente desce para a entrada
+seguinte da lista (a LAN, em HTTP simples) e o link seguinte sai em `http://`.
+Degrada para o que existe hoje, em silêncio: continua a funcionar para ficheiros
+pequenos e volta a falhar nos grandes. **Isto é uma armadilha** — a diferença não
+se vê no momento do envio, só quando alguém tenta abrir um vídeo. Quem
+diagnosticar isto no futuro deve começar por olhar para o esquema do link.
+
+Limitação assumida: um endereço `…ts.net` **só abre de dentro da tailnet**. Para o
+telemóvel de uma visita continua a faltar a decisão de exposição à internet — e é
+aí, e só aí, que o `--autorizados` passa a ser obrigatório.
+
+**Por provar:** nada disto correu. Falta o interruptor na consola do Tailscale e
+três comandos com `sudo` nos dois nós, que este lado não pode dar.
 
 #### O que está bloqueado, e em quê
 
@@ -1247,7 +1287,7 @@ trabalho por fazer — é trabalho que precisa de coisas que este lado não tem:
 
 | O que falta | O que precisa |
 |---|---|
-| **TLS** — agora o primeiro da fila | Sem ele o browser não dá `showSaveFilePicker` e os ficheiros grandes não passam, nem em casa. `tailscale cert` resolve sem expor nada; um domínio a sério resolve isso **e** a internet |
+| **TLS** — o primeiro da fila, e **já decidido** | Três comandos com `sudo` nos dois nós (ver abaixo). Nenhuma linha de código nossa |
 | Ponta pela internet | Decidir se o link sai por domínio próprio ou DDNS. **Sem CGNAT**, com IPv6 global, NAT de cone e UPnP — a rede de casa dá para tudo, falta o nome |
 | A página no Safari do iPhone | Um iPhone. É o browser onde o caminho de memória parte primeiro |
 | R6 (push) | Conta e chaves de serviço do FCM (Android) e do Web Push (iOS) |
