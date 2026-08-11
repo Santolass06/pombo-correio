@@ -77,6 +77,14 @@ export const cancelar = (id: string) => invoke<void>("cancelar", { id });
 /// desligado. Devolve zero — sem falhar — se não houver relay configurado.
 export const buscarNoRelay = () => invoke<number>("buscar_no_relay");
 
+/// Deixa um ficheiro no relay de casa e devolve um link, para quem não tem a
+/// app. `null` significa que o seletor do Android foi cancelado.
+///
+/// No desktop passa-se o caminho já escolhido; no Android passa-se `null` e o
+/// seletor abre-se do lado do Rust, que é onde se sabe lidar com `content://`.
+export const criarLigacao = (ficheiro: string | null) =>
+  invoke<string | null>("criar_ligacao", { ficheiro });
+
 export const aoAcontecer = (f: (e: Evento) => void) =>
   listen<Evento>("pombo", (m) => f(m.payload));
 

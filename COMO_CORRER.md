@@ -191,6 +191,10 @@ pombo ligacao ~/Imagens/ferias.jpg
 # → http://192.168.1.17:53319/d/a1b2…#3f4e…   (dura 7 dias)
 ```
 
+Na app é o cartão **"Para quem não tem a app"**, no fim do separador dos
+dispositivos: escolhe o ficheiro, e no fim aparece o endereço com um botão de
+copiar.
+
 O relay precisa da página construída. **É preciso reconstruí-la sempre que o
 `core/` mudar** — é código Rust compilado para wasm, e não se recompila sozinho
 com o resto:

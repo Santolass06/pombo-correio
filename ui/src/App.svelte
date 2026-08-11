@@ -5,6 +5,7 @@
     aoAcontecer,
     buscarNoRelay,
     cancelar,
+    criarLigacao,
     dispositivos,
     eAndroid,
     enviarAndroid,
@@ -43,6 +44,10 @@
   let aviso = $state("");
   /** Ficheiros que outra app partilhou para cá e ainda não têm destino. */
   let partilha = $state<Partilhado[]>([]);
+  /** O último link criado, à espera de ser copiado. */
+  let ligacao = $state("");
+  let aCriarLigacao = $state(false);
+  let copiado = $state(false);
 
   const emCurso = $derived(transferencias.filter((t) => t.estado === "a_correr"));
 
@@ -198,6 +203,39 @@
     }
   }
 
+  /** Cria um link para quem não tem a app instalada. */
+  async function fazerLigacao() {
+    aCriarLigacao = true;
+    ligacao = "";
+    copiado = false;
+    try {
+      // No Android o seletor abre-se do lado do Rust, que é onde se sabe lidar
+      // com `content://`; aqui passa-se `null` e espera-se.
+      let escolhido: string | null = null;
+      if (!eAndroid()) {
+        const r = await open({ multiple: false, title: "Para que ficheiro queres um link?" });
+        if (typeof r !== "string") return;
+        escolhido = r;
+      }
+      ligacao = (await criarLigacao(escolhido)) ?? "";
+    } catch (erro) {
+      aviso = String(erro);
+    } finally {
+      aCriarLigacao = false;
+    }
+  }
+
+  async function copiarLigacao() {
+    try {
+      await navigator.clipboard.writeText(ligacao);
+      copiado = true;
+    } catch {
+      // Sem permissão de área de transferência sobra selecionar à mão, e é
+      // preciso dizê-lo — um botão que não faz nada é pior do que não existir.
+      aviso = "Não consegui copiar. Seleciona o endereço e copia à mão.";
+    }
+  }
+
   function debito(t: Transferencia): string {
     return t.velocidade > 0 ? `${tamanhoLegivel(t.velocidade)}/s` : "";
   }
@@ -288,6 +326,36 @@
         {/each}
       </div>
     {/if}
+
+    <!-- O degrau para quem está fora deste mundo: sem app, sem conta, sem nada.
+         Fica no fim de propósito — é o caminho de exceção, não o normal. -->
+    <div class="card elev-sm" style="margin-top: var(--space-6)">
+      <div class="linha">
+        <div class="cresce">
+          <div class="card-title">Para quem não tem a app</div>
+          <div class="card-meta text-muted">
+            Um endereço que abre o ficheiro em qualquer browser. Dura 7 dias.
+          </div>
+        </div>
+        <button class="btn btn-secondary btn-block-mobile" onclick={fazerLigacao} disabled={aCriarLigacao}>
+          {aCriarLigacao ? "A preparar..." : "Criar link"}
+        </button>
+      </div>
+
+      {#if ligacao}
+        <div class="linha" style="margin-top: var(--space-4)">
+          <!-- Só de leitura, mas selecionável: se a área de transferência
+               falhar, copiar à mão tem de continuar a ser possível. -->
+          <input class="cresce" readonly value={ligacao} style="min-width:0" />
+          <button class="btn btn-primary" onclick={copiarLigacao}>
+            {copiado ? "Copiado ✓" : "Copiar"}
+          </button>
+        </div>
+        <div class="card-meta text-muted" style="margin-top: var(--space-2)">
+          Quem tiver este endereço abre o ficheiro. Manda-o por onde quiseres.
+        </div>
+      {/if}
+    </div>
 
   {:else if aba === "transferencias"}
     {#if transferencias.length === 0}

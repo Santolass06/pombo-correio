@@ -203,6 +203,82 @@ async fn enviar_ficheiro(
     Ok(())
 }
 
+/// Deixa um ficheiro no relay e devolve um link, para quem não tem a app.
+///
+/// Não passa pelo `caminho_para`: aqui não há destino a alcançar, e por isso
+/// também não há degrau direto — um link só existe se houver servidor de casa
+/// que o sirva.
+///
+/// `ficheiro` vem do diálogo do desktop; no Android é `None` e o seletor abre-se
+/// deste lado, porque lá não há caminhos, há `content://`.
+#[tauri::command]
+async fn criar_ligacao(
+    app: tauri::AppHandle,
+    ficheiro: Option<std::path::PathBuf>,
+) -> Result<Option<String>, String> {
+    let dados = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let Some(base) = relay::primeiro_de_pe(relay::configurados(&dados)).await else {
+        return Err(
+            "nenhum servidor de casa responde, e um link precisa de um para o servir".into(),
+        );
+    };
+
+    let fonte: Box<dyn pombo_correio_rede::Fonte> = match ficheiro {
+        Some(caminho) => Box::new(pombo_correio_rede::FonteCaminho(caminho)),
+        None => match escolher_no_android(&app).await? {
+            Some(f) => f,
+            None => return Ok(None), // cancelou o seletor
+        },
+    };
+
+    let eu = copiar(&app.state::<Estado>().eu);
+    let metricas = app.state::<Estado>().metricas.clone();
+    let cancelar: Cancelar = Default::default();
+    let ouvinte = ouvinte_de_envio(app.clone(), cancelar.clone());
+
+    pombo_correio_rede::relay::depositar_ligacao(
+        &eu,
+        fonte.as_ref(),
+        &base,
+        ouvinte,
+        cancelar,
+        &metricas,
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// O seletor do Android, que é bloqueante e devolve um `content://`.
+async fn escolher_no_android(
+    app: &tauri::AppHandle,
+) -> Result<Option<Box<dyn pombo_correio_rede::Fonte>>, String> {
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Err("sem ficheiro escolhido".into())
+    }
+    #[cfg(target_os = "android")]
+    {
+        use tauri_plugin_android_fs::AndroidFsExt;
+
+        let app_sel = app.clone();
+        let escolha = tokio::task::spawn_blocking(move || {
+            let afs = app_sel.android_fs();
+            let uri = afs.picker().pick_file(None, &[], false).map_err(|e| e.to_string())?;
+            Ok::<_, String>(uri.map(|uri| {
+                let nome = afs.get_name(&uri).unwrap_or_else(|_| "ficheiro".into());
+                (uri, nome)
+            }))
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+
+        Ok(escolha.map(|(uri, nome)| {
+            Box::new(FonteAndroid { app: app.clone(), uri, nome }) as Box<dyn pombo_correio_rede::Fonte>
+        }))
+    }
+}
+
 /// Vai ver ao relay se há coisa à espera.
 ///
 /// Chamado ao abrir a app e de vez em quando pela interface. Sem push (que entra
@@ -661,6 +737,7 @@ pub fn run() {
             partilha_pendente,
             enviar_partilhados,
             buscar_no_relay,
+            criar_ligacao,
             cancelar
         ])
         .run(tauri::generate_context!())
