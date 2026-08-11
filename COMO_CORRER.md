@@ -180,3 +180,38 @@ exatamente como antes.
 
 Os depósitos duram 7 dias e são limpos de hora a hora. Um ficheiro entregue é
 apagado do relay assim que está em disco do outro lado.
+
+## Link sem instalação (R5)
+
+Para quem não tem a app — o browser decifra sozinho, porque a chave vai depois
+do `#` e essa parte nunca chega ao servidor.
+
+```sh
+pombo ligacao ~/Imagens/ferias.jpg
+# → http://192.168.1.17:53319/d/a1b2…#3f4e…   (dura 7 dias)
+```
+
+O relay precisa da página construída. **É preciso reconstruí-la sempre que o
+`core/` mudar** — é código Rust compilado para wasm, e não se recompila sozinho
+com o resto:
+
+```sh
+cd pagina && wasm-pack build --target web --out-dir www/wasm
+```
+
+Depois aponta-se o serviço à pasta, acrescentando `--pagina` ao `ExecStart`:
+
+```
+ExecStart=… pombo-relay --dados … --porta 53319 --pagina %h/pombo-pagina
+```
+
+Sem `--pagina`, `/d/{id}` responde 404 e o resto do relay funciona na mesma.
+
+Três coisas que convém saber antes de mandar um link a alguém:
+
+- **Chega tão longe quanto o endereço.** O link leva o endereço do nó que aceitou
+  o depósito. Com `192.168.1.17` lá dentro, só abre dentro de casa.
+- **Só esse nó o serve.** Os blobs não se replicam; se aquela máquina estiver em
+  baixo, o link não abre até ela voltar.
+- **Não se gasta ao ser aberto.** Ao contrário da caixa, a página não apaga o
+  depósito — quem tiver o endereço busca as vezes que quiser durante os 7 dias.

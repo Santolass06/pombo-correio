@@ -1080,10 +1080,141 @@ menos o último. É esta conta que mantém o relay ignorante.
   **O que isto ainda não prova:** nada disto saiu da LAN. Pela internet, com
   latência e NAT pelo meio, continua por medir — e o degrau T2 (P2P direto) nem
   existe ainda, por isso hoje um envio de fora gasta o upload de casa duas vezes.
-- [ ] **R5 — página sem instalação.** *Depende do `core/` em WASM* — o browser
+- [x] **R5 — página sem instalação.** *Depende do `core/` em WASM* — o browser
       tem de decifrar e verificar sozinho, senão a chave passaria pelo servidor e
-      todo o modelo caía. Por isso **faz-se junto do S8**, que traz o WASM de
-      qualquer maneira, em vez de o trazer duas vezes.
+      todo o modelo caía. Traz o WASM que o S8 também precisa, por isso vem antes.
+
+  #### Desenho (escrito antes de implementar)
+
+  **A ideia numa linha:** um depósito igual a todos os outros, mas endereçado a
+  ninguém — a chave viaja no fragmento do URL, que o browser nunca envia ao
+  servidor.
+
+  ```
+  https://<relay>/d/<id>#<chave-hex>
+                    ↑        ↑
+              o relay vê   o relay NUNCA vê
+  ```
+
+  **O que muda no protocolo: nada.** O depósito é o mesmo `Oferta` de sempre, com
+  duas diferenças que não obrigam a tocar no `relay/`:
+
+  - `para = "ligacao"` em vez de uma impressão digital. Como a caixa compara por
+    igualdade exata e nenhuma impressão é a palavra `ligacao`, o depósito nunca
+    aparece na caixa de ninguém. Zero linhas no servidor.
+  - o `envelope` é selado para uma identidade **deitada fora no ato**. Fica um
+    envelope válido que ninguém no mundo consegue abrir — nem quem enviou. Custa
+    104 bytes e evita um `Option` a atravessar três crates.
+
+  **Caminho feliz, por ator:**
+
+  | # | quem | faz / observa |
+  |---|---|---|
+  | 1 | envia | sela como sempre, `POST /deposito?para=ligacao`, sobe os blocos |
+  | 2 | envia | mostra o link. **Nunca fica a saber se foi aberto** — não há volta |
+  | 3 | browser | `GET /d/{id}` traz a página; lê a chave de `location.hash` |
+  | 4 | browser | `GET /deposito/{id}` traz a oferta opaca |
+  | 5 | wasm | verifica a assinatura → abre o manifesto → `validate()` |
+  | 6 | browser | mostra nome, tamanho e quem enviou, **antes** de descarregar |
+  | 7 | browser | `GET /deposito/{id}/blocos`, e abre bloco a bloco à medida |
+  | 8 | relay | vê um GET a um identificador. Não vê chave, nome, nem conteúdo |
+
+  A chave errada rebenta no passo 5, antes de se pedir um único byte — a ordem
+  certa, porque falha barato e não escreve nada.
+
+  **O que o relay fica a saber, dito alto:** que o depósito X foi buscado, quando,
+  e de que IP. O ciframento esconde o conteúdo, não o facto. É o preço de haver
+  um intermediário e não há truque que o remova.
+
+  **Caminhos de falha:**
+
+  | situação | o que cada lado conclui |
+  |---|---|
+  | Ainda a subir quando o link abre | `completo: false` → a página espera e sonda de 3 em 3 s. Descarregar agora ficaria sem bytes a meio de um bloco, indistinguível de corrupção |
+  | Ligação morre a meio da descida | O browser tem k de n blocos e perde-os; o relay **não conclui nada**, é um GET sem estado. Recarregar recomeça |
+  | Bloco não abre | Pára e diz que o link está alterado ou incompleto. Nunca guarda o que não verificou |
+  | Falta o `#` | "este link está incompleto" — acontece a sério quando um chat corta o URL |
+  | Depósito expirado ou apagado | 404 → "este link já não existe (duram 7 dias)" |
+  | Dois a abrir ao mesmo tempo | Ambos funcionam. O mútex do relay é só das subidas |
+
+  **Pré-mortem — se a ligação morrer agora?** Quem descarrega perde o que tinha e
+  recomeça; o relay não muda de estado nenhum. Nenhum dos lados espera sinal do
+  outro, por isso não há nada que se perca no canal que está a ser destruído.
+  Diferente do cancelamento, que precisou de canal à parte, aqui não há o que
+  avisar.
+
+  **Duas decisões deliberadas, com o seu preço:**
+
+  1. **A página não apaga o depósito depois de descarregar** (a app apaga). Um
+     link pode ser aberto por mais do que uma pessoa, ou duas vezes pela mesma
+     que perdeu o ficheiro. Preço: quem tiver o link busca as vezes que quiser
+     durante 7 dias. É o comportamento que um link deve ter.
+  2. **Sem retoma no browser.** Recarregar recomeça do zero. Guardar o parcial
+     obrigava a IndexedDB ou a repedir o handle do ficheiro, e um link de casa é
+     normalmente uma fotografia. `ponytail: sem retoma; IndexedDB se alguém se
+     queixar com um vídeo grande.`
+
+  **Onde o link chega é onde o URL chega.** O link leva o endereço do nó que
+  aceitou o depósito — os blobs não replicam, por desenho. Se esse nó cair, o
+  link cai com ele até voltar. E enquanto não houver decisão de exposição à
+  internet, um link com `192.168.1.17` só abre dentro de casa. Não é limitação
+  desta fase: é a mesma escolha de HA do R4, vista do lado de fora.
+
+  **Guardar em disco, no browser:** `showSaveFilePicker` quando existe (Chrome e
+  Edge no desktop, que é onde estão os ficheiros grandes), senão junta em memória
+  e entrega por `Blob`. O Safari do iPhone não tem o primeiro e não aguenta o
+  segundo acima de umas centenas de MB — está documentado como limite conhecido, e
+  o service worker do S8 é quem o resolve, se valer a pena.
+
+  **A fronteira do WASM**, mínima de propósito — o JS nunca vê a chave nem os
+  hashes, só pede o tamanho seguinte e entrega bytes:
+
+  ```rust
+  Descarga::nova(chave_hex, oferta_json)  // verifica, abre e valida o manifesto
+  .nome() .tamanho() .de() .total()
+  .proximo_tamanho() -> u32               // 0 quando acabou
+  .bloco(selado: &[u8]) -> Vec<u8>        // abre, verifica e avança
+  ```
+
+  #### O que ficou feito
+
+  `pagina/` é um crate novo: o `core/` compilado para wasm32 (206 KB depois do
+  `wasm-opt`) e a página, em JavaScript sem framework nenhuma. O `Oferta` e o
+  `Aceite` mudaram-se de `rede/` para `core/` — são tipos de fio, e do lado do
+  browser não se pode arrastar tokio nem mDNS atrás deles. O relay ganhou duas
+  rotas (`/d/{id}` e `/pagina/*`) e um `--pagina`; sem essa opção responde 404 e
+  o resto continua igual. Do lado de quem envia, `pombo ligacao <ficheiro>`.
+
+  **Validado num browser a sério (Chromium, loopback):**
+
+  | | resultado |
+  |---|---|
+  | 3 MB pelo link, aberto no browser | ✅ SHA-256 igual ao original |
+  | O nome do ficheiro aparece na página | ✅ e veio de dentro do manifesto selado |
+  | O nome em claro no disco do relay | ✅ zero ocorrências |
+  | Link sem o `#` | ✅ "Este link está incompleto" |
+  | Chave errada | ✅ "a chave deste link não abre este ficheiro", sem pedir um byte |
+  | Depósito que não existe | ✅ "Este link já não existe" |
+  | O mesmo link aberto duas vezes | ✅ entrega as duas (não se gasta) |
+  | Um link na caixa de alguém | ✅ não aparece, nem na de quem o criou |
+
+  **O que o browser destapou e os testes em Rust não podiam:** fechar a caixa de
+  gravação deixava a página muda e uma rejeição por tratar na consola. Cancelar
+  não é falhar, e agora não diz nada — mas qualquer outro erro do seletor passou a
+  aparecer no ecrã em vez de só na consola.
+
+  **O que isto ainda não prova, e é bastante:**
+
+  - **Só Chromium.** O Safari do iPhone é precisamente onde o caminho de memória
+    importa, e onde ele parte primeiro. Por medir.
+  - **O caminho do `showSaveFilePicker` não correu** — o Playwright intercepta o
+    seletor. O que foi validado byte a byte foi o de memória. O de disco, que é o
+    que serve os ficheiros grandes, está por exercitar num browser.
+  - **3 MB não é um vídeo.** O limite de memória do caminho de reserva não foi
+    tocado, quanto mais medido.
+  - **A espera pela subida** (o "ainda a ser enviado", a sondar de 3 em 3 s) só
+    está coberta pela regra em Rust; o ecrã dessa fase nunca foi visto.
+  - **Nada disto saiu de `127.0.0.1`.**
 - [ ] **R6 — push.** FCM no Android, Web Push no iOS. Precisa de contas e chaves
       de serviço — decisão do utilizador, não técnica.
 - [ ] Binários musl para amd64 e arm64.
@@ -1095,8 +1226,8 @@ trabalho por fazer — é trabalho que precisa de coisas que este lado não tem:
 
 | O que falta | O que precisa |
 |---|---|
-| Ponta pela internet, e TLS | Decidir como expor os servidores: domínio, IP público ou CGNAT |
-| R5 (link sem instalação) e S8 (PWA) | `rustup target add wasm32-unknown-unknown` e o `wasm-pack`, que não estão instalados |
+| Ponta pela internet, e TLS | Decidir se o link sai por domínio próprio ou DDNS. **Sem CGNAT**, com IPv6 global, NAT de cone e UPnP — a rede de casa dá para tudo, falta o nome |
+| A página no Safari do iPhone | Um iPhone. É o browser onde o caminho de reserva parte primeiro |
 | R6 (push) | Conta e chaves de serviço do FCM (Android) e do Web Push (iOS) |
 | S5 em Windows | A máquina Windows |
 | Android a ir buscar ao relay | O tablet (ficou sem bateria a meio) |

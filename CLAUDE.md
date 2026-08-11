@@ -13,6 +13,8 @@ sem serviços de terceiros. Android, iOS (PWA), macOS, Windows, Linux x64+arm64.
 core/          Rust puro. Protocolo, identidade, cifra, blocos Merkle. Compila nativo E wasm32.
 rede/          Descoberta (mDNS), envio, receção. NÃO escreve no terminal — comunica por Evento.
 cli/           Binário `pombo`. Um ouvinte que imprime os eventos.
+relay/         Binário `pombo-relay`. Guarda bytes opacos; serve também a página do link.
+pagina/        O `core/` em wasm + a página do link sem instalação (`www/`). Sem framework.
 ui/            Tauri v2 + Svelte 5. A app. src-tauri/ é a ponte para a rede.
 ```
 
