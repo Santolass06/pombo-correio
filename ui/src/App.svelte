@@ -148,7 +148,9 @@
           ...t,
           estado: "no_relay" as const,
           feitos: t.total,
-          detalhe: `Guardado em casa — chega a ${e.para} quando ele abrir a app`,
+          detalhe: e.para
+            ? `Guardado em casa — chega a ${e.para} quando ele abrir a app`
+            : "Guardado em casa — abre com o link",
         };
       if (e.tipo === "cancelado")
         return { ...t, estado: "cancelado" as const, detalhe: "Cancelado — o que já passou fica guardado" };

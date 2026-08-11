@@ -20,3 +20,5 @@ mdns-sd = "0.20.2"
 
 [dev-dependencies]
 pombo-correio-relay = { path = "../relay" }
+# Para o teste do link poder fazer o que o browser faz, com o mesmo código.
+pombo-correio-pagina = { path = "../pagina" }

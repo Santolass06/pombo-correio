@@ -134,6 +134,13 @@ struct EstadoDeposito {
 /// problema não é uma falha passageira.
 const TENTATIVAS: u32 = 3;
 
+/// A palavra que ocupa o lugar da impressão digital num depósito por link.
+///
+/// A caixa compara por igualdade exata contra impressões de 16 dígitos
+/// hexadecimais, e esta palavra não é uma — por isso um depósito por link nunca
+/// aparece na caixa de ninguém, sem o relay precisar de saber que existem links.
+const CAIXA_LIGACAO: &str = "ligacao";
+
 /// Deixa um ficheiro no relay, à espera de quem o vai buscar.
 #[allow(clippy::too_many_arguments)]
 pub async fn depositar(
@@ -145,12 +152,77 @@ pub async fn depositar(
     cancelar: Cancelar,
     metricas: &Metricas,
 ) -> Result<()> {
+    depositar_em(
+        eu,
+        fonte,
+        para,
+        &impressao_curta(para),
+        TransferKey::generate(),
+        base,
+        ouvinte,
+        cancelar,
+        metricas,
+    )
+    .await
+    .map(|_| ())
+}
+
+/// Deixa um ficheiro no relay para **quem tiver o link**, e devolve-o.
+///
+/// O envelope é selado para uma identidade gerada e deitada fora aqui mesmo: fica
+/// válido e ninguém no mundo o abre, nem quem enviou. Quem abre o ficheiro é
+/// quem tiver a chave, e ela vai no fragmento do URL — a parte que o browser
+/// nunca envia ao servidor.
+///
+/// Devolve `None` se não chegou a ficar lá (falhou ou foi cancelado); nesse caso
+/// o ouvinte já disse porquê.
+pub async fn depositar_ligacao(
+    eu: &Identity,
+    fonte: &dyn crate::Fonte,
+    base: &str,
+    ouvinte: Ouvinte,
+    cancelar: Cancelar,
+    metricas: &Metricas,
+) -> Result<Option<String>> {
+    let chave = TransferKey::generate();
+    let hex_chave = hex::encode(chave.to_bytes());
+    let ninguem = Identity::generate("ligação").public();
+
+    let id_relay = depositar_em(
+        eu,
+        fonte,
+        &ninguem,
+        CAIXA_LIGACAO,
+        chave,
+        base,
+        ouvinte,
+        cancelar,
+        metricas,
+    )
+    .await?;
+
+    Ok(id_relay.map(|id| format!("{base}/d/{id}#{hex_chave}")))
+}
+
+/// O corpo partilhado pelos dois: a única diferença é para quem se sela e em que
+/// caixa fica.
+#[allow(clippy::too_many_arguments)]
+async fn depositar_em(
+    eu: &Identity,
+    fonte: &dyn crate::Fonte,
+    para: &PublicIdentity,
+    caixa: &str,
+    chave: TransferKey,
+    base: &str,
+    ouvinte: Ouvinte,
+    cancelar: Cancelar,
+    metricas: &Metricas,
+) -> Result<Option<String>> {
     let nome = fonte.nome();
     let manifesto = Manifest::from_reader(&nome, fonte.abrir().context("não consegui abrir o ficheiro a enviar")?)?;
     let total = manifesto.expected_chunks();
     let selado = tamanho_selado(&manifesto);
 
-    let chave = TransferKey::generate();
     let manifesto_selado = seal_manifest(&chave, &serde_json::to_vec(&manifesto)?);
     let oferta = Oferta {
         de: eu.public(),
@@ -163,10 +235,9 @@ pub async fn depositar(
     };
 
     let cliente = reqwest::Client::new();
-    let destino = impressao_curta(para);
     let resposta = cliente
-        .post(format!("{base}/deposito?para={destino}&tamanho={selado}"))
-        .headers(assinado(eu, "deposito", &format!("{destino}|{selado}")))
+        .post(format!("{base}/deposito?para={caixa}&tamanho={selado}"))
+        .headers(assinado(eu, "deposito", &format!("{caixa}|{selado}")))
         .body(serde_json::to_string(&oferta)?)
         .send()
         .await
@@ -250,9 +321,11 @@ pub async fn depositar(
                 );
                 ouvinte(Evento::Depositado {
                     id,
-                    para: para.label.clone(),
+                    // Num link não há a quem chegar — o destinatário é quem vier
+                    // a ter o endereço, e ainda ninguém o tem.
+                    para: (caixa != CAIXA_LIGACAO).then(|| para.label.clone()),
                 });
-                return Ok(());
+                return Ok(Some(id_relay));
             }
             Ok(r) if !r.status().is_success() => {
                 ultimo_erro = r.text().await.unwrap_or_else(|_| "o relay recusou".into());
@@ -272,7 +345,7 @@ pub async fn depositar(
             .await;
         metricas.registar("deposito_cancelado", serde_json::json!({ "id": id }));
         ouvinte(Evento::Cancelado { id });
-        return Ok(());
+        return Ok(None);
     }
 
     metricas.registar(
@@ -283,7 +356,7 @@ pub async fn depositar(
         id,
         erro: format!("não consegui deixar o ficheiro no relay: {ultimo_erro}"),
     });
-    Ok(())
+    Ok(None)
 }
 
 /// Vai buscar ao relay tudo o que estiver à espera. Devolve quantos chegaram.

@@ -506,7 +506,7 @@ enum ParaInterface {
     Enviado { id: String },
 
     #[serde(rename = "depositado")]
-    Depositado { id: String, para: String },
+    Depositado { id: String, para: Option<String> },
 
     #[serde(rename = "cancelado")]
     Cancelado { id: String },

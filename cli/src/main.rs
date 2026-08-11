@@ -42,6 +42,11 @@ enum Comando {
     },
     /// Lista os dispositivos à espera na rede local.
     Dispositivos,
+    /// Deixa um ficheiro no relay e devolve um link, para quem não tem a app.
+    ///
+    /// Quem abrir o link decifra o ficheiro no próprio browser: a chave vai
+    /// depois do `#`, que nunca chega ao servidor. Dura 7 dias.
+    Ligacao { ficheiro: std::path::PathBuf },
     /// Vai buscar ao relay de casa o que estiver à espera deste dispositivo.
     ///
     /// Os relays lêem-se de `<dados>/relays`, um URL por linha. É por aqui que
@@ -178,7 +183,10 @@ fn ouvinte_terminal(dados: std::path::PathBuf) -> Ouvinte {
             }
             // Não é "enviado": está num servidor de casa e o destino ainda nem
             // sabe dele.
-            println!("Guardado no relay — chega a {para} quando ele abrir a app.");
+            match para {
+                Some(quem) => println!("Guardado no relay — chega a {quem} quando ele abrir a app."),
+                None => println!("Guardado no relay. O link fica aqui em baixo."),
+            }
         }
 
         Evento::Cancelado { id } => {
@@ -249,6 +257,35 @@ async fn main() -> Result<()> {
                     }
                 }
             }
+        }
+
+        Comando::Ligacao { ficheiro } => {
+            let Some(base) = relay::primeiro_de_pe(relay::configurados(&dados)).await else {
+                println!(
+                    "Nenhum relay de casa responde.\n\
+                     Um link precisa de um servidor que o sirva — vê {}.",
+                    dados.join("relays").display()
+                );
+                return Ok(());
+            };
+
+            println!("A preparar {}...", ficheiro.display());
+            let link = relay::depositar_ligacao(
+                &eu,
+                &pombo_correio_rede::FonteCaminho(ficheiro),
+                &base,
+                ouvinte,
+                sem_cancelamento(),
+                &Metricas::no_diretorio(&dados),
+            )
+            .await?;
+
+            if let Some(link) = link {
+                println!("\n{link}\n");
+                println!("Quem tiver este endereço abre o ficheiro, sem instalar nada.");
+                println!("Dura 7 dias. O endereço tem de ser alcançável de onde a pessoa estiver.");
+            }
+            Ok(())
         }
 
         Comando::Caixa => {
