@@ -36,6 +36,20 @@ impl TransferKey {
         Self(random_bytes())
     }
 
+    /// Os 32 bytes em claro.
+    ///
+    /// Existe por causa do link sem instalação, onde a chave viaja no fragmento
+    /// do URL — é o único sítio do sistema onde ela sai do processo. Em todos os
+    /// outros caminhos vai embrulhada num [`Envelope`] e isto não se usa.
+    pub fn to_bytes(&self) -> [u8; 32] {
+        self.0
+    }
+
+    /// Reconstrói a chave a partir do que veio no fragmento do URL.
+    pub fn from_bytes(b: [u8; 32]) -> Self {
+        Self(b)
+    }
+
     fn cipher(&self) -> XChaCha20Poly1305 {
         XChaCha20Poly1305::new((&self.0).into())
     }
@@ -263,6 +277,16 @@ mod tests {
         let k = TransferKey::generate();
         assert!(open_chunk(&k, 0, &seal_manifest(&k, b"x")).is_err());
         assert!(open_manifest(&k, &seal_chunk(&k, 0, b"x")).is_err());
+    }
+
+    #[test]
+    fn a_chave_sobrevive_a_ida_e_volta_pelo_link() {
+        // O link sem instalação leva a chave em hexadecimal no fragmento. Se
+        // esta volta não fosse exata, a página abriria o manifesto a lixo.
+        let k = TransferKey::generate();
+        let selado = seal_chunk(&k, 3, b"foto");
+        let recuperada = TransferKey::from_bytes(k.to_bytes());
+        assert_eq!(open_chunk(&recuperada, 3, &selado).unwrap(), b"foto");
     }
 
     #[test]

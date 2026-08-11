@@ -11,7 +11,9 @@ pub mod conhecidos;
 pub mod descoberta;
 pub mod enviar;
 pub mod metricas;
-pub mod protocolo;
+// Os tipos de fio vivem no `core/` — a página em WASM precisa deles e não pode
+// arrastar tokio nem mDNS. Reexportados para quem já cá chamava.
+pub use pombo_correio_core::protocolo;
 pub mod relay;
 pub mod receber;
 
@@ -77,7 +79,10 @@ pub enum Evento {
     /// ficheiro está num servidor e o destinatário ainda nem sabe dele é
     /// mentira, e é o género de mentira que faz alguém desligar o telemóvel
     /// convencido de que já está.
-    Depositado { id: String, para: String },
+    ///
+    /// `para` é `None` num depósito por link: não há destinatário, há quem
+    /// vier a ter o endereço.
+    Depositado { id: String, para: Option<String> },
 
     /// Cancelado por quem enviava. O que já chegou fica em disco, por isso
     /// retomar continua a valer — cancelar não é perder o trabalho feito.

@@ -4,7 +4,7 @@
 //! Tailscale, ou o relay de casa: quem recebe expõe um servidor, quem envia
 //! empurra. Manter uma só direção evita ter duas implementações de servidor.
 
-use pombo_correio_core::{crypto::Envelope, identity::PublicIdentity};
+use crate::{crypto::Envelope, identity::PublicIdentity};
 use serde::{Deserialize, Serialize};
 
 /// Proposta de transferência: o envelope com a chave, e o manifesto selado.
