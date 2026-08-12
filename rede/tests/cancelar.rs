@@ -107,7 +107,7 @@ async fn cancelar_para_e_guarda_o_que_ja_passou() {
     });
 
     let addr = format!("127.0.0.1:{porta}").parse().unwrap();
-    enviar::enviar(&emissor, &origem, addr, reg_e.ouvinte(), cancelar, &Metricas::desligada(), 0)
+    enviar::enviar(&emissor, &origem, addr, reg_e.ouvinte(), cancelar, &Metricas::desligada(), 0, None)
         .await
         .unwrap();
 
@@ -195,7 +195,7 @@ async fn cancelar_no_recetor_para_quem_envia() {
     // O envio tem de TERMINAR — é o que falhava, ficava preso a comunicar.
     let r = tokio::time::timeout(
         Duration::from_secs(10),
-        enviar::enviar(&Identity::generate("e"), &origem, addr, reg_e.ouvinte(), Default::default(), &Metricas::desligada(), 0),
+        enviar::enviar(&Identity::generate("e"), &origem, addr, reg_e.ouvinte(), Default::default(), &Metricas::desligada(), 0, None),
     )
     .await;
     assert!(r.is_ok(), "o envio não terminou — ficou preso apesar do cancelamento no recetor");
@@ -286,7 +286,7 @@ async fn cancelar_reflete_nos_dois_lados_pelo_canal() {
     // A envia para B, anunciando a SUA porta de servidor para B a poder avisar.
     let r = tokio::time::timeout(
         Duration::from_secs(15),
-        enviar::enviar(&a_id, &origem, addr_b, ouvinte_a, token_a, &Metricas::desligada(), porta_a),
+        enviar::enviar(&a_id, &origem, addr_b, ouvinte_a, token_a, &Metricas::desligada(), porta_a, None),
     )
     .await;
     assert!(r.is_ok(), "o envio ficou preso");
@@ -328,7 +328,7 @@ async fn cancelar_antes_de_comecar_nao_rebenta() {
 
     let addr = format!("127.0.0.1:{porta}").parse().unwrap();
     let ja = Arc::new(AtomicBool::new(true));
-    enviar::enviar(&Identity::generate("e"), &origem, addr, reg.ouvinte(), ja, &Metricas::desligada(), 0)
+    enviar::enviar(&Identity::generate("e"), &origem, addr, reg.ouvinte(), ja, &Metricas::desligada(), 0, None)
         .await
         .unwrap();
 

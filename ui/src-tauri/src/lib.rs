@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use pombo_correio_core::identity::Identity;
-use pombo_correio_rede::{Cancelar, Cancelaveis, Evento, Metricas, conhecidos::Conhecidos, descoberta, enviar, receber, relay};
+use pombo_correio_rede::{Cancelar, Cancelaveis, Evento, Metricas, descoberta, enviar, receber, relay};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
@@ -139,9 +139,9 @@ async fn caminho_para(app: &tauri::AppHandle, destino: &Vizinho) -> Result<Camin
     // Sem a chave pública não há envelope, e sem envelope o ficheiro teria de ir
     // em claro pelo relay — que é exatamente o que não pode acontecer.
     let impressao = destino.impressao.as_deref().unwrap_or_default();
-    let Some(para) = Conhecidos::carregar(dados.join("conhecidos.json")).identidade(impressao) else {
+    let Some(para) = pombo_correio_rede::conhecidos::chaves_para(&dados, impressao) else {
         return Err(format!(
-            "{porque_nao} — e nunca falei diretamente com este dispositivo, por isso também não o posso deixar no relay"
+            "{porque_nao} — e nunca troquei ficheiros com este dispositivo, por isso também não o posso deixar no relay"
         ));
     };
 
@@ -161,6 +161,10 @@ fn despachar(
 ) {
     let eu = copiar(&app.state::<Estado>().eu);
     let metricas = app.state::<Estado>().metricas.clone();
+    // Onde guardar as chaves de quem receber, para lhe poder deixar ficheiros no
+    // relay mais tarde. Sem pasta de dados o envio faz-se na mesma — só não se
+    // aprende nada com ele.
+    let dados = app.path().app_data_dir().ok();
     let app = app.clone();
 
     tauri::async_runtime::spawn(async move {
@@ -172,7 +176,7 @@ fn despachar(
                 // A app corre servidor na PORTA, por isso quem recebe pode
                 // avisá-la de um cancelamento por esse endereço.
                 Caminho::Direto(endereco) => {
-                    enviar::enviar_fonte(&eu, fonte.as_ref(), *endereco, ouvinte.clone(), cancelar, &metricas, PORTA)
+                    enviar::enviar_fonte(&eu, fonte.as_ref(), *endereco, ouvinte.clone(), cancelar, &metricas, PORTA, dados.as_deref())
                         .await
                 }
                 Caminho::Relay { base, para } => {
@@ -324,14 +328,11 @@ fn ouvinte_de_envio(app: tauri::AppHandle, cancelar: Cancelar) -> pombo_correio_
     Arc::new(move |e: Evento| {
         let estado = app.state::<Estado>();
         match &e {
-            // Guardar a chave pública de quem recebe é o que torna possível, mais
-            // tarde, deixar-lhe um ficheiro no relay: fora da rede local não há a
-            // quem a pedir. Sem isto a escada nunca chegava a engatar.
-            Evento::Destino { quem } => {
-                if let Ok(dados) = app.path().app_data_dir() {
-                    let _ = Conhecidos::carregar(dados.join("conhecidos.json")).registar(quem);
-                }
-            }
+            // As chaves de quem recebe são guardadas pelo `enviar_fonte`, em
+            // `vistos.json` e só se o ficheiro chegar inteiro. Aqui já se
+            // escreveram no `conhecidos.json`, o que era cedo (basta ter falado
+            // com o endereço) e no sítio errado — é esse ficheiro que decide
+            // mostrar o número de segurança a quem nos envia pela primeira vez.
             Evento::Oferta { id, .. } => {
                 estado.cancelaveis.lock().unwrap().insert(id.clone(), cancelar.clone());
             }

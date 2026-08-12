@@ -307,6 +307,88 @@ parte para não entrar disfarçado de screen sharing.
   coincide. Pela impressão, não pelo IP (múltiplo e mutável) nem pelo nome (que
   se repete entre aparelhos distintos).
 
+- [x] **Saber as chaves de quem nunca nos enviou nada. ✅** Descoberto a montar o
+  teste do Android, e tapou um buraco de segurança que ninguém procurava.
+  Desenho e resultado abaixo.
+
+### Chaves de quem nunca nos enviou — desenho
+
+**O sintoma, em linguagem de casa:** a mãe instala a app, tu mandas-lhe uma foto,
+o telemóvel dela está desligado. Não vai. Só depois de **ela** te ter mandado
+alguma coisa é que passas a conseguir deixar-lhe ficheiros no relay.
+
+**A causa, e ela é pior do que parecia.** A primeira leitura foi *"quem envia
+nunca guarda as chaves"*. Errado: o CLI e a app **guardavam**, num `Evento::Destino`
+que chamava `Conhecidos::registar` — mas no **`conhecidos.json`**, que é o ficheiro
+que decide mostrar o número de segurança, e **mal o endereço respondia**, antes de
+o ficheiro seguir sequer.
+
+Ou seja, a correção "óbvia" que este documento ia recomendar **já estava no
+código**, com o buraco que se lhe apontava. Bastava alcançar um endereço que se
+dissesse chamar *"Telemóvel da mãe"* — e o mDNS não autentica ninguém — para esse
+aparelho ficar por conhecido e o aviso de dispositivo novo nunca aparecer quando
+ele nos enviasse alguma coisa.
+
+Só não se notava no tablet porque o A10 nunca lhe tinha enviado nada pelo CLI.
+**O buraco de usabilidade tapava um buraco de segurança.**
+
+**Porque não se corrige onde parece.** A tentação é registar no envio. Mas o
+`Conhecidos` responde hoje a uma pergunta só — *"já recebi deste antes?"* — e é
+essa resposta que decide mostrar o número de segurança. Registar por ter enviado
+faria um aparelho escolhido por um **nome anunciado no mDNS**, que não autentica
+ninguém, calar o aviso de dispositivo novo numa receção futura. Trocava um
+incómodo por um buraco de segurança.
+
+**A separação, então:** duas perguntas, dois ficheiros.
+
+| ficheiro | pergunta | quem escreve | quem lê |
+|---|---|---|---|
+| `conhecidos.json` | *já recebi deste?* | só quem **recebe** | o aviso de dispositivo novo |
+| `vistos.json` | *sei as chaves dele?* | quem **envia**, e só depois de o envio direto ter **acabado bem** | o envelope do relay |
+
+O caminho do aviso não muda **nada** — continua a ler só o `conhecidos.json`. É a
+propriedade que interessa não partir, e o teste é esse.
+
+**Porquê só depois de um envio direto que acabou bem**, e não a partir da simples
+descoberta: um envio concluído significa que já lhe entregaste um ficheiro em
+claro àquelas chaves. Selar-lhe outro mais tarde não revela nada que ainda não
+tenhas dado. Guardar chaves de quem apenas se anunciou na rede seria deixar
+qualquer aparelho da LAN semear-se para depósitos futuros.
+
+**Pré-mortem — *se a ligação morrer a meio do envio, o que fica escrito?*** Nada:
+só se grava no fim, com o ficheiro entregue. Um envio a meio não ensina chave
+nenhuma, e a próxima tentativa volta a passar pelo mesmo sítio.
+
+O que isto **não** resolve, e fica dito: continua a não haver forma de mandar
+para alguém com quem nunca houve contacto direto nenhum. Isso é emparelhamento
+por QR ou código, e é outra peça.
+
+##### Feito, e onde foi provado
+
+`vistos.json` novo, escrito por `guardar_chaves` no fim de um envio bem sucedido;
+`conhecidos::chaves_para` lê os dois ficheiros; e **os dois `registar` do
+`Evento::Destino` foram apagados** — do CLI e da app.
+
+Dois testes em `rede/tests/chaves_de_quem_recebe.rs`. O segundo é o que interessa,
+e **foi visto a falhar**: apontei o `guardar_chaves` ao `conhecidos.json` de
+propósito e ele apanhou-o na hora (*"enviar escreveu no registo que decide o aviso
+de dispositivo novo"*). Um teste que nunca falhou não prova nada.
+
+Entre o A10 e o tablet, com binários de release:
+
+| passo | resultado |
+|---|---|
+| Depositar pela impressão, sem contacto anterior | recusa, com a frase nova |
+| Envio direto pela LAN | escreve **só** o `vistos.json` |
+| `conhecidos.json` depois do envio | intocado — a porta do aviso não se abriu |
+| Depositar pela impressão, agora | passa |
+
+**Uma lição de método, que é o que fica.** O teste em `rede/` passava e o buraco
+continuava lá, porque quem o abria era o **chamador** — o ouvinte do CLI e o da
+app — e não a camada testada. Foi preciso olhar para os ficheiros em disco de
+máquinas a sério para dar por isso. *Testar a camada onde a lógica vive não chega
+quando o comportamento errado está na de cima.*
+
 ## Diagnóstico
 
 Registo de métricas em `<dados>/metricas/eventos.jsonl` (`rede/src/metricas.rs`),

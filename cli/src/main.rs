@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use pombo_correio_core::identity::Identity;
 use pombo_correio_rede::{
-    Evento, Metricas, Ouvinte, conhecidos::Conhecidos, descoberta, enviar, receber, relay,
+    Evento, Metricas, Ouvinte, descoberta, enviar, receber, relay,
     sem_cancelamento,
 };
 
@@ -105,7 +105,7 @@ fn nome_do_dispositivo() -> String {
 ///
 /// É só isto que distingue o CLI da interface gráfica — a lógica de
 /// transferência é a mesma nos dois.
-fn ouvinte_terminal(dados: std::path::PathBuf) -> Ouvinte {
+fn ouvinte_terminal() -> Ouvinte {
     // Uma barra por transferência: várias podem correr ao mesmo tempo.
     let barras: Arc<std::sync::Mutex<HashMap<String, Progresso>>> = Default::default();
 
@@ -119,10 +119,6 @@ fn ouvinte_terminal(dados: std::path::PathBuf) -> Ouvinte {
 
         Evento::Destino { quem } => {
             println!("Destino: {} — {}", quem.label, quem.safety_number());
-            // Guardar a chave pública de quem recebe é o que torna possível, mais
-            // tarde, deixar-lhe um ficheiro no relay: fora da rede local não há a
-            // quem a pedir. Sem isto a escada nunca chegava a engatar.
-            let _ = Conhecidos::carregar(dados.join("conhecidos.json")).registar(&quem);
         }
 
         Evento::Oferta {
@@ -203,7 +199,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let dados = pasta_dados(cli.dados)?;
     let eu = Identity::load_or_create(&dados.join("identidade"), nome_do_dispositivo())?;
-    let ouvinte = ouvinte_terminal(dados.clone());
+    let ouvinte = ouvinte_terminal();
 
     match cli.comando {
         Comando::Receber { porta } => {
@@ -234,16 +230,16 @@ async fn main() -> Result<()> {
                 // recebe não o pode avisar de um cancelamento — mas o Ctrl+C
                 // basta.
                 Ok(endereco) => {
-                    enviar::enviar(&eu, &ficheiro, endereco, ouvinte, sem_cancelamento(), &metricas, 0).await
+                    enviar::enviar(&eu, &ficheiro, endereco, ouvinte, sem_cancelamento(), &metricas, 0, Some(&dados)).await
                 }
                 Err(porque_nao) => {
                     // Desce a escada, como a app. Sem chave pública de quem
-                    // recebe não há envelope — e só a temos de quem já cá passou.
+                    // recebe não há envelope — e ela só existe se já tiver havido
+                    // contacto direto, num sentido ou no outro.
                     // Qual dos nós, e não o primeiro da lista: o primeiro pode
                     // estar em baixo, e é precisamente para isso que são dois.
                     let de_pe = relay::primeiro_de_pe(relay::configurados(&dados)).await;
-                    let conhecidos = Conhecidos::carregar(dados.join("conhecidos.json"));
-                    let alvo = conhecidos.identidade(&destino);
+                    let alvo = pombo_correio_rede::conhecidos::chaves_para(&dados, &destino);
 
                     match (de_pe.as_ref(), alvo) {
                         (Some(base), Some(para)) => {
@@ -251,7 +247,7 @@ async fn main() -> Result<()> {
                             relay::depositar(&eu, &pombo_correio_rede::FonteCaminho(ficheiro), &para, base, ouvinte, sem_cancelamento(), &metricas).await
                         }
                         (Some(_), None) => Err(porque_nao.context(
-                            "e pelo relay também não: dá o destino pela impressão digital de alguém que já cá tenha passado",
+                            "e pelo relay também não: dá o destino pela impressão digital de alguém com quem já tenhas trocado ficheiros",
                         )),
                         (None, _) => Err(porque_nao),
                     }

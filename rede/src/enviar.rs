@@ -118,6 +118,7 @@ pub(crate) fn fluxo_selado(
 ///
 /// Fino invólucro sobre [`enviar_fonte`]: só embrulha o caminho numa
 /// [`crate::FonteCaminho`]. Existe para os chamadores de sempre não mudarem.
+#[allow(clippy::too_many_arguments)]
 pub async fn enviar(
     eu: &Identity,
     ficheiro: &std::path::Path,
@@ -126,13 +127,20 @@ pub async fn enviar(
     cancelar: Cancelar,
     metricas: &crate::Metricas,
     porta_resposta: u16,
+    dados: Option<&std::path::Path>,
 ) -> Result<()> {
     let fonte = crate::FonteCaminho(ficheiro.to_owned());
-    enviar_fonte(eu, &fonte, destino, ouvinte, cancelar, metricas, porta_resposta).await
+    enviar_fonte(eu, &fonte, destino, ouvinte, cancelar, metricas, porta_resposta, dados).await
 }
 
 /// Envia o que quer que uma [`crate::Fonte`] descreva — no Android, um URI
 /// `content://`; no desktop, um caminho.
+///
+/// `dados` é a pasta de dados, e só serve para uma coisa: no fim de um envio que
+/// correu bem, guardar as chaves de quem recebeu em `vistos.json`, para lhe
+/// poder deixar ficheiros no relay mais tarde. `None` desliga-o — é o que os
+/// testes que não querem tocar no disco usam.
+#[allow(clippy::too_many_arguments)]
 pub async fn enviar_fonte(
     eu: &Identity,
     fonte: &dyn crate::Fonte,
@@ -141,6 +149,7 @@ pub async fn enviar_fonte(
     cancelar: Cancelar,
     metricas: &crate::Metricas,
     porta_resposta: u16,
+    dados: Option<&std::path::Path>,
 ) -> Result<()> {
     // O `Display` de um endereço IPv6 já traz os parênteses retos que o URL
     // exige, por isso não é preciso tratá-lo à parte.
@@ -200,6 +209,7 @@ pub async fn enviar_fonte(
     });
 
     if aceite.tenho >= total {
+        guardar_chaves(dados, &deles);
         ouvinte(Evento::Enviado { id: aceite.id.clone() });
         return Ok(());
     }
@@ -295,6 +305,7 @@ pub async fn enviar_fonte(
             erro: r.text().await.unwrap_or_else(|_| "o destino recusou".into()),
         }),
         Ok(_) => {
+            guardar_chaves(dados, &deles);
             metricas.registar(
                 "envio_fim",
                 serde_json::json!({ "id": aceite.id, "bytes": enviados, "segundos": s, "mb_por_s": enviados as f64 / 1e6 / s.max(1e-9) }),
@@ -303,4 +314,26 @@ pub async fn enviar_fonte(
         }
     }
     Ok(())
+}
+
+/// Guarda em `vistos.json` as chaves de quem acabou de receber de nós.
+///
+/// **Só se chama quando o ficheiro chegou inteiro.** Um envio interrompido não
+/// ensina chave nenhuma: a próxima tentativa volta a passar pelo `/identidade`,
+/// e guardar a meio só serviria para memorizar um destino que talvez nunca
+/// tenha recebido nada.
+///
+/// Fica noutro ficheiro que não o `conhecidos.json`, e a razão é de segurança:
+/// é o `conhecidos.json` que decide mostrar o número de segurança quando alguém
+/// nos envia pela primeira vez. Escrever aqui um aparelho escolhido por um nome
+/// anunciado no mDNS — que não autentica ninguém — calaria esse aviso numa
+/// receção futura. Saber as chaves de alguém não é tê-lo por conhecido.
+///
+/// Falhar a gravar não estraga o envio, que já aconteceu: perde-se a
+/// possibilidade de lhe deixar coisas no relay, e recupera-se no envio seguinte.
+fn guardar_chaves(dados: Option<&std::path::Path>, deles: &PublicIdentity) {
+    if let Some(d) = dados {
+        let _ = crate::conhecidos::Conhecidos::carregar(d.join(crate::conhecidos::VISTOS))
+            .registar(deles);
+    }
 }

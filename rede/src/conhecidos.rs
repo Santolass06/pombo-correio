@@ -39,10 +39,40 @@ impl Registado {
     }
 }
 
+/// O ficheiro dos que só receberam de nós.
+///
+/// Ver [`chaves_para`]: é um registo à parte de propósito, e o preço de o
+/// juntar ao `conhecidos.json` seria um buraco de segurança.
+pub const VISTOS: &str = "vistos.json";
+
+/// Registo de dispositivos, guardado num ficheiro.
+///
+/// Serve dois ficheiros com o mesmo código, porque a diferença entre eles não
+/// está na forma — está em **quem escreve**:
+///
+/// - `conhecidos.json`: escrito por quem **recebe**. Responde a *"já recebi
+///   deste?"*, e é essa resposta que decide mostrar o número de segurança.
+/// - `vistos.json`: escrito por quem **envia**, e só depois de um envio direto
+///   ter acabado bem. Responde a *"sei as chaves dele?"*, e só serve para
+///   embrulhar a chave num depósito no relay.
 pub struct Conhecidos {
     caminho: PathBuf,
     /// Impressão digital em hexadecimal → o que se sabe dele.
     mapa: HashMap<String, Registado>,
+}
+
+/// A chave pública de quem tem esta impressão curta, venha de onde vier.
+///
+/// Procura primeiro em quem já nos enviou e só depois em quem só recebeu de
+/// nós. A ordem não muda o resultado — a impressão digital deriva das chaves,
+/// por isso as duas respostas ou coincidem ou não existem.
+///
+/// É o que permite deixar um ficheiro no relay para alguém que ainda nunca nos
+/// mandou nada — o caso normal de quem acabou de instalar a app.
+pub fn chaves_para(dados: &std::path::Path, impressao_curta: &str) -> Option<PublicIdentity> {
+    Conhecidos::carregar(dados.join("conhecidos.json"))
+        .identidade(impressao_curta)
+        .or_else(|| Conhecidos::carregar(dados.join(VISTOS)).identidade(impressao_curta))
 }
 
 impl Conhecidos {

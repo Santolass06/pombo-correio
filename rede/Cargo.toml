@@ -19,6 +19,7 @@ bytes = "1.12.1"
 mdns-sd = "0.20.2"
 
 [dev-dependencies]
+hex = "0.4.3"
 pombo-correio-relay = { path = "../relay" }
 # Para o teste do link poder fazer o que o browser faz, com o mesmo código.
 pombo-correio-pagina = { path = "../pagina" }
