@@ -724,12 +724,24 @@ terminal para credenciais, por isso o código foi por `git archive` + `scp` — 
 - **A rede local está classificada como *Pública*.** A Ethernet de casa aparece
   como `Public` e só o Tailscale como `Private`. Não impediu nada nos testes, mas
   é a classificação que o Windows usa para decidir o que deixa entrar.
-- **A NordVPN bloqueia a entrada pela LAN.** Com o recetor a escutar em `0.0.0.0`
-  e uma regra de firewall explícita para a porta 53318 em **todos** os perfis, a
-  ligação a `192.168.1.64:53318` continuava a dar *timeout*. Pelo Tailscale
-  (`100.88.104.68:53318`) entrou à primeira. **A saída pela LAN funciona** — só a
-  entrada é que não. Para quem tem VPN de consumo instalada, o degrau "LAN direta"
-  desaparece sem aviso e a app fica dependente do Tailscale ou do relay.
+- ~~**A NordVPN bloqueia a entrada pela LAN.**~~ **Errado, e corrigido no mesmo
+  dia.** O sintoma foi real: com o recetor a escutar em `0.0.0.0` e uma regra de
+  firewall explícita para a porta 53318 em **todos** os perfis, a ligação a
+  `192.168.1.64:53318` dava *timeout*, e pelo Tailscale entrava à primeira. A
+  causa que lhe atribuí é que não se aguenta. Horas depois, com a **NordLynx
+  ligada**, sem regra nenhuma de firewall para a app (confirmado: zero regras por
+  nome e zero por caminho do programa) e sem nenhuma regra de bloqueio de entrada
+  activa, o tablet enviou pela LAN e o A10 abriu `192.168.1.64:53318` à primeira.
+  **Não se reproduz e não sei a causa.** O que mudou entretanto foi a app passar a
+  correr instalada em vez do CLI lançado por SSH — pode ser aí, mas isso é
+  hipótese, não conclusão. Fica escrito como está: aconteceu, e a explicação que
+  dei estava errada.
+- **O IPv6 anda a fazer trabalho não creditado.** O tablet descobriu o Windows
+  primeiro por IPv6 global (`2a01:11:…`) e só depois por `192.168.1.64`. Da
+  Ethernet cá de casa esse IPv6 não responde, o que quer dizer que a lista de
+  dispositivos chega a mostrar endereços que não servem para todos os pares.
+  Ninguém reparou porque a escada desce sozinha — mas custa uma tentativa
+  falhada antes de descer.
 - **Não foi preciso mexer na firewall.** Cheguei a criar uma regra para a porta;
   desactivei-a e o Tailscale continuou a entrar. Foi removida — a firewall ficou
   exactamente como estava.

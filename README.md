@@ -97,10 +97,13 @@ Escrito aqui de propósito, para não se confundir "compila" com "funciona":
   recebeu 40 MB byte a byte — mas tudo isso se mediu por SSH, que não vê o
   ambiente de trabalho. Que a interface *desenhe*, e que se consiga enviar a
   partir dela, continua por confirmar. **macOS nunca correu de todo.**
-- **Uma VPN de consumo tapa o degrau da LAN.** Com a NordVPN activa, a entrada
-  pela rede local fica bloqueada — a saída não. É uma definição de cada máquina,
-  não um defeito geral (cá em casa afecta um computador), mas quem a tenha passa
-  a depender do Tailscale ou do relay sem a app dizer porquê.
+- **Houve um bloqueio de entrada pela LAN em Windows que ficou por explicar.**
+  Cheguei a atribuí-lo à NordVPN; estava errado. Com a Nord ligada na mesma
+  máquina, a entrada pela LAN passou a funcionar e não se reproduz. Fica como
+  está: aconteceu, a causa não é conhecida.
+- **O Android apaga o GPS das fotos antes de a app as ler**, e o ficheiro fica
+  do mesmo tamanho. Enquanto a app não pedir `ACCESS_MEDIA_LOCATION`, "byte-exata"
+  não é verdade para fotos com localização — e a app não tem como dar por isso.
 - A página do link só foi aberta em Chromium. O Safari do iPhone é onde se espera
   que parta primeiro.
 
