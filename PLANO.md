@@ -431,7 +431,7 @@ Foi criado precisamente para o problema em aberto abaixo.
 - [x] **S2 — Cifra e identidade em disco**
 - [x] **S3 — Transferência sobre HTTP**
 - [x] **S4 — Descoberta e dispositivos conhecidos**
-- [x] **S5 — Interface e desktop** (falta Windows)
+- [x] **S5 — Interface e desktop** (núcleo validado em Windows; falta a janela)
 - [x] **S6 — Android**
 - [ ] **S7 — Relay e link sem instalação**
 - [ ] **S8 — PWA iOS**
@@ -687,7 +687,7 @@ Acabaram-se os endereços escritos à mão na rede local.
 - **Um ficheiro de conhecidos corrompido não impede receber.** Perde-se a
   memória de quem já cá passou, o que é um incómodo e não uma falha.
 
-### S5 — Interface e desktop ⚠️ falta correr em Windows
+### S5 — Interface e desktop ✅ (o núcleo em Windows; a janela ainda não)
 
 Aplicação gráfica a funcionar em Linux. Recebe e envia, com progresso ao vivo.
 
@@ -701,7 +701,42 @@ Aplicação gráfica a funcionar em Linux. Recebe e envia, com progresso ao vivo
 - [x] Tema claro e escuro, com botão que ganha sobre a preferência do sistema.
 - [x] **Bytes nunca passam pelo IPC** — só nomes, tamanhos e contagens.
 - [x] Verificado: 40 MB do CLI para a aplicação, byte a byte idênticos.
-- [ ] **Correr em Windows.**
+- [x] **Correr em Windows ✅** — o núcleo. Ver abaixo.
+
+#### Windows, finalmente (Andre_Desktop, Ryzen 5 8400F, Windows 11 build 26200)
+
+Deixou de estar bloqueado no momento em que passou a haver SSH para lá
+(`ssh andre@100.88.104.68`). O repositório é privado e o `git` remoto não tem
+terminal para credenciais, por isso o código foi por `git archive` + `scp` — 1 MB.
+
+| | |
+|---|---|
+| `cargo build --release -p pombo-correio` | ✅ 1m00s, sem um único aviso |
+| `cargo test --workspace` | ✅ **122 passaram, 0 falharam** (123 em Linux; a diferença é o teste das permissões `0600`, que é Unix) |
+| A10 → Windows, 5 MB | ✅ `sha256` idêntico |
+| Windows → A10, 4 MB | ✅ `sha256` idêntico, com o aviso de dispositivo novo a aparecer |
+| Windows → tablet Android, 3 MB | ✅ descoberto **pelo nome**, aceite. *Hash não confirmado* — o ADB já estava desligado |
+| `pombo dispositivos` em Windows | ✅ encontrou os três: tablet, A10 e Pi |
+| Caminhos de dados (`%APPDATA%\pombo`) | ✅ o ramo Windows do `pasta_dados` está certo |
+
+**O que Windows destapou, e não se via em mais lado nenhum:**
+
+- **A rede local está classificada como *Pública*.** A Ethernet de casa aparece
+  como `Public` e só o Tailscale como `Private`. Não impediu nada nos testes, mas
+  é a classificação que o Windows usa para decidir o que deixa entrar.
+- **A NordVPN bloqueia a entrada pela LAN.** Com o recetor a escutar em `0.0.0.0`
+  e uma regra de firewall explícita para a porta 53318 em **todos** os perfis, a
+  ligação a `192.168.1.64:53318` continuava a dar *timeout*. Pelo Tailscale
+  (`100.88.104.68:53318`) entrou à primeira. **A saída pela LAN funciona** — só a
+  entrada é que não. Para quem tem VPN de consumo instalada, o degrau "LAN direta"
+  desaparece sem aviso e a app fica dependente do Tailscale ou do relay.
+- **Não foi preciso mexer na firewall.** Cheguei a criar uma regra para a porta;
+  desactivei-a e o Tailscale continuou a entrar. Foi removida — a firewall ficou
+  exactamente como estava.
+
+**Por provar em Windows, e é a parte que a família vê:** a **janela**. Só o CLI
+correu. Falta `npm run app:build` e confirmar que a interface desenha — e o
+CLAUDE.md avisa que "o processo não rebentou" não é prova nenhuma disso.
 
 **Estrutura que a interface obrigou a criar**
 
@@ -1514,7 +1549,7 @@ trabalho por fazer — é trabalho que precisa de coisas que este lado não tem:
 | Ponta pela internet | Decidir se o link sai por domínio próprio ou DDNS. **Sem CGNAT**, com IPv6 global, NAT de cone e UPnP — a rede de casa dá para tudo, falta o nome |
 | A página no Safari do iPhone | Um iPhone. É o browser onde o caminho de memória parte primeiro |
 | R6 (push) | Conta e chaves de serviço do FCM (Android) e do Web Push (iOS) |
-| S5 em Windows | A máquina Windows |
+| A **janela** da app em Windows | Nada — só falta correr `npm run app:build` lá e olhar para ela |
 | Separar "sei as chaves dele" de "já recebi dele" nos `Conhecidos` | Nada — é desenho por fazer. Hoje só se deposita para quem já nos enviou |
 
 Onde é que cada coisa está provada, sem arredondar: o protocolo, a retoma nos

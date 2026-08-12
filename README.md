@@ -15,7 +15,7 @@ WhatsApp recomprime tudo.
 |---|---|
 | Linux x86-64 e ARM64 | ✅ app e CLI, validado entre o A10 e o Pi 5 |
 | Android | ✅ app, partilha pela folha do sistema |
-| Windows | ⚠️ compila, **por correr numa máquina Windows** |
+| Windows | ✅ núcleo validado (122 testes, transferências nos dois sentidos) · ⚠️ a janela por ver |
 | macOS | ⚠️ nunca compilado |
 | iOS / iPadOS | ⬜ PWA, por fazer (S8) |
 | Relay de casa | ✅ dois nós, ativo-ativo, serviço do systemd |
@@ -93,7 +93,12 @@ Escrito aqui de propósito, para não se confundir "compila" com "funciona":
 - **Sem HTTPS, o link não serve para ficheiros grandes.** Por HTTP simples a
   página não é *contexto seguro* e o browser não deixa gravar em disco à medida —
   sobra juntar tudo em memória, que estoira num vídeo. É o primeiro da fila.
-- **Windows e macOS nunca correram.** O código está lá; a prova não.
+- **Em Windows correu o núcleo, não a janela.** 122 testes passam e os ficheiros
+  atravessam nos dois sentidos byte a byte, mas a interface gráfica nunca foi
+  aberta lá. **macOS nunca correu de todo.**
+- **Uma VPN de consumo mata o degrau da LAN.** Com a NordVPN activa no PC
+  Windows, a entrada pela rede local fica bloqueada — a saída não. A app passa a
+  depender do Tailscale ou do relay, sem dizer porquê.
 - A página do link só foi aberta em Chromium. O Safari do iPhone é onde se espera
   que parta primeiro.
 
