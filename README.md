@@ -15,7 +15,7 @@ WhatsApp recomprime tudo.
 |---|---|
 | Linux x86-64 e ARM64 | ✅ app e CLI, validado entre o A10 e o Pi 5 |
 | Android | ✅ app, partilha pela folha do sistema |
-| Windows | ✅ núcleo validado (122 testes, transferências nos dois sentidos) · ⚠️ a janela por ver |
+| Windows | ✅ app e CLI (122 testes; a app recebeu 40 MB byte a byte) · ⚠️ o ecrã por confirmar a olho |
 | macOS | ⚠️ nunca compilado |
 | iOS / iPadOS | ⬜ PWA, por fazer (S8) |
 | Relay de casa | ✅ dois nós, ativo-ativo, serviço do systemd |
@@ -93,12 +93,14 @@ Escrito aqui de propósito, para não se confundir "compila" com "funciona":
 - **Sem HTTPS, o link não serve para ficheiros grandes.** Por HTTP simples a
   página não é *contexto seguro* e o browser não deixa gravar em disco à medida —
   sobra juntar tudo em memória, que estoira num vídeo. É o primeiro da fila.
-- **Em Windows correu o núcleo, não a janela.** 122 testes passam e os ficheiros
-  atravessam nos dois sentidos byte a byte, mas a interface gráfica nunca foi
-  aberta lá. **macOS nunca correu de todo.**
-- **Uma VPN de consumo mata o degrau da LAN.** Com a NordVPN activa no PC
-  Windows, a entrada pela rede local fica bloqueada — a saída não. A app passa a
-  depender do Tailscale ou do relay, sem dizer porquê.
+- **Em Windows ninguém olhou para o ecrã.** A app corre lá, a WebView2 arranca e
+  recebeu 40 MB byte a byte — mas tudo isso se mediu por SSH, que não vê o
+  ambiente de trabalho. Que a interface *desenhe*, e que se consiga enviar a
+  partir dela, continua por confirmar. **macOS nunca correu de todo.**
+- **Uma VPN de consumo tapa o degrau da LAN.** Com a NordVPN activa, a entrada
+  pela rede local fica bloqueada — a saída não. É uma definição de cada máquina,
+  não um defeito geral (cá em casa afecta um computador), mas quem a tenha passa
+  a depender do Tailscale ou do relay sem a app dizer porquê.
 - A página do link só foi aberta em Chromium. O Safari do iPhone é onde se espera
   que parta primeiro.
 

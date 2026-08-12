@@ -431,7 +431,7 @@ Foi criado precisamente para o problema em aberto abaixo.
 - [x] **S2 — Cifra e identidade em disco**
 - [x] **S3 — Transferência sobre HTTP**
 - [x] **S4 — Descoberta e dispositivos conhecidos**
-- [x] **S5 — Interface e desktop** (núcleo validado em Windows; falta a janela)
+- [x] **S5 — Interface e desktop** (em Windows a app corre e recebe; falta olhar para o ecrã)
 - [x] **S6 — Android**
 - [ ] **S7 — Relay e link sem instalação**
 - [ ] **S8 — PWA iOS**
@@ -687,7 +687,7 @@ Acabaram-se os endereços escritos à mão na rede local.
 - **Um ficheiro de conhecidos corrompido não impede receber.** Perde-se a
   memória de quem já cá passou, o que é um incómodo e não uma falha.
 
-### S5 — Interface e desktop ✅ (o núcleo em Windows; a janela ainda não)
+### S5 — Interface e desktop ✅ (em Windows corre e recebe; falta ver o ecrã)
 
 Aplicação gráfica a funcionar em Linux. Recebe e envia, com progresso ao vivo.
 
@@ -734,9 +734,28 @@ terminal para credenciais, por isso o código foi por `git archive` + `scp` — 
   desactivei-a e o Tailscale continuou a entrar. Foi removida — a firewall ficou
   exactamente como estava.
 
-**Por provar em Windows, e é a parte que a família vê:** a **janela**. Só o CLI
-correu. Falta `npm run app:build` e confirmar que a interface desenha — e o
-CLAUDE.md avisa que "o processo não rebentou" não é prova nenhuma disso.
+#### A janela em Windows (12/08/2026)
+
+O `npm run app:build` correu na máquina do André. O que ficou provado, e como:
+
+| | |
+|---|---|
+| O processo arranca e serve | ✅ `pombo-correio-app` pid 22416 a escutar em `0.0.0.0:53318` |
+| **A WebView2 instanciou mesmo** | ✅ sete processos `msedgewebview2` nascidos **no mesmo segundo** que a app (19:15:41–42) |
+| O lado Rust correu o `setup` | ✅ `%APPDATA%\pt.pombo.correio` criado com `identidade`, `recebidos`, `metricas` |
+| A10 → app do Windows, 40 MB, Tailscale | ✅ `eac20c8e…663d8a0d` nas duas pontas |
+| Registou quem enviou | ✅ `conhecidos.json` com `andresantos-M11BB` |
+
+A app tem identidade própria, separada da do CLI (`%APPDATA%\pombo` contra
+`%APPDATA%\pt.pombo.correio`), e apresenta-se como `ANDRE_DESKTOP` — o
+`COMPUTERNAME` tal e qual, em maiúsculas.
+
+**Os processos-filhos da WebView2 são a melhor prova que se consegue por SSH**,
+e continuam a não ser prova de que a interface desenha: dizem que o runtime
+arrancou e criou os processos de render, não que alguma coisa apareceu no ecrã.
+O SSH em Windows corre na sessão 0 e não vê o ambiente de trabalho, por isso
+**captura de ecrã não é caminho** — sai preto. A confirmação visual, a lista de
+dispositivos e o envio *a partir da janela* são do André.
 
 **Estrutura que a interface obrigou a criar**
 
