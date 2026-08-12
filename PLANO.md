@@ -842,6 +842,39 @@ Testado num OnePlus Pad (OPD2403), Android 16, ARM64, por USB (adb).
 - [x] **Recebe um ficheiro do PC byte-exato** (hash confirmado), com métricas por
       fase a funcionar. ~3,4 MB/s em debug (cripto lenta, como no desktop).
 
+**Descoberta que mata a promessa principal: o Android apaga o GPS da foto**
+
+O caso fundador, feito em condições reais: foto HEIC tirada no tablet às 14:04 de
+12/08/2026, escolhida no seletor do sistema, enviada para a **app** do PC Windows.
+Chegou. E não é byte-exata.
+
+```
+tablet   e75f3eff45ecb00c9ba71fad8dfb6fc2485b326c3008057589bdfd0fae8d7419
+windows  0073853708de2aa239fa25e10be09d642a926b4837319b074ad644c27708c6f9
+```
+
+**Mesmo tamanho** (2 310 339 bytes), **mesmo cabeçalho** `ftypheic`. Diferem em
+**37 bytes**, todos entre os offsets 5353 e 5533, e do lado que chegou estão
+todos a **zero**. Lidos à mão, esses bytes são o IFD do GPS: a etiqueta `0x0001`
+com o valor `4e` (`N`), a `0x0003` com `57` (`W`), as racionais da latitude e da
+longitude, e o `GPSDateStamp` `2026:08:12`.
+
+**Não é o nosso protocolo.** Ele entregou exatamente os bytes que lhe deram. É o
+Android a **redigir a localização** antes de a app ler o ficheiro, porque a app
+não tem `ACCESS_MEDIA_LOCATION`. Zera no sítio, e é por isso que o tamanho não
+muda — e é por isso que isto passava despercebido a qualquer verificação que só
+comparasse tamanhos.
+
+Só se vê comparando um ficheiro que o `adb shell` leu (o `shell` tem acesso
+total, vê o original) com o que a app leu. Um teste que só compare
+tablet→PC pelo caminho da app **nunca apanha isto**, porque as duas pontas
+concordam no ficheiro já redigido.
+
+**A decisão é do André e é de privacidade, não técnica.** Pedir a permissão faz
+as fotos viajarem com as coordenadas de onde foram tiradas — para o PC de casa é
+o que se quer, para alguém a quem se mande uma foto talvez não. Sem a permissão,
+a app é honesta a dizer que não é byte-exata em fotos com GPS.
+
 **Descoberta que muda o desenho**
 - **O OxygenOS bloqueia ligações de entrada para apps sob restrição de bateria.**
   Sintoma: ping passa, porta fechada dá RST, mas a porta da app dá *timeout* —
