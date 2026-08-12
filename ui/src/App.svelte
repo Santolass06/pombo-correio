@@ -132,7 +132,12 @@
         },
         ...transferencias.filter((t) => t.id !== e.id),
       ];
-      aba = "transferencias";
+      // Menos quando o que está a acontecer é criar um link: o link nasce no
+      // separador dos dispositivos, e saltar daqui punha a pessoa a olhar para
+      // a barra de progresso enquanto o endereço — a única coisa que ela veio
+      // buscar — aparecia atrás. Apanhado no tablet, e só lá: no computador o
+      // ficheiro é tão rápido que o salto quase não se vê.
+      if (!aCriarLigacao) aba = "transferencias";
       return;
     }
 

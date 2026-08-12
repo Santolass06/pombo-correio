@@ -1236,6 +1236,62 @@ menos o último. É esta conta que mantém o relay ignorante.
     está coberta pela regra em Rust; o ecrã dessa fase nunca foi visto.
   - **Nada disto saiu da LAN**, e um link com `192.168.1.17` lá dentro só abre
     dentro de casa.
+##### O Android, fechado no tablet (OnePlus Pad 2, aarch64)
+
+Estava listado como bloqueado por o tablet ter ficado sem bateria. Não estava
+bloqueado — faltava **pedir**. Fica a lição, que custou duas sessões: ver
+`memory/pede-hardware-nao-assumas`.
+
+**1. O Android vai buscar ao relay ✅** O A10 depositou 6 MB pela impressão
+digital do tablet (`pombo enviar … 41af4cc1b64e908a`, que não resolve na LAN e
+por isso desce ao relay). O tablet foi aberto e o ficheiro chegou **sozinho, ao
+arrancar** — `buscarNoRelay()` no `onMount`, que é o caminho real da família:
+*abro a app e o que estava à espera aparece*. `sha256` igual dos dois lados, e o
+depósito apagado do relay depois de estar em disco.
+
+Duas coisas que só se veem com máquinas a sério:
+
+- **O número de segurança apareceu, e bate certo.** O tablet marcou o CLI do A10
+  como dispositivo novo e mostrou `41181 74849 01342 26842 09183 22905` —
+  exatamente o que o `pombo identidade` imprime no A10. O aviso de dispositivo
+  desconhecido funciona **pelo relay**, não só na LAN.
+- **9,47 MB/s, com a decifra a comer 508 ms dos 633.** É uma build **debug**, e
+  a métrica diz o mesmo que o CLAUDE.md avisa. `rede_ms` 55, `disco_ms` 0 — não
+  é rede nem cartão, é CPU sem otimizações. **Não é número de desempenho real.**
+
+**2. O botão do link (R5) no Android ✅** Nunca tinha sido carregado num
+aparelho. O seletor SAF abre, e **desistir devolve o botão ao normal** — sem
+spinner preso nem erro. Escolhido um ficheiro, o depósito subiu e o link
+apareceu com o botão de copiar. Aberto em Chromium no A10: o nome do ficheiro e
+o **"de OnePlus Pad 2"** saíram de dentro do manifesto selado no tablet, e os
+bytes gravados são idênticos aos que lá foram postos.
+
+**3. Um defeito que só o tablet mostrou.** Ao criar o link, a app saltava para
+"Transferências" — o `aba = "transferencias"` dispara em qualquer `oferta`, e um
+link também é uma oferta. A pessoa ficava a olhar para a barra de progresso
+enquanto o endereço, a única coisa que veio buscar, aparecia no separador de
+trás. Corrigido com uma guarda: enquanto se cria um link, não se muda de
+separador. **Sem teste automático** — não há infraestrutura de testes no
+frontend e instalar uma para uma linha seria desproporcionado; a verificação é
+repetir o fluxo no tablet, que foi como apareceu. No computador quase não se vê,
+porque o ficheiro sobe depressa demais.
+
+**Descoberto ao montar o teste, e é um buraco a sério:** *só se consegue
+depositar para quem já nos enviou alguma coisa*. O `Conhecidos::registar` só é
+chamado de quem **recebe** (`receber.rs:174`, `relay.rs:462`); quem envia nunca
+guarda as chaves de quem recebeu. Sem chave pública não há envelope, logo não há
+relay. Para este teste dei a volta com um programa descartável, fora do
+repositório, que lê o `/identidade` do tablet pela LAN e o escreve nos
+conhecidos — **andaime, não validação de emparelhamento**.
+
+A correção óbvia — registar quem recebe quando um envio direto termina — **não é
+de uma linha**, e é por isso que fica escrita e não feita: o `Conhecidos`
+responde hoje a *"já recebi deste antes?"*, e é essa resposta que decide se se
+mostra o número de segurança. Registar por ter **enviado** faria um aparelho
+escolhido pelo nome no mDNS (que não autentica ninguém) calar o aviso de
+dispositivo novo numa receção futura. Precisa de separar *"sei as chaves dele"*
+de *"já recebi dele"*, e isso é desenho, não remendo.
+
 - [ ] **R6 — push.** FCM no Android, Web Push no iOS. Precisa de contas e chaves
       de serviço — decisão do utilizador, não técnica.
 - [ ] **R7 — TLS.** Decidido e escrito abaixo; falta correr três comandos com
@@ -1344,7 +1400,7 @@ trabalho por fazer — é trabalho que precisa de coisas que este lado não tem:
 | A página no Safari do iPhone | Um iPhone. É o browser onde o caminho de memória parte primeiro |
 | R6 (push) | Conta e chaves de serviço do FCM (Android) e do Web Push (iOS) |
 | S5 em Windows | A máquina Windows |
-| Android a ir buscar ao relay | O tablet (ficou sem bateria a meio) |
+| Separar "sei as chaves dele" de "já recebi dele" nos `Conhecidos` | Nada — é desenho por fazer. Hoje só se deposita para quem já nos enviou |
 
 Onde é que cada coisa está provada, sem arredondar: o protocolo, a retoma nos
 dois sentidos e a opacidade do relay estão provados **em loopback**; o caminho
