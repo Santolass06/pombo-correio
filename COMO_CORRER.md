@@ -281,9 +281,19 @@ cert("…"): acme: WaitOrder: OrderError status "invalid"
 
 Antes de culpar o Let's Encrypt, **conta os tokens do desafio**:
 
+**e pergunta a cada servidor autoritativo, não só a um** — foi assim que se
+apanhou o problema, que contra o `8.8.8.8` parecia não existir:
+
 ```sh
-dig +short TXT _acme-challenge.<máquina>.<tailnet>.ts.net @ns1.dnsimple.com
+for ns in $(dig +short NS ts.net); do
+  echo -n "$ns: "
+  dig +short TXT _acme-challenge.<máquina>.<tailnet>.ts.net @$ns | wc -l
+done
 ```
+
+Se uns responderem `1` e outros `0`, as réplicas não concordam: o Let's Encrypt
+escolhe uma para validar, calha-lhe a que não tem o token, e a autorização falha.
+Não há nada a fazer deste lado.
 
 Tenta outra vez e conta de novo. **Se o número não subir**, o `SetDNS` está a
 dizer que sim sem escrever: o token daquela encomenda nunca chega ao DNS, o

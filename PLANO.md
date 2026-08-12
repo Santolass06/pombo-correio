@@ -1375,8 +1375,28 @@ duas contas ACME diferentes.
 
 **E não é nosso.** O Tailscale tem incidente aberto — *Certificate Creation
 Issues*, em [status.tailscale.com](https://status.tailscale.com), com correção
-implantada e em monitorização. À hora a que isto se escreve a correção ainda não
-tinha chegado a esta tailnet: nova tentativa, mesmo `invalid`, DNS na mesma vazio.
+implantada e em monitorização.
+
+**A correção está a chegar aos bocados, e o modo de falha mudou.** Horas depois,
+os 4 registos presos do Pi tinham sido limpos e o `SetDNS` voltou a escrever. Mas
+o certificado continua a não emitir, e a razão agora é outra — os quatro
+servidores autoritativos do `ts.net` **não concordam entre si**:
+
+```
+13:34:52  ns1=1  ns2-edge=0  ns4-edge=1
+13:35:35  ns1=1  ns2-edge=0  ns4-edge=1
+13:35:56  ns1=0  ns2-edge=0  ns4-edge=1     ← o ns1 até pisca
+13:36:38  ns1=1  ns2-edge=0  ns4-edge=1
+```
+
+O `ns2.dnsimple-edge.net` **nunca** serve o registo, e o `ns1` oscila. O Let's
+Encrypt escolhe um servidor autoritativo para validar; se calhar o que não tem o
+token, a autorização falha. Não é latência de propagação — passados dois minutos
+continua igual. É inconsistência entre réplicas, do lado deles.
+
+Vale a pena guardar o método, que é o que separa "está partido" de um relatório
+que o suporte consegue usar: **perguntar a cada servidor autoritativo, não só a
+um**. Contra o `8.8.8.8` isto parecia estar tudo bem.
 
 **O que fazer:** repetir. Não há nada para consertar deste lado — nem código, nem
 configuração. O `tailscale serve` no Pi já está de pé e agarra o certificado no
