@@ -1480,6 +1480,19 @@ Vale a pena guardar o método, que é o que separa "está partido" de um relató
 que o suporte consegue usar: **perguntar a cada servidor autoritativo, não só a
 um**. Contra o `8.8.8.8` isto parecia estar tudo bem.
 
+**E depois o próprio Tailscale disse-o por extenso.** Uma tentativa mais tarde,
+com as réplicas já de acordo, o erro deixou de ser do Let's Encrypt e passou a ser
+deles:
+
+```
+SetDNS "_acme-challenge.andresantos-m11bb.tail455bb7.ts.net" => "IZNYzUBx…":
+set-dns response: 500 Internal Server Error, failed to create DNS record
+```
+
+Não há ambiguidade nenhuma: o plano de controlo deles falha a criar o registo e
+diz que falha. É esta a linha a colar num pedido de suporte, e encerra o assunto
+do nosso lado — **nada disto é configuração nossa**.
+
 **O que fazer:** repetir. Não há nada para consertar deste lado — nem código, nem
 configuração. O `tailscale serve` no Pi já está de pé e agarra o certificado no
 instante em que ele emitir. Se passar de um ou dois dias, aí sim, suporte do
