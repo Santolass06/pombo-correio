@@ -740,9 +740,12 @@ O `npm run app:build` correu na máquina do André. O que ficou provado, e como:
 
 | | |
 |---|---|
-| O processo arranca e serve | ✅ `pombo-correio-app` pid 22416 a escutar em `0.0.0.0:53318` |
-| **A WebView2 instanciou mesmo** | ✅ sete processos `msedgewebview2` nascidos **no mesmo segundo** que a app (19:15:41–42) |
+| O instalador saiu e foi usado | ✅ instalada em `%LOCALAPPDATA%\Pombo-Correio\pombo-correio-app.exe` |
+| O processo arranca e serve | ✅ pid 22416 a escutar em `0.0.0.0:53318` |
 | O lado Rust correu o `setup` | ✅ `%APPDATA%\pt.pombo.correio` criado com `identidade`, `recebidos`, `metricas` |
+| **A WebView2 é filha da app** | ✅ `browser` 27204 com pai 22416 — e não uma qualquer das outras que já lá corriam |
+| **Houve página para desenhar** | ✅ debaixo dela, `renderer`, `gpu-process`, `crashpad-handler` e duas `utility` |
+| A WebView escreveu o seu perfil | ✅ `%LOCALAPPDATA%\pt.pombo.correio\EBWebView\`, com `GrShaderCache` e `GPUPersistentCache` |
 | A10 → app do Windows, 40 MB, Tailscale | ✅ `eac20c8e…663d8a0d` nas duas pontas |
 | Registou quem enviou | ✅ `conhecidos.json` com `andresantos-M11BB` |
 
@@ -750,12 +753,18 @@ A app tem identidade própria, separada da do CLI (`%APPDATA%\pombo` contra
 `%APPDATA%\pt.pombo.correio`), e apresenta-se como `ANDRE_DESKTOP` — o
 `COMPUTERNAME` tal e qual, em maiúsculas.
 
-**Os processos-filhos da WebView2 são a melhor prova que se consegue por SSH**,
-e continuam a não ser prova de que a interface desenha: dizem que o runtime
-arrancou e criou os processos de render, não que alguma coisa apareceu no ecrã.
-O SSH em Windows corre na sessão 0 e não vê o ambiente de trabalho, por isso
-**captura de ecrã não é caminho** — sai preto. A confirmação visual, a lista de
-dispositivos e o envio *a partir da janela* são do André.
+**A árvore de processos é a melhor prova que se consegue por SSH, e quase
+chega.** Contar `msedgewebview2` não valeria nada — havia cinco de outras apps a
+correr desde o dia anterior. O que vale é a **ascendência**: o processo `browser`
+tem por pai a nossa app, e por baixo dele há um `renderer`, que só nasce quando
+há documento para desenhar, e um `gpu-process` que deixou *shader cache* escrito
+em disco. Isso é rasterização a sério, não um processo vazio à espera.
+
+Continua a não ser "apareceu no ecrã" — uma janela escondida também rasteriza. O
+SSH em Windows corre na sessão 0 e não vê o ambiente de trabalho, por isso
+**captura de ecrã não é caminho**: sai preta. O que falta é do André, e é pouco:
+olhar para a janela, ver se a lista de dispositivos se enche, e **enviar a partir
+dela** — que é a metade que nada disto toca.
 
 **Estrutura que a interface obrigou a criar**
 
