@@ -1305,24 +1305,27 @@ O que se apurou, por eliminação:
 | DNS não propagou | Os 3 servidores autoritativos do `ts.net` (dnsimple) devolvem o registo | ❌ não é |
 | **O token novo nunca é publicado** | **✅ é isto** | |
 
-A prova: `_acme-challenge.raspberrypi.tail455bb7.ts.net` tem **exatamente 4**
-registos TXT, os das 4 primeiras tentativas. Da 5.ª em diante o `tailscaled`
-regista `starting SetDNS call...`, espera ~20 s, regista `did SetDNS` — e **o
-conjunto continua com 4**. O token daquela encomenda nunca chega ao DNS, o Let's
-Encrypt procura-o, não o encontra entre os 4 velhos, e invalida. Determinista.
+A prova veio do A10, num nome de desafio **virgem**. Conta ACME nova, primeira
+tentativa da vida, e o `tailscaled` regista `starting SetDNS call...`, espera
+~20 s, regista `did SetDNS` — e `_acme-challenge.andresantos-m11bb.tail455bb7.ts.net`
+fica com **zero** registos TXT. O token nunca chega ao DNS; o Let's Encrypt
+procura-o, não encontra nada, e invalida. Determinista, nas duas máquinas, com
+duas contas ACME diferentes.
 
-É do lado do Tailscale — o `SetDNS` diz que sim e não escreve. Daqui não se
-conserta: os registos presos vivem na zona `ts.net`, que é deles.
+> Correção a uma leitura anterior deste documento: cheguei a atribuir isto a um
+> limite de 4 registos por nome, porque o Pi tinha exatamente 4 presos. Era
+> coincidência. O A10, com zero, mostra que o `SetDNS` não escreve **nada** — os
+> 4 do Pi são lixo antigo, não um tecto.
 
-**Por tentar, por esta ordem:**
+**E não é nosso.** O Tailscale tem incidente aberto — *Certificate Creation
+Issues*, em [status.tailscale.com](https://status.tailscale.com), com correção
+implantada e em monitorização. À hora a que isto se escreve a correção ainda não
+tinha chegado a esta tailnet: nova tentativa, mesmo `invalid`, DNS na mesma vazio.
 
-1. **Repetir passado um dia.** Se aquilo limpa os `_acme-challenge` velhos
-   sozinho, o problema desaparece sem mais nada. É o mais provável, e é grátis.
-2. **Provar no A10** (`sudo tailscale set --operator=$USER` e depois
-   `tailscale cert andresantos-m11bb.tail455bb7.ts.net`). Se **ali** emitir, o
-   problema é do nome do Pi e não da tailnet — e o HTTPS pode arrancar já só com
-   o A10 a servir a página.
-3. Se ambos falharem, é caso de suporte do Tailscale, com este diagnóstico.
+**O que fazer:** repetir. Não há nada para consertar deste lado — nem código, nem
+configuração. O `tailscale serve` no Pi já está de pé e agarra o certificado no
+instante em que ele emitir. Se passar de um ou dois dias, aí sim, suporte do
+Tailscale com este diagnóstico, que é mais do que costumam pedir.
 
 **Estado honesto:** o `tailscale serve` está de pé no Pi e cai sozinho para o
 lugar certo quando o certificado emitir. Enquanto não emitir, **o HTTPS não

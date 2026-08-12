@@ -288,10 +288,14 @@ dig +short TXT _acme-challenge.<máquina>.<tailnet>.ts.net @ns1.dnsimple.com
 Tenta outra vez e conta de novo. **Se o número não subir**, o `SetDNS` está a
 dizer que sim sem escrever: o token daquela encomenda nunca chega ao DNS, o
 Let's Encrypt não o encontra, e invalida — sempre, por muitas vezes que se
-repita. Não é propagação, é do lado do Tailscale, e daqui não se conserta.
+repita. Não é propagação nem limite do Let's Encrypt, é do lado do Tailscale, e
+daqui não se conserta.
 
-Nesse caso: esperar um dia (costuma limpar os registos velhos sozinho), tentar na
-**outra** máquina para perceber se é só aquele nome, e só depois abrir suporte.
+Antes de perder tempo, **vê [status.tailscale.com](https://status.tailscale.com)**:
+já aconteceu ser um incidente deles (*Certificate Creation Issues*, agosto de
+2026, com as duas máquinas de casa a falhar ao mesmo tempo). Nesse caso é só
+repetir mais tarde — o `tailscale serve` fica configurado e agarra o certificado
+mal ele emita.
 
 ### O ficheiro `relays` decide o que sai no link
 
