@@ -882,6 +882,20 @@ total, vê o original) com o que a app leu. Um teste que só compare
 tablet→PC pelo caminho da app **nunca apanha isto**, porque as duas pontas
 concordam no ficheiro já redigido.
 
+**Não há atalho pelo seletor.** A primeira escolha foi em "Recentes", que entrega
+um URI do `com.android.providers.media.documents`. Repeti tudo navegando até
+`OnePlus Pad 2 → DCIM → Camera`, que entrega um URI do
+`com.android.externalstorage.documents` — outro fornecedor, outro caminho.
+**Chegou o mesmo hash redigido**, `0073853708de…`. A redação está na camada FUSE
+do MediaProvider, por baixo dos dois. Logo `ACCESS_MEDIA_LOCATION` não é *uma*
+solução, é a **única**.
+
+**E a app não tem como dar por isso.** Disse "Concluído" das duas vezes, e disse
+bem: os bytes que recebeu são exactamente os que leu. Ela nunca vê o original,
+por isso não há verificação interna nenhuma — por mais Merkle que se lhe ponha —
+que possa apanhar isto. É por aqui que se decide: ou se pede a permissão, ou se
+avisa, porque detectar não é opção.
+
 **A decisão é do André e é de privacidade, não técnica.** Pedir a permissão faz
 as fotos viajarem com as coordenadas de onde foram tiradas — para o PC de casa é
 o que se quer, para alguém a quem se mande uma foto talvez não. Sem a permissão,
