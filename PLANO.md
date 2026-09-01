@@ -323,6 +323,16 @@ parte para não entrar disfarçado de screen sharing.
   trabalho real (zeroização de `TransferKey`, feito), outro ficou agendado
   (limite de débito no relay, ver "Antes do S8"). Detalhe completo em
   `BACKLOG.md`.
+- **Review1** (`audit/Review1.md`, 01/09/2026): validou a separação
+  PLANO/BACKLOG, o F-01 e os testes de `Conhecidos` — sem ação nova aí. Duas
+  sugestões concretas para o S8, incorporadas nas fases P1-P4 abaixo: os
+  limites de memória do Safari em ficheiros grandes (F-06) e o formato da
+  interface dupla `api.ts` (F-07, já era o plano do P2 — confirma, não muda).
+  **Uma sugestão rejeitada:** o `getrandom = { version = "0.2", features =
+  ["js"] }` que a Review1 propõe para o P2 já não se aplica — o `core/`
+  já usa `getrandom = "0.4.3"` com a feature `wasm_js` (não `js`, que é da
+  0.2), e o build para wasm32 já compila sem isto. Verificado antes de
+  aceitar, não só copiado.
 
 ---
 
@@ -560,23 +570,42 @@ prova **no iPhone a sério**, não só em Chromium (regra 10; o R5 já mostrou
 que Chromium esconde coisas, como o `showSaveFilePicker`).
 
 - [ ] **P1 — Fundação instalável.** `manifest.json`, ícones (incluindo
-      `apple-touch-icon`), meta tags do Safari (`apple-mobile-web-app-*`), um
-      service worker mínimo. Servido por HTTPS — já resolvido pelo R7. Prova:
-      instalar no ecrã principal do iPhone, abrir como app isolada.
+      `apple-touch-icon` 180×180 **sem canal alfa** — o iOS preenche
+      transparência a preto), meta tags do Safari
+      (`apple-mobile-web-app-capable`, `apple-mobile-web-app-status-bar-style:
+      black-translucent`, `viewport-fit=cover` para as safe areas — já há
+      `env(safe-area-*)` desde o S5), um service worker mínimo. Servido por
+      HTTPS — já resolvido pelo R7. Prova: instalar no ecrã principal do
+      iPhone, abrir como app isolada, sem barra do Safari.
 - [ ] **P2 — A `ui/` corre sem Tauri.** `api.ts` ganha duas implementações
-      por trás da mesma assinatura — deteta `window.__TAURI_INTERNALS__` e
-      escolhe. O lado browser precisa de bindings wasm novos (a estender o
-      `core/`, no padrão do `pagina/`): gerar e persistir uma `Identity`
-      (bytes para `localStorage`; `secret_bytes()` já existe no `core/`).
-      Sem isto, nada do resto tem quem o assine.
+      por trás de uma interface comum (`PomboBackend`, sugestão da Review1 —
+      `obterIdentidade`, `listarDispositivos`, `enviar`, `buscarCaixaRelay`,
+      `cancelar`) — deteta `window.__TAURI_INTERNALS__` e escolhe entre
+      `TauriBackend` e `WasmBackend`. O lado browser precisa de bindings wasm
+      novos (a estender o `core/`, no padrão do `pagina/`): gerar e persistir
+      uma `Identity` (bytes já dão para `localStorage`; `secret_bytes()` já
+      existe no `core/`). **Por confirmar no iPhone real:** se
+      `localStorage` sobrevive à instalação como app no ecrã principal ou se
+      compensa `IndexedDB` — a Review1 sugere que sim, mas isto só se dá por
+      resolvido depois de testado, não por o ter lido. Sem identidade, nada
+      do resto tem quem o assine.
 - [ ] **P3 — Receber pelo relay ao abrir a app.** Equivalente ao
       `buscarNoRelay()` do Android, em wasm+`fetch()`: consulta `/caixa`,
-      decifra e verifica com o `core/`, oferece a gravação (o caminho do R5,
-      que já cai para memória sem `showSaveFilePicker`). O caso central do
-      pedido original — a mãe abre a app e o que estava à espera aparece.
+      decifra e verifica com o `core/`. **A gravação não pode ser só "cai
+      para memória" como no R5** — o Safari do iOS mata a aba quando um
+      `Blob`/`ArrayBuffer` em memória cresce demais (a ordem de grandeza
+      exata fica por medir no aparelho real, não por confiar num número lido
+      algures). Para ficheiros pequenos, `Blob` + link `download` chega; para
+      grandes, o service worker do P1 serve de proxy de streaming — a página
+      pede um URL sintético e o worker devolve um `ReadableStream` alimentado
+      pelos blocos que o wasm vai decifrando. O caso central do pedido
+      original — a mãe abre a app e o que estava à espera aparece.
 - [ ] **P4 — Push.** Service worker subscreve Web Push (VAPID), o relay
-      guarda a subscrição e avisa quando há depósito novo. Sem isto, P3 só
-      corre quando alguém lembra de abrir a app.
+      guarda a subscrição e avisa quando há depósito novo. **`PushManager` só
+      existe depois de a PWA estar instalada no ecrã principal** (iOS
+      16.4+) — a interface deve dizer isso explicitamente antes de pedir a
+      subscrição, não falhar em silêncio. Sem isto, P3 só corre quando
+      alguém lembra de abrir a app.
 - [ ] **P5 — Enviar do iPhone.** Seletor de ficheiros (`<input type=file>`,
       sem `accept="image/heic"`, a incentivar a app Ficheiros em vez da
       Biblioteca de Fotos). Sela com o `core/` em wasm, sobe por `fetch()` —
