@@ -1,9 +1,13 @@
 # CLAUDE.md — como trabalhar neste projeto
 
-Guia operacional, carregado a cada sessão. O plano completo, a arquitetura e o
-histórico estão em **PLANO.md** (fonte de verdade do plano). Como correr, em
-**COMO_CORRER.md**. O **README.md** é a porta de entrada para quem chega de fora —
-resumo, estado e o que ainda não é verdade; não repete os outros dois.
+Guia operacional, carregado a cada sessão. O plano completo e a arquitetura
+estão em **PLANO.md** (fonte de verdade do plano — contexto, decisões, e o que
+já está feito, sprint a sprint). As lições, dificuldades e a descrição de como
+cada peça foi implementada e validada estão em **BACKLOG.md** — consulta-o
+para o *porquê* de uma decisão, não para saber o que fazer a seguir. Como
+correr, em **COMO_CORRER.md**. O **README.md** é a porta de entrada para quem
+chega de fora — resumo, estado e o que ainda não é verdade; não repete os
+outros três.
 
 Pombo-Correio: partilha de ficheiros entre os dispositivos de casa, byte-exata,
 sem serviços de terceiros. Android, iOS (PWA), macOS, Windows, Linux x64+arm64.
