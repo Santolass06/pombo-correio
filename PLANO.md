@@ -683,12 +683,34 @@ que Chromium esconde coisas, como o `showSaveFilePicker`).
       PWA a receber por `buscarNoRelay()`), byte a byte idêntico.
       **Por confirmar no iPhone real:** o limite de memória exato e se um
       download disparado por script (sem clique) passa no Safari.
+      **Correção pós-P5/P3, apanhada pelo `advisor()` a rever a sessão:** o
+      cartão de dispositivo novo mostrava o número de segurança em branco
+      — `Descarga` ganhou `numeroSegurancaDe()`, testado.
+
+**Ordem revista: P6 antes do P4.** O P4 (push) não tem uma única linha
+verificável a partir daqui — o `PushManager` só existe depois de instalar
+no ecrã principal, e a entrega passa pelo serviço de push da Apple até a um
+aparelho real. O P6 (design responsivo) é o inverso: prova-se por inteiro
+em Chromium (`browser_resize` a 720p–4K, sem servidor nenhum de terceiros
+envolvido), e o André pediu-o explicitamente à parte. Trocada a ordem por
+isso — não por o P4 ser menos importante.
+
 - [ ] **P4 — Push.** Service worker subscreve Web Push (VAPID), o relay
       guarda a subscrição e avisa quando há depósito novo. **`PushManager` só
       existe depois de a PWA estar instalada no ecrã principal** (iOS
       16.4+) — a interface deve dizer isso explicitamente antes de pedir a
       subscrição, não falhar em silêncio. Sem isto, P3 só corre quando
-      alguém lembra de abrir a app.
+      alguém lembra de abrir a app. Push **sem carga** (payload-less): o
+      service worker acorda, pergunta ao `/caixa` e monta a notificação do
+      lado do cliente — dispensa a cifra RFC 8291 do relay inteira, e ainda
+      assim cumpre a regra do iOS de que todo o push mostra uma
+      notificação. Só o JWT VAPID (ES256, RFC 8292) é preciso, e gera-se
+      sem conta nenhuma. **A chave privada do VAPID nunca pode ser
+      versionada** — gera-se para `/state/` ou outro caminho já coberto
+      pelo `.gitignore`, lida pelo relay por uma flag como o
+      `--autorizados`. **Nada disto tem uma única linha verificável sem um
+      iPhone a sério** — nem a instalação (que desbloqueia o
+      `PushManager`), nem a entrega (passa pelo serviço de push da Apple).
 **Desenho do P5, antes de mexer (regra 8) — revisto depois de ler o código a
 sério, não só o resumo do plano:**
 
