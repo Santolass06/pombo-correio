@@ -345,7 +345,7 @@ parte para não entrar disfarçado de screen sharing.
 - [x] **S5 — Interface e desktop** (em Windows a app corre e recebe; falta olhar para o ecrã)
 - [x] **S6 — Android**
 - [ ] **S7 — Relay e link sem instalação**
-- [ ] **S8 — PWA iOS**
+- [ ] **S8 — PWA iOS** (P1/P2/P5/P3/P6 fechados e provados; P4 — push — bloqueado à espera do André, ver fim da secção S8)
 
 ### S1 — Primitivas do núcleo ✅
 
@@ -695,22 +695,27 @@ em Chromium (`browser_resize` a 720p–4K, sem servidor nenhum de terceiros
 envolvido), e o André pediu-o explicitamente à parte. Trocada a ordem por
 isso — não por o P4 ser menos importante.
 
-- [ ] **P4 — Push.** Service worker subscreve Web Push (VAPID), o relay
-      guarda a subscrição e avisa quando há depósito novo. **`PushManager` só
-      existe depois de a PWA estar instalada no ecrã principal** (iOS
-      16.4+) — a interface deve dizer isso explicitamente antes de pedir a
-      subscrição, não falhar em silêncio. Sem isto, P3 só corre quando
-      alguém lembra de abrir a app. Push **sem carga** (payload-less): o
-      service worker acorda, pergunta ao `/caixa` e monta a notificação do
-      lado do cliente — dispensa a cifra RFC 8291 do relay inteira, e ainda
-      assim cumpre a regra do iOS de que todo o push mostra uma
-      notificação. Só o JWT VAPID (ES256, RFC 8292) é preciso, e gera-se
+- [ ] **P4 — Push. Bloqueado, à espera do André — ver "Estado ao fechar esta
+      sessão" no fim da secção S8.** Service worker subscreve Web Push
+      (VAPID), o relay guarda a subscrição e avisa quando há depósito novo.
+      **`PushManager` só existe depois de a PWA estar instalada no ecrã
+      principal** (iOS 16.4+) — a interface deve dizer isso explicitamente
+      antes de pedir a subscrição, não falhar em silêncio. Sem isto, P3 só
+      corre quando alguém lembra de abrir a app. Push **sem carga**
+      (payload-less): o service worker acorda, pergunta ao `/caixa` e monta
+      a notificação do lado do cliente — dispensa a cifra RFC 8291 do relay
+      inteira, e ainda assim cumpre a regra do iOS de que todo o push mostra
+      uma notificação. Só o JWT VAPID (ES256, RFC 8292) é preciso, e gera-se
       sem conta nenhuma. **A chave privada do VAPID nunca pode ser
       versionada** — gera-se para `/state/` ou outro caminho já coberto
       pelo `.gitignore`, lida pelo relay por uma flag como o
-      `--autorizados`. **Nada disto tem uma única linha verificável sem um
-      iPhone a sério** — nem a instalação (que desbloqueia o
-      `PushManager`), nem a entrega (passa pelo serviço de push da Apple).
+      `--autorizados`. **O bloqueio não é "não há iPhone para testar" — é
+      que a `pushManager.subscribe(vapidPublicKey)` só existe depois de um
+      aparelho real instalar a PWA, e é essa chamada que devolve o endpoint
+      e o público a que o relay assina o JWT.** Escrever a assinatura ES256
+      agora seria código cuja primeira execução a sério é contra o serviço
+      de push da própria Apple — exatamente o que a regra 3 do
+      `CLAUDE.md` diz para não fechar sem máquina real.
 **Desenho do P5, antes de mexer (regra 8) — revisto depois de ler o código a
 sério, não só o resumo do plano:**
 
@@ -842,6 +847,41 @@ sério, não só o resumo do plano:**
 Cada fase segue a regra 8 (desenhar antes de implementar) quando arrancar a
 sério — este roteiro é a ordem de trabalho, não o desenho protocolar de cada
 peça.
+
+### Estado do S8 ao fechar esta sessão (01/09/2026)
+
+**Cinco das seis fases fecharam com prova de ponta a ponta, entre processos a
+sério (`pombo-relay`, `pombo` nativo, PWA em Chromium) — não só loopback
+simulado, e byte a byte idêntica onde havia ficheiro a comparar:** P1, P2,
+P5, P3, P6. O P4 é o único que falta, e fica **deliberadamente bloqueado**,
+não esquecido — motivo em cima, na própria bala do P4.
+
+**O guião de verificação no iPhone real** (nenhum passo daqui foi possível
+nesta sessão — nem o A10 nem o Pi têm ecrã, e não há iPhone acessível ao
+ambiente onde este agente corre). Ordenado para que uma falha pare a cadeia
+em vez de gastar os passos seguintes com um pressuposto já errado:
+
+1. **A pergunta que decide tudo o resto primeiro:** cria um link no desktop
+   (`criarLigacao`), abre-o no Safari do iPhone, confirma que o dispositivo
+   fica listado depois de a app **instalada** abrir Definições. Isto prova
+   (ou desmente) que o `localStorage` sobrevive entre o Safari normal e a
+   PWA instalada na mesma origem — a incerteza repetida em P2, P3 e P5.
+   **Se falhar, os passos 4 e 5 falham por construção** (nada aprendeu quem
+   é o desktop) — não continues sem resolver este primeiro.
+2. Confirma a impressão digital nos dois nós (`--autorizados`) e reinicia
+   (`systemctl --user restart`) antes de continuar.
+3. Adiciona ao ecrã principal; confirma modo isolado (sem barra do Safari) e
+   o ícone correto.
+4. Envia um ficheiro do iPhone; confirma que chega **byte a byte idêntico**
+   ao desktop.
+5. Deposita um ficheiro do desktop para o iPhone; abre a app; confirma que a
+   descarga automática (disparada por script, sem clique — funcionou em
+   Chromium, nunca testada em Safari) não fica presa em silêncio.
+
+**A decisão que fica para o André, não só o teste:** construir o P4 agora,
+contra um comportamento de push nunca exercitado, ou esperar que os passos
+1–5 voltem limpos primeiro. Dado que o passo 1 pode obrigar a redesenhar
+como o iPhone aprende os conhecidos, a recomendação é esperar.
 
 ---
 
