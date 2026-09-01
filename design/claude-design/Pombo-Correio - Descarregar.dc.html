@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/nocturne-8c7bd2ea-2ac2-47b9-bf6d-7cfc7e4174a8/styles.css">
+  <style>
+    html, body { margin: 0; background: var(--color-bg); min-height: 100vh; }
+    * { box-sizing: border-box; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</helmet>
+
+<div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;">
+  <div style="width: min(400px, 100%);">
+
+    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 28px; justify-content: center;">
+      <span style="display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 8px; background: var(--color-accent); color: var(--color-bg);">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12L21 3L14 21L11 13L3 12Z"/></svg>
+      </span>
+      <span style="font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 16px;">Pombo-Correio</span>
+    </div>
+
+    <sc-if value="{{ stateIsExpired }}" hint-placeholder-val="{{ false }}">
+      <div class="card elev-md" style="text-align: center; padding: 32px 24px;">
+        <h3 style="margin-bottom: 8px;">Este link já não está disponível</h3>
+        <p class="text-muted" style="margin: 0;">Passou o prazo combinado para o descarregar. Pede à pessoa que te enviou o ficheiro para partilhar de novo.</p>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ stateIsUsed }}" hint-placeholder-val="{{ false }}">
+      <div class="card elev-md" style="text-align: center; padding: 32px 24px;">
+        <h3 style="margin-bottom: 8px;">Este ficheiro já foi descarregado</h3>
+        <p class="text-muted" style="margin: 0;">Este link só podia ser usado uma vez. Pede à pessoa que te enviou o ficheiro para partilhar de novo, se precisares.</p>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ stateIsMain }}" hint-placeholder-val="{{ true }}">
+      <div class="card elev-md" style="padding: 28px 24px;">
+        <div class="card-meta" style="margin-bottom: 2px;">{{ senderName }} enviou-te</div>
+        <h3 style="margin-bottom: 4px; word-break: break-word;">{{ fileName }}</h3>
+        <p class="text-muted" style="margin: 0 0 20px;">{{ fileSize }}</p>
+
+        <sc-if value="{{ needsPin }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div class="field" style="margin-bottom: 4px;">
+              <label>Este ficheiro pede um PIN</label>
+              <input class="input" placeholder="PIN de 4 dígitos" value="{{ pinInput }}" onchange="{{ setPinInput }}">
+            </div>
+            <sc-if value="{{ pinWrong }}" hint-placeholder-val="{{ false }}">
+              <p style="color: var(--color-accent-300); font-size: 13px; margin: 6px 0 14px;">PIN incorreto. Tenta outra vez.</p>
+            </sc-if>
+            <button class="btn btn-primary btn-block" onclick="{{ submitPin }}">Confirmar</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ readyToDownload }}" hint-placeholder-val="{{ true }}">
+          <button class="btn btn-primary btn-block" onclick="{{ startDownload }}">Descarregar</button>
+        </sc-if>
+
+        <sc-if value="{{ isDownloading }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div style="height: 6px; border-radius: 4px; background: var(--color-neutral-800); overflow: hidden; margin-bottom: 6px;">
+              <div style="height: 100%; background: var(--color-accent); width: {{ downloadPct }}%; transition: width .3s linear;"></div>
+            </div>
+            <p class="text-muted" style="font-size: 12px; margin: 0;">A receber… {{ downloadPct }}%</p>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isPreparing }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div style="height: 6px; border-radius: 4px; background: var(--color-neutral-800); overflow: hidden; margin-bottom: 6px;">
+              <div style="height: 100%; background: var(--color-accent); width: 100%; opacity: .6;"></div>
+            </div>
+            <p class="text-muted" style="font-size: 12px; margin: 0;">A preparar o ficheiro para abrir…</p>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isDone }}" hint-placeholder-val="{{ false }}">
+          <div style="text-align: center;">
+            <div style="width: 44px; height: 44px; border-radius: 999px; background: var(--color-accent-800); color: var(--color-accent-100); display: flex; align-items: center; justify-content: center; margin: 0 auto 12px;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg>
+            </div>
+            <p style="margin: 0;">Pronto — já podes guardar o ficheiro.</p>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isBroken }}" hint-placeholder-val="{{ false }}">
+          <div style="text-align: center;">
+            <p style="color: var(--color-accent-300); margin-bottom: 12px;">{{ brokenMessage }}</p>
+            <button class="btn btn-secondary btn-block" onclick="{{ retryDownload }}">Tentar outra vez</button>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <div style="text-align: center; margin-top: 18px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+      <button class="btn btn-ghost" style="font-size: 11px;" onclick="{{ scenarioMain }}">normal</button>
+      <button class="btn btn-ghost" style="font-size: 11px;" onclick="{{ scenarioPin }}">com PIN</button>
+      <button class="btn btn-ghost" style="font-size: 11px;" onclick="{{ scenarioExpired }}">expirado</button>
+      <button class="btn btn-ghost" style="font-size: 11px;" onclick="{{ scenarioUsed }}">já usado</button>
+      <button class="btn btn-ghost" style="font-size: 11px;" onclick="{{ scenarioTruncated }}">link incompleto</button>
+      <button class="btn btn-ghost" style="font-size: 11px;" onclick="{{ scenarioCorrupt }}">ficheiro corrompido</button>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    view: 'main',
+    phase: 'idle',
+    needsPin: false,
+    pinInput: '',
+    pinWrong: false,
+    downloadPct: 0,
+    brokenMessage: '',
+  };
+
+  componentWillUnmount() { clearInterval(this._t); }
+
+  runDownload() {
+    clearInterval(this._t);
+    this.setState({phase: 'downloading', downloadPct: 0});
+    this._t = setInterval(() => {
+      this.setState(s => {
+        const pct = Math.min(100, s.downloadPct + 8 + Math.random()*10);
+        if (pct >= 100) {
+          clearInterval(this._t);
+          setTimeout(() => this.setState({phase: 'preparing'}), 200);
+          setTimeout(() => this.setState({phase: 'done'}), 1800);
+        }
+        return {downloadPct: pct};
+      });
+    }, 350);
+  }
+
+  renderVals() {
+    const s = this.state;
+    return {
+      stateIsMain: s.view === 'main', stateIsExpired: s.view === 'expired', stateIsUsed: s.view === 'used',
+      senderName: 'A avó', fileName: 'Fotos_do_batizado.zip', fileSize: '640 MB',
+
+      needsPin: s.needsPin && s.phase === 'idle',
+      pinInput: s.pinInput, setPinInput: (e) => this.setState({pinInput: e.target.value, pinWrong:false}),
+      pinWrong: s.pinWrong,
+      submitPin: () => {
+        if (s.pinInput.trim() === '4471') this.setState({needsPin:false, pinWrong:false});
+        else this.setState({pinWrong:true});
+      },
+
+      readyToDownload: !s.needsPin && s.phase === 'idle',
+      isDownloading: s.phase === 'downloading',
+      isPreparing: s.phase === 'preparing',
+      isDone: s.phase === 'done',
+      isBroken: s.phase === 'broken',
+      downloadPct: Math.round(s.downloadPct),
+      brokenMessage: s.brokenMessage,
+      startDownload: () => this.runDownload(),
+      retryDownload: () => this.setState({phase:'idle', downloadPct:0}),
+
+      scenarioMain: () => this.setState({view:'main', needsPin:false, phase:'idle', downloadPct:0}),
+      scenarioPin: () => this.setState({view:'main', needsPin:true, pinInput:'', pinWrong:false, phase:'idle'}),
+      scenarioExpired: () => this.setState({view:'expired'}),
+      scenarioUsed: () => this.setState({view:'used'}),
+      scenarioTruncated: () => this.setState({view:'main', needsPin:false, phase:'broken', brokenMessage:'Não foi possível abrir este link. Se o copiaste de uma mensagem, confirma que veio inteiro — a parte final costuma perder-se ao colar.'}),
+      scenarioCorrupt: () => this.setState({view:'main', needsPin:false, phase:'broken', brokenMessage:'O ficheiro chegou danificado. Pede à pessoa que to enviou outra vez.'}),
+    };
+  }
+}
+
+</script>
+</body>
+</html>

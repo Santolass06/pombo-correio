@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+<template id="__bundler_thumbnail" data-bg-color="#161826">
+  <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="60" cy="60" r="26" fill="#9184d9"/>
+    <path d="M42 60 L84 36 L66 84 L57 66 Z" fill="#161826"/>
+  </svg>
+</template>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/nocturne-8c7bd2ea-2ac2-47b9-bf6d-7cfc7e4174a8/styles.css">
+  <style>
+    html, body { margin: 0; background: var(--color-bg); }
+    * { box-sizing: border-box; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: var(--color-neutral-800); border-radius: 8px; }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</helmet>
+
+<div style="zoom:{{ simpleZoom }}; min-height: 100vh; padding-bottom: 64px;">
+
+  <div style="display: flex; align-items: center; gap: 4px; padding: 14px clamp(16px,4vw,48px); border-bottom: 1px solid var(--color-divider);">
+    <span style="display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; background: var(--color-accent); color: var(--color-bg); margin-right: 8px;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12L21 3L14 21L11 13L3 12Z"/></svg>
+    </span>
+    <span style="font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 18px;">Pombo-Correio</span>
+    <div style="margin-left: auto; display: flex; gap: 4px;">
+      <button class="btn" style="color: {{ navDevicesColor }};" onclick="{{ goDevices }}">Dispositivos</button>
+      <button class="btn" style="color: {{ navHistoryColor }};" onclick="{{ goHistory }}">Histórico</button>
+      <button class="btn" style="color: {{ navSettingsColor }};" onclick="{{ goSettings }}">Definições</button>
+    </div>
+  </div>
+
+  <div style="max-width: 960px; margin-left: clamp(16px,4vw,48px); margin-right: auto; padding: 24px clamp(16px,4vw,48px) 24px 0;">
+
+    <sc-if value="{{ isDevicesScreen }}" hint-placeholder-val="{{ true }}">
+      <div>
+        <sc-if value="{{ hasTransfers }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-bottom: 28px;">
+            <h6 style="color: var(--color-accent); margin-bottom: 10px;">Transferências</h6>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+              <sc-for list="{{ transfersView }}" as="item" hint-placeholder-count="2">
+                <div class="card elev-sm" style="animation: fadeUp .3s ease;">
+                  <div style="display: flex; justify-content: space-between; gap: 12px; align-items: flex-start;">
+                    <div style="min-width: 0;">
+                      <div class="card-title" style="font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ item.fileName }}</div>
+                      <div class="card-meta" style="margin-top: 2px;">{{ item.size }} · {{ item.deviceName }}</div>
+                    </div>
+                    <span class="tag {{ item.tagClass }}">{{ item.statusLabel }}</span>
+                  </div>
+
+                  <sc-if value="{{ item.showBar }}" hint-placeholder-val="{{ false }}">
+                    <div>
+                      <sc-if value="{{ item.resumed }}" hint-placeholder-val="{{ false }}">
+                        <div style="font-size: 11px; color: var(--color-accent-300); margin-bottom: 4px;">Retomada — o progresso anterior foi mantido</div>
+                      </sc-if>
+                      <div style="height: 6px; border-radius: 4px; background: var(--color-neutral-800); overflow: hidden;">
+                        <div style="height: 100%; background: var(--color-accent); width: {{ item.progress }}%; transition: width .8s linear;"></div>
+                      </div>
+                      <div style="display: flex; justify-content: space-between; font-size: 11px; color: color-mix(in srgb, var(--color-text) 55%, transparent); margin-top: 4px;">
+                        <span>{{ item.progressLabel }}</span>
+                        <span>{{ item.speed }}</span>
+                      </div>
+                    </div>
+                  </sc-if>
+
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px;">
+                    <button class="btn btn-ghost" style="font-size: 12px; padding: 2px 4px;" onclick="{{ item.toggleExpand }}">{{ item.pathLine }}</button>
+                    <div style="display: flex; gap: 6px;">
+                      <sc-if value="{{ item.canCancel }}" hint-placeholder-val="{{ false }}">
+                        <button class="btn btn-secondary" style="font-size: 12px; padding: 4px 10px;" onclick="{{ item.cancel }}">Cancelar</button>
+                      </sc-if>
+                      <sc-if value="{{ item.canRetry }}" hint-placeholder-val="{{ false }}">
+                        <button class="btn btn-primary" style="font-size: 12px; padding: 4px 10px;" onclick="{{ item.retry }}">Tentar de novo</button>
+                      </sc-if>
+                    </div>
+                  </div>
+
+                  <sc-if value="{{ item.expanded }}" hint-placeholder-val="{{ false }}">
+                    <div style="font-size: 12px; color: color-mix(in srgb, var(--color-text) 60%, transparent); border-top: 1px solid var(--color-divider); padding-top: 8px;">{{ item.techDetail }}</div>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px;">
+          <div>
+            <h1 style="margin-bottom: 2px;">Os teus dispositivos</h1>
+            <p class="text-muted" style="margin: 0;">{{ deviceCountLabel }}</p>
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <button class="btn btn-secondary" onclick="{{ openPair }}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+              Emparelhar
+            </button>
+            <button class="btn btn-primary" onclick="{{ openSend }}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12L21 3L14 21L11 13L3 12Z"/></svg>
+              Enviar ficheiro
+            </button>
+          </div>
+        </div>
+
+        <sc-if value="{{ devicesEmpty }}" hint-placeholder-val="{{ false }}">
+          <div style="border: 1px dashed var(--color-divider); border-radius: var(--radius-lg); padding: 48px 24px; text-align: center;">
+            <div style="width: 48px; height: 48px; border-radius: 999px; background: var(--color-surface); display: flex; align-items: center; justify-content: center; margin: 0 auto 14px;">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            </div>
+            <h3 style="margin-bottom: 6px;">Ainda não tens nenhum dispositivo</h3>
+            <p class="text-muted" style="max-width: 360px; margin: 0 auto 18px;">Junta o telemóvel, o computador ou o tablet de alguém da família para começarem a partilhar.</p>
+            <button class="btn btn-primary" onclick="{{ openPair }}">Emparelhar o primeiro dispositivo</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ devicesNotEmpty }}" hint-placeholder-val="{{ true }}">
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px;">
+            <sc-for list="{{ devicesView }}" as="item" hint-placeholder-count="8">
+              <button class="card elev-sm" style="text-align: left; cursor: pointer; opacity: {{ item.opacity }};" onclick="{{ item.openSendToThis }}">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <div style="width: 40px; height: 40px; flex: none; border-radius: 10px; background: var(--color-surface); display: flex; align-items: center; justify-content: center; color: color-mix(in srgb, var(--color-text) 75%, transparent);">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
+                  </div>
+                  <div style="min-width: 0;">
+                    <div class="card-title" style="font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ item.name }}</div>
+                    <div class="card-meta">{{ item.detail }}</div>
+                  </div>
+                </div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                  <span class="tag {{ item.tagClass }}">{{ item.statusLabel }}</span>
+                  <sc-if value="{{ item.trusted }}" hint-placeholder-val="{{ false }}">
+                    <span class="tag tag-outline">De confiança</span>
+                  </sc-if>
+                </div>
+              </button>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isHistoryScreen }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <h1>Histórico</h1>
+        <div class="seg" style="margin-bottom: 18px;">
+          <label class="seg-opt"><input type="radio" name="histtab" checked="{{ historyTabIsSent }}" onchange="{{ setHistoryTabSent }}">Enviados</label>
+          <label class="seg-opt"><input type="radio" name="histtab" checked="{{ historyTabIsReceived }}" onchange="{{ setHistoryTabReceived }}">Recebidos</label>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <sc-for list="{{ historyView }}" as="item" hint-placeholder-count="5">
+            <div class="card elev-sm" style="flex-direction: row; align-items: center; justify-content: space-between; gap: 12px;">
+              <div style="min-width: 0;">
+                <div class="card-title" style="font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ item.fileName }}</div>
+                <div class="card-meta">{{ item.deviceName }} · {{ item.date }} · {{ item.size }}</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; flex: none;">
+                <span class="tag {{ item.tagClass }}">{{ item.statusLabel }}</span>
+                <button class="btn btn-secondary" style="font-size: 12px; padding: 4px 10px;" onclick="{{ item.resend }}">Reenviar</button>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isSettingsScreen }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width: 560px;">
+        <h1 style="margin-bottom: 20px;">Definições</h1>
+
+        <div class="field" style="margin-bottom: 20px;">
+          <label>Nome deste dispositivo</label>
+          <input class="input" value="{{ deviceName }}" onchange="{{ setDeviceName }}">
+        </div>
+
+        <h6 style="color: var(--color-accent); margin-bottom: 10px;">Dispositivos de confiança</h6>
+        <p class="text-muted" style="margin-top: 0; font-size: 13px;">Aceitam ficheiros automaticamente, sem perguntar.</p>
+        <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px;">
+          <sc-for list="{{ trustedDevicesView }}" as="item" hint-placeholder-count="8">
+            <div class="card elev-sm" style="flex-direction: row; align-items: center; justify-content: space-between; padding: 10px 14px;">
+              <span style="font-size: 14px;">{{ item.name }}</span>
+              <button class="btn {{ item.btnClass }}" style="font-size: 12px; padding: 4px 10px;" onclick="{{ item.toggle }}">{{ item.label }}</button>
+            </div>
+          </sc-for>
+        </div>
+
+        <div class="field" style="margin-bottom: 20px;">
+          <label>Pasta de receção</label>
+          <input class="input" value="{{ receivingFolder }}" onchange="{{ setReceivingFolder }}">
+        </div>
+
+        <h6 style="color: var(--color-accent); margin-bottom: 10px;">Prazo de validade dos links, por omissão</h6>
+        <div class="seg" style="margin-bottom: 24px;">
+          <label class="seg-opt"><input type="radio" name="linkexp" checked="{{ expiryIs1 }}" onchange="{{ setExpiry1 }}">1 dia</label>
+          <label class="seg-opt"><input type="radio" name="linkexp" checked="{{ expiryIs3 }}" onchange="{{ setExpiry3 }}">3 dias</label>
+          <label class="seg-opt"><input type="radio" name="linkexp" checked="{{ expiryIs7 }}" onchange="{{ setExpiry7 }}">7 dias</label>
+        </div>
+
+        <div class="card elev-sm" style="flex-direction: row; align-items: center; justify-content: space-between; margin-bottom: 24px;">
+          <div>
+            <div class="card-title" style="font-size: 15px;">Modo simples</div>
+            <div class="card-body">Texto maior e ecrãs mais diretos — pensado para quem prefere o essencial.</div>
+          </div>
+          <button class="btn {{ simpleModeBtnClass }}" onclick="{{ toggleSimpleMode }}">{{ simpleModeLabel }}</button>
+        </div>
+
+        <details>
+          <summary style="cursor: pointer; font-size: 13px; color: color-mix(in srgb, var(--color-text) 60%, transparent); margin-bottom: 10px;">Detalhes técnicos</summary>
+          <div class="field">
+            <label>Endereços dos servidores de casa</label>
+            <input class="input" value="{{ homeServerAddress }}" readonly="{{ true }}">
+          </div>
+        </details>
+      </div>
+    </sc-if>
+  </div>
+
+  <div style="position: fixed; left: 12px; bottom: 12px; z-index: 40; background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: var(--radius-md); padding: 8px; display: flex; flex-wrap: wrap; gap: 6px; max-width: 340px; box-shadow: var(--shadow-md);">
+    <span style="font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 50%, transparent); width: 100%;">Pré-visualizar estados</span>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioNormal }}">Normal</button>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioIncoming }}">Receção a chegar</button>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioTrustedToast }}">Auto-aceite</button>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioQueued }}">Destino offline</button>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioBlocked }}">Sem rede</button>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioDiskFull }}">Disco cheio</button>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioDeclined }}">Recusado</button>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioFailed }}">Falhou</button>
+    <button class="btn btn-ghost" style="font-size: 11px; padding: 3px 6px;" onclick="{{ scenarioEmpty }}">Primeira utilização</button>
+    <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; width: 100%; margin-top: 2px; color: color-mix(in srgb, var(--color-text) 70%, transparent);">
+      <input type="checkbox" checked="{{ simulateIOS }}" onchange="{{ toggleSimulateIOS }}"> Simular iPhone (aviso HEIC)
+    </label>
+  </div>
+
+  <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+    <div style="position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--color-surface); border: 1px solid var(--color-divider); box-shadow: var(--shadow-lg); border-radius: var(--radius-md); padding: 12px 18px; font-size: 13px; z-index: 50; max-width: 90vw;">{{ toast }}</div>
+  </sc-if>
+
+  <sc-if value="{{ overlayIsSend }}" hint-placeholder-val="{{ false }}">
+    <div class="dialog-backdrop" onclick="{{ closeOverlay }}">
+      <div class="dialog" style="width: min(420px,100%);" onclick="{{ stopClick }}">
+
+        <sc-if value="{{ sendStepIsType }}" hint-placeholder-val="{{ true }}">
+          <div>
+            <div class="dialog-title" style="margin-bottom: 14px;">O que queres enviar?</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <button class="btn btn-secondary btn-block" style="justify-content: flex-start; gap: 10px;" onclick="{{ pickFiles }}">Ficheiros</button>
+              <button class="btn btn-secondary btn-block" style="justify-content: flex-start; gap: 10px;" onclick="{{ pickFolder }}">Uma pasta</button>
+              <button class="btn btn-secondary btn-block" style="justify-content: flex-start; gap: 10px;" onclick="{{ pickPhotos }}">Fotos</button>
+              <button class="btn btn-secondary btn-block" style="justify-content: flex-start; gap: 10px;" onclick="{{ pickText }}">Texto</button>
+              <button class="btn btn-secondary btn-block" style="justify-content: flex-start; gap: 10px; grid-column: span 2;" onclick="{{ pickLink }}">Um link</button>
+            </div>
+            <div class="dialog-actions"><button class="btn btn-ghost" onclick="{{ closeOverlay }}">Cancelar</button></div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ sendStepIsHeic }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div class="dialog-title" style="margin-bottom: 10px;">Usa a app Ficheiros para esta foto</div>
+            <div class="dialog-body" style="margin-bottom: 16px;">Quando escolhes fotos pela Biblioteca de Fotos do iPhone, a qualidade original perde-se ao enviar. Para manter a foto exatamente como foi tirada, abre a app <strong>Ficheiros</strong> e escolhe-a a partir daí.</div>
+            <div class="dialog-actions" style="justify-content: space-between;">
+              <button class="btn btn-ghost" onclick="{{ goStepType }}">Voltar</button>
+              <button class="btn btn-primary" onclick="{{ heicContinueAsFiles }}">Abrir a app Ficheiros</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ sendStepIsContent }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div class="dialog-title" style="margin-bottom: 12px;">{{ contentStepTitle }}</div>
+            <div class="field">
+              <textarea class="input" rows="4" placeholder="{{ contentPlaceholder }}" value="{{ sendContent }}" onchange="{{ setSendContent }}"></textarea>
+            </div>
+            <div class="dialog-actions" style="justify-content: space-between;">
+              <button class="btn btn-ghost" onclick="{{ goStepType }}">Voltar</button>
+              <button class="btn btn-primary" onclick="{{ goStepTarget }}">Continuar</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ sendStepIsTarget }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div class="dialog-title" style="margin-bottom: 12px;">Para quem?</div>
+            <div style="display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto;">
+              <sc-for list="{{ targetsView }}" as="item" hint-placeholder-count="8">
+                <button class="btn btn-secondary btn-block" style="justify-content: flex-start; margin-top: 0;" onclick="{{ item.select }}">{{ item.name }} <span class="tag {{ item.tagClass }}" style="margin-left: auto;">{{ item.statusLabel }}</span></button>
+              </sc-for>
+              <button class="btn btn-ghost btn-block" style="justify-content: flex-start; margin-top: 4px; border-top: 1px solid var(--color-divider); padding-top: 12px; border-radius: 0;" onclick="{{ pickNoApp }}">Alguém sem a aplicação →</button>
+            </div>
+            <div class="dialog-actions"><button class="btn btn-ghost" onclick="{{ goStepType }}">Voltar</button></div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ sendStepIsConfirm }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div class="dialog-title" style="margin-bottom: 12px;">Confirmar envio</div>
+            <div class="card elev-sm" style="margin-bottom: 16px;">
+              <div class="card-meta">A enviar</div>
+              <div class="card-title" style="font-size: 16px;">{{ sendTypeLabel }}</div>
+              <div class="card-meta">Para {{ selectedTargetName }}</div>
+            </div>
+            <div class="dialog-actions" style="justify-content: space-between;">
+              <button class="btn btn-ghost" onclick="{{ goStepTarget }}">Voltar</button>
+              <button class="btn btn-primary" onclick="{{ confirmSend }}">Enviar</button>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ overlayIsPair }}" hint-placeholder-val="{{ false }}">
+    <div class="dialog-backdrop" onclick="{{ closeOverlay }}">
+      <div class="dialog" style="width: min(420px,100%);" onclick="{{ stopClick }}">
+        <div class="dialog-title" style="margin-bottom: 14px;">Emparelhar dispositivo</div>
+        <div class="seg" style="margin-bottom: 18px;">
+          <label class="seg-opt"><input type="radio" name="pairtab" checked="{{ pairTabIsQr }}" onchange="{{ setPairTabQr }}">Código QR</label>
+          <label class="seg-opt"><input type="radio" name="pairtab" checked="{{ pairTabIsNumber }}" onchange="{{ setPairTabNumber }}">Número de segurança</label>
+        </div>
+
+        <sc-if value="{{ pairTabIsQr }}" hint-placeholder-val="{{ true }}">
+          <div style="text-align: center;">
+            <p class="text-muted" style="margin-top: 0;">Mostra este código ao outro dispositivo, ou aponta a câmara ao código dele.</p>
+            <div style="display: inline-grid; grid-template-columns: repeat(11, 1fr); width: 180px; height: 180px; background: var(--color-surface); padding: 10px; border-radius: var(--radius-md); gap: 1px;">
+              <sc-for list="{{ qrCells }}" as="item" hint-placeholder-count="121">
+                <div style="background: {{ item.bg }};"></div>
+              </sc-for>
+            </div>
+            <div style="margin-top: 16px;"><button class="btn btn-secondary">Ler código do outro dispositivo</button></div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ pairTabIsNumber }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <p class="text-muted" style="margin-top: 0;">Lê estes números em voz alta e confirma que aparecem exatamente iguais no outro dispositivo.</p>
+            <div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; font-family: var(--font-heading); font-size: 22px; letter-spacing: .04em; background: var(--color-surface); border-radius: var(--radius-md); padding: 20px; margin: 14px 0;">
+              <sc-for list="{{ securityGroups }}" as="grp" hint-placeholder-count="6"><span>{{ grp }}</span></sc-for>
+            </div>
+            <div style="display: flex; gap: 10px;">
+              <button class="btn btn-secondary btn-block" onclick="{{ confirmMismatch }}">É diferente</button>
+              <button class="btn btn-primary btn-block" onclick="{{ confirmMatch }}">É igual</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <div class="dialog-actions"><button class="btn btn-ghost" onclick="{{ closeOverlay }}">Fechar</button></div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ overlayIsShare }}" hint-placeholder-val="{{ false }}">
+    <div class="dialog-backdrop" onclick="{{ closeOverlay }}">
+      <div class="dialog" style="width: min(420px,100%);" onclick="{{ stopClick }}">
+        <div class="dialog-title" style="margin-bottom: 4px;">Enviar a quem não tem a app</div>
+        <p class="text-muted" style="margin-top: 0;">Cria um link para partilhar por WhatsApp ou SMS.</p>
+
+        <sc-if value="{{ shareHasLink }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div class="field"><label>Link</label><input class="input" value="{{ generatedLink }}" readonly="{{ true }}"></div>
+            <sc-if value="{{ sharePinEnabled }}" hint-placeholder-val="{{ true }}">
+              <p style="font-size: 13px;">PIN a pedir: <strong>{{ sharePin }}</strong></p>
+            </sc-if>
+            <p class="text-muted" style="font-size: 12px;">Válido por {{ shareValidityLabel }}.</p>
+            <div style="display: flex; gap: 8px; margin: 14px 0;">
+              <button class="btn btn-secondary btn-block" onclick="{{ copyLink }}">{{ copyLabel }}</button>
+              <button class="btn btn-primary btn-block">Partilhar no WhatsApp</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ shareNoLink }}" hint-placeholder-val="{{ true }}">
+          <div>
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; margin-bottom: 14px;">
+              <input type="checkbox" checked="{{ sharePinEnabled }}" onchange="{{ toggleSharePin }}"> Pedir PIN para abrir
+            </label>
+            <div class="seg" style="margin-bottom: 18px;">
+              <label class="seg-opt"><input type="radio" name="sharevalidity" checked="{{ shareValidityIs1 }}" onchange="{{ setShareValidity1 }}">1 dia</label>
+              <label class="seg-opt"><input type="radio" name="sharevalidity" checked="{{ shareValidityIs3 }}" onchange="{{ setShareValidity3 }}">3 dias</label>
+              <label class="seg-opt"><input type="radio" name="sharevalidity" checked="{{ shareValidityIs7 }}" onchange="{{ setShareValidity7 }}">7 dias</label>
+            </div>
+            <button class="btn btn-primary btn-block" onclick="{{ generateLink }}">Gerar link</button>
+          </div>
+        </sc-if>
+
+        <div class="dialog-actions"><button class="btn btn-ghost" onclick="{{ closeOverlay }}">Fechar</button></div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ hasIncoming }}" hint-placeholder-val="{{ false }}">
+    <div class="dialog-backdrop">
+      <div class="dialog" style="width: min(400px,100%);">
+        <div class="dialog-title" style="margin-bottom: 4px;">A receber um ficheiro</div>
+        <p class="text-muted" style="margin-top: 0;">{{ incomingFrom }} quer enviar-te isto:</p>
+        <div class="card elev-sm">
+          <div class="card-title" style="font-size: 15px;">{{ incomingFile }}</div>
+          <div class="card-meta">{{ incomingSize }}</div>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" onclick="{{ declineIncoming }}">Recusar</button>
+          <button class="btn btn-primary" onclick="{{ acceptIncoming }}">Aceitar</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const DEVICES = [
+  {id:'d1',name:'Telemóvel do avô',detail:'Nesta rede',status:'available',trusted:true},
+  {id:'d2',name:'Telemóvel da avó',detail:'Nesta rede',status:'available',trusted:true},
+  {id:'d3',name:'PC da sala',detail:'Nesta rede',status:'available',trusted:false},
+  {id:'d4',name:'Portátil da Marta',detail:'Visto há 2 dias',status:'unavailable',trusted:false},
+  {id:'d5',name:'iPad do Tiago',detail:'Por outra rede',status:'internet',trusted:false},
+  {id:'d6',name:'Telemóvel da Marta',detail:'Nesta rede',status:'available',trusted:false},
+  {id:'d7',name:'Servidor de casa',detail:'Sempre ligado',status:'available',trusted:true},
+  {id:'d8',name:'Tablet da cozinha',detail:'Visto há 5 horas',status:'unavailable',trusted:false},
+];
+
+const HISTORY = [
+  {id:'h1',fileName:'Fotos_aniversário.zip',deviceName:'Telemóvel do avô',date:'ontem',size:'340 MB',direction:'sent',status:'done'},
+  {id:'h2',fileName:'Contrato_renda.pdf',deviceName:'PC da sala',date:'ontem',size:'2,1 MB',direction:'sent',status:'done'},
+  {id:'h3',fileName:'Vídeo_praia.mov',deviceName:'iPad do Tiago',date:'2 dias',size:'1,1 GB',direction:'received',status:'done'},
+  {id:'h4',fileName:'Lista_compras.pdf',deviceName:'Telemóvel da avó',date:'3 dias',size:'180 KB',direction:'received',status:'done'},
+  {id:'h5',fileName:'Apresentação.pptx',deviceName:'Portátil da Marta',date:'4 dias',size:'22 MB',direction:'sent',status:'declined'},
+  {id:'h6',fileName:'Fotos_natal.zip',deviceName:'Servidor de casa',date:'1 semana',size:'812 MB',direction:'sent',status:'failed'},
+];
+
+function statusLabel(s){ return s==='available'?'Disponível':s==='unavailable'?'Indisponível':'Só pela internet'; }
+function statusTag(s){ return s==='available'?'tag-accent':s==='unavailable'?'tag-neutral':'tag-outline'; }
+
+class Component extends DCLogic {
+  state = {
+    screen: 'devices',
+    overlay: null,
+    sendStep: 'type',
+    sendType: null,
+    sendContent: '',
+    selectedTargetId: null,
+    pairTab: 'qr',
+    simulateIOS: false,
+    devices: DEVICES,
+    transfers: [
+      {id:'t1',fileName:'Fotos_natal.zip',size:'812 MB',deviceName:'Telemóvel do avô',status:'active',progress:42,path:'local',speed:'26,1 MB/s',resumed:false,expanded:false},
+      {id:'t2',fileName:'Vídeo_praia.mov',size:'2,3 GB',deviceName:'PC da sala',status:'active',progress:63,path:'tailscale',speed:'6,4 MB/s',resumed:true,expanded:false},
+    ],
+    history: HISTORY,
+    historyTab: 'sent',
+    incoming: null,
+    toast: null,
+    deviceName: 'PC da sala',
+    receivingFolder: 'Descarregas/Pombo-Correio',
+    linkExpiryDefault: '3',
+    simpleMode: false,
+    homeServerAddress: 'casa.familia.pombo-correio.app',
+    shareForm: {pin: true, validity: '3'},
+    generatedLink: null,
+    copyLabel: 'Copiar link',
+  };
+
+  qrCells = (() => {
+    const n = 11, cells = [];
+    const isFinder = (r,c) => (r<3&&c<3)||(r<3&&c>n-4)||(r>n-4&&c<3);
+    for (let r=0;r<n;r++) for (let c=0;c<n;c++) {
+      const filled = isFinder(r,c) ? true : ((r*13+c*7+r*c)%5)<2;
+      cells.push({key:`${r}-${c}`, bg: filled ? 'var(--color-text)' : 'transparent'});
+    }
+    return cells;
+  })();
+
+  securityGroups = ['48213','90475','11208','63357','20194','88462'];
+
+  componentDidMount() {
+    this._tick = setInterval(() => {
+      this.setState(s => ({
+        transfers: s.transfers.map(t => {
+          if (t.status !== 'active') return t;
+          let progress = Math.min(100, t.progress + 2 + Math.random()*4);
+          let path = t.path;
+          if (t.id === 't1' && progress > 55 && path === 'local') path = 'tailscale';
+          return {...t, progress, path, status: progress >= 100 ? 'done' : 'active'};
+        })
+      }));
+    }, 1200);
+  }
+  componentWillUnmount() { clearInterval(this._tick); }
+
+  toast_(msg) {
+    this.setState({toast: msg});
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => this.setState({toast: null}), 3800);
+  }
+
+  renderVals() {
+    const s = this.state;
+
+    const devicesView = s.devices.map(d => ({
+      ...d,
+      statusLabel: statusLabel(d.status),
+      tagClass: statusTag(d.status),
+      opacity: d.status === 'unavailable' ? 0.6 : 1,
+      openSendToThis: () => this.setState({overlay:'send', sendStep:'type', selectedTargetId: d.id}),
+    }));
+
+    const pathLineFor = (t) => {
+      if (t.status === 'active') {
+        if (t.path === 'local') return 'A usar a rede de casa (mais rápido) · Porquê?';
+        if (t.path === 'tailscale') return 'A usar uma ligação privada pela internet · Porquê?';
+        return 'A guardar em casa para entregar depois · Porquê?';
+      }
+      if (t.status === 'queued') return 'Em fila — sem ligação ao dispositivo agora';
+      if (t.status === 'blocked') return 'Sem ligação disponível';
+      if (t.status === 'disk-full') return 'Sem espaço no destino';
+      if (t.status === 'declined') return 'Recusado pelo destinatário';
+      if (t.status === 'failed') return 'Não foi possível concluir';
+      return 'Entregue';
+    };
+    const techDetailFor = (t) => {
+      if (t.path === 'tailscale') return 'Mudou da rede local para uma ligação privada pela internet. A transferência continua sem interromper.';
+      if (t.path === 'server') return 'Está a passar pelo servidor de casa porque o destino não está contactável diretamente agora.';
+      return 'A transferir diretamente na rede local — o caminho mais rápido disponível.';
+    };
+    const statusLabelFor = (t) => ({
+      active:'A transferir', queued:'Em fila', blocked:'Sem rede', 'disk-full':'Sem espaço',
+      declined:'Recusado', failed:'Falhou', done:'Entregue'
+    })[t.status];
+    const tagClassFor = (t) => ({
+      active:'tag-accent', queued:'tag-neutral', blocked:'tag-neutral', 'disk-full':'tag-neutral',
+      declined:'tag-outline', failed:'tag-outline', done:'tag-accent'
+    })[t.status];
+
+    const transfersView = s.transfers.map(t => ({
+      ...t,
+      statusLabel: statusLabelFor(t),
+      tagClass: tagClassFor(t),
+      showBar: t.status === 'active',
+      progress: Math.round(t.progress || 0),
+      progressLabel: `${Math.round(t.progress||0)}%`,
+      pathLine: pathLineFor(t),
+      techDetail: techDetailFor(t),
+      canCancel: t.status === 'active' || t.status === 'queued' || t.status === 'blocked',
+      canRetry: t.status === 'failed',
+      toggleExpand: () => this.setState(st => ({transfers: st.transfers.map(x => x.id===t.id?{...x,expanded:!x.expanded}:x)})),
+      cancel: () => this.setState(st => ({transfers: st.transfers.filter(x => x.id !== t.id)})),
+      retry: () => this.setState(st => ({transfers: st.transfers.map(x => x.id===t.id?{...x,status:'active'}:x)})),
+    }));
+
+    const targetsView = s.devices.map(d => ({
+      ...d, statusLabel: statusLabel(d.status), tagClass: statusTag(d.status),
+      select: () => this.setState({selectedTargetId: d.id, sendStep:'confirm'}),
+    }));
+    const selectedTarget = s.devices.find(d => d.id === s.selectedTargetId);
+
+    const typeLabels = {files:'Ficheiros selecionados', folder:'Uma pasta', photos:'Fotos selecionadas', text:'Uma mensagem de texto', link:'Um link'};
+
+    const trustedDevicesView = s.devices.map(d => ({
+      ...d,
+      label: d.trusted ? 'De confiança' : 'Tornar de confiança',
+      btnClass: d.trusted ? 'btn-primary' : 'btn-secondary',
+      toggle: () => this.setState(st => ({devices: st.devices.map(x => x.id===d.id?{...x,trusted:!x.trusted}:x)})),
+    }));
+
+    const historyFiltered = s.history.filter(h => h.direction === s.historyTab);
+    const historyView = historyFiltered.map(h => ({
+      ...h,
+      statusLabel: h.status==='done'?(h.direction==='sent'?'Entregue':'Recebido'):h.status==='declined'?'Recusado':'Falhou',
+      tagClass: h.status==='done'?'tag-accent':'tag-outline',
+      resend: () => { this.setState({screen:'devices'}); this.toast_(`A reenviar "${h.fileName}"…`); },
+    }));
+
+    return {
+      simpleZoom: s.simpleMode ? 1.16 : 1,
+      screen: s.screen,
+      isDevicesScreen: s.screen === 'devices', isHistoryScreen: s.screen === 'history', isSettingsScreen: s.screen === 'settings',
+      navDevicesColor: s.screen==='devices' ? 'var(--color-accent)' : 'inherit',
+      navHistoryColor: s.screen==='history' ? 'var(--color-accent)' : 'inherit',
+      navSettingsColor: s.screen==='settings' ? 'var(--color-accent)' : 'inherit',
+      goDevices: () => this.setState({screen:'devices'}),
+      goHistory: () => this.setState({screen:'history'}),
+      goSettings: () => this.setState({screen:'settings'}),
+
+      deviceCountLabel: `${s.devices.length} dispositivo${s.devices.length===1?'':'s'} emparelhado${s.devices.length===1?'':'s'}`,
+      devicesView, devicesEmpty: s.devices.length===0, devicesNotEmpty: s.devices.length>0,
+      hasTransfers: s.transfers.length>0, transfersView,
+
+      openSend: () => this.setState({overlay:'send', sendStep:'type', selectedTargetId:null}),
+      openPair: () => this.setState({overlay:'pair', pairTab:'qr'}),
+      closeOverlay: () => this.setState({overlay:null}),
+      stopClick: (e) => e.stopPropagation(),
+
+      overlay: s.overlay, overlayIsSend: s.overlay==='send', overlayIsPair: s.overlay==='pair', overlayIsShare: s.overlay==='share',
+      sendStepIsType: s.sendStep==='type', sendStepIsHeic: s.sendStep==='heic', sendStepIsContent: s.sendStep==='content',
+      sendStepIsTarget: s.sendStep==='target', sendStepIsConfirm: s.sendStep==='confirm',
+      goStepType: () => this.setState({sendStep:'type'}),
+      goStepTarget: () => this.setState({sendStep:'target'}),
+
+      pickFiles: () => this.setState({sendType:'files', sendStep:'target'}),
+      pickFolder: () => this.setState({sendType:'folder', sendStep:'target'}),
+      pickPhotos: () => this.setState({sendType:'photos', sendStep: s.simulateIOS ? 'heic' : 'target'}),
+      pickText: () => this.setState({sendType:'text', sendStep:'content'}),
+      pickLink: () => this.setState({sendType:'link', sendStep:'content'}),
+      heicContinueAsFiles: () => this.setState({sendType:'files', sendStep:'target'}),
+      contentStepTitle: s.sendType==='text' ? 'Escreve o texto' : 'Cola o link',
+      contentPlaceholder: s.sendType==='text' ? 'A tua mensagem…' : 'https://…',
+      sendContent: s.sendContent,
+      setSendContent: (e) => this.setState({sendContent: e.target.value}),
+
+      targetsView,
+      pickNoApp: () => this.setState({overlay:'share', sendStep:'type'}),
+      sendTypeLabel: typeLabels[s.sendType] || 'Ficheiros selecionados',
+      selectedTargetName: selectedTarget ? selectedTarget.name : '—',
+      confirmSend: () => {
+        const newT = {id:'t'+Date.now(), fileName: typeLabels[s.sendType]||'Ficheiro', size:'—', deviceName: selectedTarget?selectedTarget.name:'—', status:'active', progress:0, path:'local', speed:'a começar…', resumed:false, expanded:false};
+        this.setState(st => ({overlay:null, transfers:[newT, ...st.transfers]}));
+        this.toast_('Envio iniciado.');
+      },
+
+      simulateIOS: s.simulateIOS,
+      toggleSimulateIOS: () => this.setState(st => ({simulateIOS: !st.simulateIOS})),
+
+      pairTabIsQr: s.pairTab==='qr', pairTabIsNumber: s.pairTab==='number',
+      setPairTabQr: () => this.setState({pairTab:'qr'}), setPairTabNumber: () => this.setState({pairTab:'number'}),
+      qrCells: this.qrCells, securityGroups: this.securityGroups,
+      confirmMatch: () => { this.setState({overlay:null, devices:[...s.devices, {id:'d'+Date.now(), name:'Novo dispositivo', detail:'Nesta rede', status:'available', trusted:false}]}); this.toast_('Dispositivo emparelhado.'); },
+      confirmMismatch: () => this.toast_('Os números não coincidem — não emparelhes este dispositivo.'),
+
+      shareHasLink: !!s.generatedLink, shareNoLink: !s.generatedLink,
+      sharePinEnabled: s.shareForm.pin, toggleSharePin: () => this.setState(st => ({shareForm:{...st.shareForm, pin:!st.shareForm.pin}})),
+      shareValidityIs1: s.shareForm.validity==='1', shareValidityIs3: s.shareForm.validity==='3', shareValidityIs7: s.shareForm.validity==='7',
+      setShareValidity1: () => this.setState(st=>({shareForm:{...st.shareForm,validity:'1'}})),
+      setShareValidity3: () => this.setState(st=>({shareForm:{...st.shareForm,validity:'3'}})),
+      setShareValidity7: () => this.setState(st=>({shareForm:{...st.shareForm,validity:'7'}})),
+      shareValidityLabel: {'1':'1 dia','3':'3 dias','7':'7 dias'}[s.shareForm.validity],
+      generatedLink: s.generatedLink,
+      sharePin: '4471',
+      generateLink: () => this.setState({generatedLink:'pombo.link/f/8k2n-vmq1'}),
+      copyLabel: s.copyLabel,
+      copyLink: () => { this.setState({copyLabel:'Copiado!'}); setTimeout(() => this.setState({copyLabel:'Copiar link'}), 2000); },
+
+      hasIncoming: !!s.incoming,
+      incomingFrom: s.incoming ? s.incoming.deviceName : '',
+      incomingFile: s.incoming ? s.incoming.fileName : '',
+      incomingSize: s.incoming ? s.incoming.size : '',
+      acceptIncoming: () => { this.setState({incoming:null}); this.toast_('Ficheiro guardado.'); },
+      declineIncoming: () => this.setState({incoming:null}),
+
+      historyView, historyTabIsSent: s.historyTab==='sent', historyTabIsReceived: s.historyTab==='received',
+      setHistoryTabSent: () => this.setState({historyTab:'sent'}), setHistoryTabReceived: () => this.setState({historyTab:'received'}),
+
+      deviceName: s.deviceName, setDeviceName: (e) => this.setState({deviceName:e.target.value}),
+      trustedDevicesView,
+      receivingFolder: s.receivingFolder, setReceivingFolder: (e) => this.setState({receivingFolder:e.target.value}),
+      expiryIs1: s.linkExpiryDefault==='1', expiryIs3: s.linkExpiryDefault==='3', expiryIs7: s.linkExpiryDefault==='7',
+      setExpiry1: () => this.setState({linkExpiryDefault:'1'}), setExpiry3: () => this.setState({linkExpiryDefault:'3'}), setExpiry7: () => this.setState({linkExpiryDefault:'7'}),
+      simpleMode: s.simpleMode, simpleModeLabel: s.simpleMode ? 'Ativo' : 'Inativo', simpleModeBtnClass: s.simpleMode ? 'btn-primary' : 'btn-secondary',
+      toggleSimpleMode: () => this.setState(st => ({simpleMode: !st.simpleMode})),
+      homeServerAddress: s.homeServerAddress,
+
+      hasToast: !!s.toast, toast: s.toast,
+
+      scenarioNormal: () => this.setState({
+        devices: DEVICES, historyTab:'sent',
+        transfers: [
+          {id:'t1',fileName:'Fotos_natal.zip',size:'812 MB',deviceName:'Telemóvel do avô',status:'active',progress:42,path:'local',speed:'26,1 MB/s',resumed:false,expanded:false},
+          {id:'t2',fileName:'Vídeo_praia.mov',size:'2,3 GB',deviceName:'PC da sala',status:'active',progress:63,path:'tailscale',speed:'6,4 MB/s',resumed:true,expanded:false},
+        ], incoming:null, screen:'devices',
+      }),
+      scenarioIncoming: () => this.setState({incoming:{deviceName:'Telemóvel da Marta', fileName:'Vídeo_aniversário.mp4', size:'1,4 GB'}, screen:'devices'}),
+      scenarioTrustedToast: () => { this.setState({screen:'devices'}); this.toast_('Recebeste "Lista_compras.pdf" de Telemóvel do avô — guardado automaticamente.'); },
+      scenarioQueued: () => this.setState({transfers:[{id:'tq',fileName:'Receita_médica.pdf',size:'1,2 MB',deviceName:'Portátil da Marta',status:'queued',progress:0,path:'local',speed:'',resumed:false,expanded:false}], screen:'devices'}),
+      scenarioBlocked: () => this.setState({transfers:[{id:'tb',fileName:'Álbum_verão.zip',size:'3,1 GB',deviceName:'iPad do Tiago',status:'blocked',progress:0,path:'local',speed:'',resumed:false,expanded:false}], screen:'devices'}),
+      scenarioDiskFull: () => this.setState({transfers:[{id:'td',fileName:'Backup_fotos.zip',size:'14,2 GB',deviceName:'Tablet da cozinha',status:'disk-full',progress:0,path:'local',speed:'',resumed:false,expanded:false}], screen:'devices'}),
+      scenarioDeclined: () => this.setState({transfers:[{id:'te',fileName:'Fatura_obras.pdf',size:'480 KB',deviceName:'Telemóvel da Marta',status:'declined',progress:0,path:'local',speed:'',resumed:false,expanded:false}], screen:'devices'}),
+      scenarioFailed: () => this.setState({transfers:[{id:'tf',fileName:'Vídeo_casamento.mov',size:'4,7 GB',deviceName:'Servidor de casa',status:'failed',progress:0,path:'local',speed:'',resumed:false,expanded:false}], screen:'devices'}),
+      scenarioEmpty: () => this.setState({devices:[], transfers:[], screen:'devices'}),
+    };
+  }
+}
+
+</script>
+</body>
+</html>
