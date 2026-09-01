@@ -163,12 +163,12 @@ Do lado dos clientes, um ficheiro `relays` na pasta de dados, um URL por linha:
 ```sh
 # App: ~/.local/share/pt.pombo.correio/relays · CLI: ~/.local/share/pombo/relays
 cat > ~/.local/share/pombo/relays <<'EOF'
-# LAN primeiro (rápida), Tailscale a seguir (funciona de fora, e safa se o
-# DHCP mudar o IP). `#` faz comentário.
-http://192.168.1.17:53319
+# O nó que serve a PWA primeiro (ver "App instalável" abaixo), depois LAN,
+# depois Tailscale. `#` faz comentário.
 http://192.168.1.232:53319
-http://andresantos-m11bb:53319
 http://raspberrypi:53319
+http://192.168.1.17:53319
+http://andresantos-m11bb:53319
 EOF
 ```
 
@@ -177,6 +177,13 @@ isso que são dois. Ao **buscar**, passa-se por todos: um nó em baixo não pode
 impedir o outro de entregar, e um depósito preso num nó que caiu fica lá à
 espera de ele voltar (os blobs não se replicam, de propósito). **Sem este ficheiro não há relay nenhum**, e a app comporta-se
 exatamente como antes.
+
+**O nó que serve a PWA tem de vir primeiro nesta lista, sempre (S8).** Uma
+PWA só verifica a própria origem ao buscar (`location.origin` — não há
+`relays` num browser); se o "depositar" escolher outro nó primeiro, um envio
+endereçado a um contacto no iPhone cai onde a PWA nunca vai olhar. Os
+dispositivos nativos não sofrem com isto (verificam todos ao buscar) — só a
+ordem dos dois primeiros da lista importa, e só por causa do S8.
 
 Os depósitos duram 7 dias e são limpos de hora a hora. Um ficheiro entregue é
 apagado do relay assim que está em disco do outro lado.
