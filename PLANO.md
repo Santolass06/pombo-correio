@@ -504,19 +504,17 @@ menos o último. É esta conta que mantém o relay ignorante.
       estava provado nesta fase (Safari, `showSaveFilePicker`, fora da LAN).
 - [ ] **R6 — push.** FCM no Android, Web Push no iOS. Precisa de contas e chaves
       de serviço — decisão do utilizador, não técnica. Ver "Antes do S8".
-- [x] **R7 — TLS, no Pi 5.** ✅ Confirmado a sério em 01/09/2026:
-      `curl https://raspberrypi.tail455bb7.ts.net/saude` → 200, certificado
-      Let's Encrypt válido. **Falta o mesmo no A10** — `tailscale serve` nunca
-      foi configurado lá, e o `sudo` dessa máquina pede password. Ver "Antes do
-      S8". Saga completa (o bug do lado do Tailscale) em `BACKLOG.md`.
+- [x] **R7 — TLS, nos dois nós.** ✅ Confirmado a sério em 01/09/2026:
+      `curl https://raspberrypi.tail455bb7.ts.net/saude` e
+      `curl https://andresantos-m11bb.tail455bb7.ts.net/saude` → 200 nos dois,
+      certificado Let's Encrypt válido. Saga completa (o bug do lado do
+      Tailscale) em `BACKLOG.md`.
 - [ ] Binários musl para amd64 e arm64. Ver "Antes do S8".
 
 **Onde é que cada coisa está provada, sem arredondar:** o protocolo, a retoma
-nos dois sentidos e a opacidade do relay estão provados **em loopback**; o
-caminho direto, o degrau do relay, a queda de um nó e o TLS estão provados
-**entre o A10 e o Pi 5, na LAN** (TLS só confirmado no Pi); **pela internet
-não está provado nada**, e é assim que fica escrito até alguém o correr de
-fora de casa.
+nos dois sentidos, a opacidade do relay e o TLS estão provados **entre o A10
+e o Pi 5, na LAN**; **pela internet não está provado nada**, e é assim que
+fica escrito até alguém o correr de fora de casa.
 
 ### Antes do S8
 
@@ -526,16 +524,16 @@ para desbloquear o S8.
 
 | Item | Bloqueia o S8? | De quem é a próxima ação | Ação concreta |
 |---|---|---|---|
-| TLS no A10 | Sim — sem ele um depósito no A10 sai em `http://` e o Safari recusa | André | `sudo tailscale serve --bg --https=443 http://127.0.0.1:53319` no A10 |
-| iPhone na tailnet | Sim, para testar a sério | André | Instalar a app Tailscale no iPhone, entrar em `tail455bb7.ts.net` |
+| ~~TLS no A10~~ | — | — | ✅ Fechado, 01/09/2026 — confirmado nos dois nós |
+| ~~iPhone na tailnet~~ | — | — | ✅ Fechado, 01/09/2026 — `iphone` visível em `tailscale status` |
 | Binários musl amd64+arm64 | Não | Eu | Instalar targets, configurar `relay/` |
 | DDNS (DuckDNS) | Não — só para quem não tem Tailscale | André depois eu | André cria a conta e dá-me o token; ao expor o relay, junto ao `--autorizados` entra também um limitador de débito por IP (Review0 F-02 — `tower_governor`, sobre o `axum` que já temos) |
-| Push — Firebase (Android) | Não para arrancar o S8; sim para R6 | André depois eu | André cria o projeto Firebase e a conta de serviço; eu integro |
-| Push — VAPID (iOS) | Não para arrancar o S8; sim para R6 | Eu | Gero o par de chaves, sem depender de conta nenhuma |
+| Push — Firebase (Android) | Não para arrancar o S8; sim para R6/P4 | André depois eu | André cria o projeto Firebase e a conta de serviço; eu integro |
+| Push — VAPID (iOS) | Não para arrancar o S8; sim para R6/P4 | Eu | Gero o par de chaves, sem depender de conta nenhuma |
 | Janela da app em Windows | Não | André | Olhar para ela depois de `npm run app:build`, enviar algo de lá |
 
-**Quando a linha do TLS no A10 e a do iPhone estiverem fechadas, o S8 arranca
-a sério.** As restantes correm em paralelo, sem bloquear.
+**Os dois bloqueadores do arranque estão fechados — o S8 pode começar.** As
+restantes linhas correm em paralelo, sem bloquear.
 
 Já fechados nesta análise, sem código a mudar mais: o buraco dos `Conhecidos`
 (depositar para quem só recebeu, já funcionava) e a zeroização de
@@ -543,9 +541,58 @@ Já fechados nesta análise, sem código a mudar mais: o buraco dos `Conhecidos`
 
 ### S8 — PWA iOS
 
-- [x] `core/` para WASM — já feito, herdado do R5 (`pagina/`).
-- [ ] Service worker, Web Push, instalação no ecrã principal.
-- [ ] Encaminhamento explícito para a app Ficheiros (contorna o HEIC→JPEG).
+**Levantamento de 01/09/2026, antes de arrancar:** `ui/src/lib/api.ts` — as
+12 funções que a interface usa (`identidade`, `dispositivos`,
+`enviarFicheiro`, `buscarNoRelay`, `criarLigacao`, `cancelar`, os eventos…) são
+**todas** `invoke()`/`listen()` do Tauri. Nenhuma existe fora de um WebView
+com Rust por trás — um Safari a abrir a app hoje não tem onde bater. O
+`pagina/` (R5) só resolve "abrir um link": sem identidade persistente, sem
+selar, sem subir nada. O S8 é maior do que as três balas que aqui estavam.
+
+**Decisão de arquitetura:** a app do iPhone é a **mesma interface Svelte**
+(`ui/`) a correr sem Tauri — não uma página à parte em JavaScript simples.
+Só assim o design (`design/claude-design/`) vive num sítio só e serve os três
+consumidores (desktop, Android, iOS) de vez, como o desenho original sempre
+previu ("ui/ ... quatro consumidores").
+
+Fases pequenas, ao estilo do S6/S7 — cada uma a acabar em algo que corre e se
+prova **no iPhone a sério**, não só em Chromium (regra 10; o R5 já mostrou
+que Chromium esconde coisas, como o `showSaveFilePicker`).
+
+- [ ] **P1 — Fundação instalável.** `manifest.json`, ícones (incluindo
+      `apple-touch-icon`), meta tags do Safari (`apple-mobile-web-app-*`), um
+      service worker mínimo. Servido por HTTPS — já resolvido pelo R7. Prova:
+      instalar no ecrã principal do iPhone, abrir como app isolada.
+- [ ] **P2 — A `ui/` corre sem Tauri.** `api.ts` ganha duas implementações
+      por trás da mesma assinatura — deteta `window.__TAURI_INTERNALS__` e
+      escolhe. O lado browser precisa de bindings wasm novos (a estender o
+      `core/`, no padrão do `pagina/`): gerar e persistir uma `Identity`
+      (bytes para `localStorage`; `secret_bytes()` já existe no `core/`).
+      Sem isto, nada do resto tem quem o assine.
+- [ ] **P3 — Receber pelo relay ao abrir a app.** Equivalente ao
+      `buscarNoRelay()` do Android, em wasm+`fetch()`: consulta `/caixa`,
+      decifra e verifica com o `core/`, oferece a gravação (o caminho do R5,
+      que já cai para memória sem `showSaveFilePicker`). O caso central do
+      pedido original — a mãe abre a app e o que estava à espera aparece.
+- [ ] **P4 — Push.** Service worker subscreve Web Push (VAPID), o relay
+      guarda a subscrição e avisa quando há depósito novo. Sem isto, P3 só
+      corre quando alguém lembra de abrir a app.
+- [ ] **P5 — Enviar do iPhone.** Seletor de ficheiros (`<input type=file>`,
+      sem `accept="image/heic"`, a incentivar a app Ficheiros em vez da
+      Biblioteca de Fotos). Sela com o `core/` em wasm, sobe por `fetch()` —
+      direto se houver destino alcançável, ao relay senão. Sem mDNS possível
+      no Safari: o destino escolhe-se da lista de conhecidos ou por
+      endereço, nunca por descoberta automática.
+- [ ] **P6 — O design a sério, responsivo.** Aplicar
+      `design/claude-design/` ao `ui/App.svelte`/`app.css` — a mesma
+      extração que o S5 já fez uma vez ("o desenho vinha empacotado"), agora
+      com breakpoints de 720p a 4K, testado em telemóvel, tablet, laptop e
+      desktop. Por ser o mesmo `ui/` em todo o lado, o desktop e o Android
+      herdam o resultado de graça.
+
+Cada fase segue a regra 8 (desenhar antes de implementar) quando arrancar a
+sério — este roteiro é a ordem de trabalho, não o desenho protocolar de cada
+peça.
 
 ---
 
