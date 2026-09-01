@@ -654,12 +654,108 @@ que Chromium esconde coisas, como o `showSaveFilePicker`).
       16.4+) — a interface deve dizer isso explicitamente antes de pedir a
       subscrição, não falhar em silêncio. Sem isto, P3 só corre quando
       alguém lembra de abrir a app.
-- [ ] **P5 — Enviar do iPhone.** Seletor de ficheiros (`<input type=file>`,
-      sem `accept="image/heic"`, a incentivar a app Ficheiros em vez da
-      Biblioteca de Fotos). Sela com o `core/` em wasm, sobe por `fetch()` —
-      direto se houver destino alcançável, ao relay senão. Sem mDNS possível
-      no Safari: o destino escolhe-se da lista de conhecidos ou por
-      endereço, nunca por descoberta automática.
+**Desenho do P5, antes de mexer (regra 8) — revisto depois de ler o código a
+sério, não só o resumo do plano:**
+
+- **O caminho direto está fora, para sempre, não "por agora".** A PWA corre
+  em HTTPS (tem de correr, para ser instalável); o `receber::servir` de um
+  familiar fala HTTP simples na LAN. Uma página HTTPS não pode fazer
+  `fetch()` a HTTP — é *mixed content*, bloqueado pelo browser, não uma
+  falta de código nossa. A escada do iPhone tem **um degrau só: o relay.**
+  Isto fecha a dúvida que ficava aberta no texto antigo da bala P5
+  ("direto se houver destino alcançável").
+- **`depositar_ligacao` não ensina nada a ninguém — verificado no código,
+  não assumido.** Corrigindo uma leitura anterior deste plano: pensava-se
+  que um link criado do iPhone via `CAIXA_LIGACAO` bastava para desbloquear
+  o `chaves_para()` do lado de casa. Não basta: um depósito `CAIXA_LIGACAO`
+  nunca aparece em nenhum `/caixa` (o filtro é por impressão digital, e a
+  `CAIXA_LIGACAO` não é uma), por isso `trazer()` — a única função que
+  escreve em `conhecidos.json` — nunca lhe toca. Criar um link não regista
+  o iPhone em lado nenhum.
+- **O que regista, de facto: `trazer()` em `rede/src/relay.rs:459-462`**,
+  chamado quando um dispositivo de casa faz `buscar_no_relay()` e encontra
+  um depósito **endereçado à sua própria identidade**. Para isso acontecer,
+  o iPhone precisa de saber, à partida, a `PublicIdentity` completa de
+  **um** dispositivo de casa — não só o nome, as duas chaves públicas.
+- **De onde vem essa identidade, sem inventar uma segunda cerimónia de
+  confiança:** a família já tem uma — o link sem instalação (R5). O André
+  cria um link no desktop (`criarLigacao`, já existe) e abre-o no iPhone.
+  A oferta que o `/d/{id}` serve já traz a `PublicIdentity` completa de
+  quem criou o link (`Oferta.de`); só faltava a página do lado do browser
+  guardá-la. Dá-se ao `Descarga` (em `pagina/`) um acessor novo para a
+  identidade completa (não só a etiqueta que `.de()` já dá), e o
+  `pagina.js` grava-a num registo próprio em `localStorage`
+  (`pombo-conhecidos`) — o mesmo ficheiro `pombo-relay` a servir os dois
+  papéis (a app instalada e a página do link), por isso é a mesma origem e
+  o mesmo `localStorage`. **Por confirmar no iPhone real:** se uma PWA
+  instalada no ecrã principal partilha mesmo o `localStorage` com o Safari
+  normal para a mesma origem — é a mesma incerteza do ITP já registada no
+  P2, agora com uma segunda consequência se for "não": sem partilha, este
+  truque de aprendizagem não chega à app instalada e passa a ser preciso
+  outra via (ainda por desenhar).
+- **Duas passagens pelo `File`, não uma — e é a mesma forma do caminho
+  nativo.** O relay exige o manifesto completo (raiz de Merkle) antes de
+  aceitar o `POST /deposito`; o manifesto só fecha depois de ver todos os
+  blocos. Por isso: 1ª passagem sobre o `File` (via `file.slice()`, sem
+  carregar o ficheiro todo — o `File` já vive fora da memória do
+  JavaScript) só para resumir cada bloco e fechar o manifesto; 2ª passagem
+  sela e sobe cada bloco. É exatamente o que `depositar_em` já faz em
+  Rust nativo (`Manifest::from_reader` primeiro, `fluxo_selado` depois,
+  reabrindo o ficheiro) — não é um desenho novo, é o mesmo com `File.slice`
+  no lugar de `std::fs::File`.
+- **A fórmula da assinatura passa a viver num sítio só.** Existia
+  duplicada — `relay/src/autenticado.rs::mensagem()` (quem verifica) e
+  `rede/src/relay.rs::assinado()` (quem assina, nativo) — e o wasm ia ser
+  uma terceira cópia. Três cópias de um formato de string
+  (`"pombo-{acao}-v1|{impressao}|{extra}|{instante}"`) seria o tipo de
+  coisa que diverge um dia sem ninguém notar até uma assinatura deixar de
+  bater. Move-se para `core::protocolo::mensagem_assinada`, e os dois
+  sítios existentes passam a chamá-la.
+- **CORS entra a sério aqui, não é só teoria do P1.** A PWA fica servida
+  pelo Pi (decisão do S8); os pedidos assinados ao A10 são de outra
+  origem. Sem `Access-Control-Allow-Origin` e sem os cabeçalhos `x-pombo-*`
+  no preflight, o segundo nó fica inacessível a partir do Safari — a HA do
+  R4 degrada-se para um nó só, em silêncio, sem erro nenhum que o diga.
+  Como a autorização já vem da assinatura (não do CORS), abrir largo aqui
+  não abre nada que a assinatura já não guardasse.
+- **A impressão digital sai já no P5, não fica adiada.** É aqui que o
+  primeiro depósito do iPhone pode levar 403 (não está em
+  `--autorizados`) — a interface mostra `impressaoCurta()` em destaque
+  antes de se tentar depositar, não só depois de falhar.
+- **Pré-mortem, uma linha:** se o `PUT` do depósito morrer a meio da
+  segunda passagem, o iPhone vê `Falhou` (o mesmo evento de sempre) e o
+  utilizador tenta outra vez — a retoma por `?de=N` já existe do lado do
+  relay; o P5 não teve de inventar nada aí, só usar.
+
+- [x] **P5 — Enviar do iPhone.** `<input type=file>` escondido faz de
+      seletor (o Tauri `open()` não existe fora do Tauri); duas passagens
+      pelo `File` (resumir com `ManifestoBuilderWasm`, depois selar com
+      `selarBloco`/`construirOferta` e subir por um único `PUT` com corpo
+      `Blob`); sobe **só ao relay**, nunca direto — confirmado, não só
+      previsto: mixed content bloqueia mesmo `fetch()` HTTPS→HTTP. O
+      destino aprende-se ao abrir um link criado no desktop: `Descarga`
+      ganhou `remetenteJson()`, e o `pagina.js` grava a `PublicIdentity` de
+      quem criou o link em `localStorage` (`pombo-conhecidos`), que a app
+      instalada lê em `listarDispositivos()`. A fórmula de assinatura dos
+      pedidos ao relay (`core::protocolo::mensagem_assinada`) deixou de
+      estar duplicada — o `relay/` e o `rede/` nativo passaram a usá-la
+      também. O relay ganhou CORS (`tower-http`, largo de propósito: quem
+      autoriza é a assinatura) para a HA entre os dois nós continuar a
+      valer a partir do Safari.
+      **Provado de ponta a ponta, com processos a sério, não só em
+      loopback simulado:** `pombo-relay --app ui/dist`, um `pombo ligacao`
+      nativo aberto no Chromium (aprende o destinatário), um ficheiro
+      enviado da PWA por `fetch()`, e `pombo caixa` nativo a recebê-lo —
+      **byte a byte idêntico** (`diff` limpo) — com o aviso de "dispositivo
+      novo" a aparecer corretamente do lado de quem recebe. O "criar link"
+      a partir da PWA também foi provado (a página do link abre, decifra o
+      manifesto e mostra nome/tamanho corretos). **Simplificações
+      deliberadas** (`ponytail:` no código): uma só tentativa de subida,
+      sem retoma; um único relay (a própria origem da PWA), sem HA do
+      lado do emissor. **Por confirmar no iPhone real:** se o `localStorage`
+      partilhado entre a PWA instalada e o Safari normal (de que o
+      aprender-por-link depende) sobrevive à instalação — a mesma incerteza
+      do P2, agora com uma segunda consequência se for "não".
 - [ ] **P6 — O design a sério, responsivo.** Aplicar
       `design/claude-design/` ao `ui/App.svelte`/`app.css` — a mesma
       extração que o S5 já fez uma vez ("o desenho vinha empacotado"), agora

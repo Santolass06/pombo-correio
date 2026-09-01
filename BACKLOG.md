@@ -1283,4 +1283,106 @@ sobrevive à instalação como PWA no ecrã principal (o ITP do Safari expira
 `localStorage` de páginas web ao fim de 7 dias sem visita — mas há isolamento
 para apps instaladas; só se sabe testando).
 
+### P5 — Enviar do iPhone
+
+**O desenho inicial (P5 antes de P3, porque "criar link ensina o
+destinatário") estava errado — apanhado a ler o código, não a resumo do
+plano.** `depositar_ligacao` sela para uma identidade gerada e deitada fora
+(`CAIXA_LIGACAO`), e um depósito nessa caixa nunca aparece em `/caixa` de
+ninguém — o filtro é por impressão digital, e `CAIXA_LIGACAO` não é uma. A
+única função que escreve em `conhecidos.json` é `trazer()` (`rede/src/relay.rs`),
+chamada quando um `buscar_no_relay()` encontra um depósito **endereçado à
+própria identidade** de quem pergunta. Criar um link do iPhone não ensina
+nada a ninguém. Corrigido no PLANO.md antes de escrever código a mais em
+cima de uma leitura errada — foi o `advisor()` que pegou nisto a meio da
+sessão, ao verificar a própria sugestão anterior contra o código.
+
+**O que resolve, de facto, sem inventar uma segunda cerimónia de
+confiança:** a família já tem uma — o link sem instalação. André cria um
+link no desktop (`pombo ligacao`, já existia); a `Oferta` que o `/d/{id}`
+serve já trazia a `PublicIdentity` completa de quem o criou
+(`oferta.de`), só faltava alguém guardá-la. `Descarga` ganhou
+`remetenteJson()` e o `pagina.js` grava-a em `localStorage`
+(`pombo-conhecidos`) — mesma origem, mesmo relay a servir os dois papéis.
+Zero UI nova, zero formato novo para o André aprender.
+
+**A fórmula da assinatura (`mensagem_assinada`) estava duplicada em dois
+sítios antes deste sprint e ia ser um terceiro.** Movida para
+`core::protocolo`; `relay::autenticado::mensagem()` e `rede::relay::assinado()`
+passaram a chamá-la. Todos os testes de assinatura (17 no `relay`, os do
+`rede`) continuaram a passar sem alteração — prova de que a extração foi
+mesmo mecânica, não mudou comportamento.
+
+**CORS entrou como infraestrutura preventiva, não testada de ponta a ponta
+pelo P5.** O `WasmBackend` do P5 só fala com `location.origin` (ver
+"simplificação deliberada" abaixo) — nunca cruza origem a sério nesta
+versão. O `tower_http::cors::CorsLayer` (largo: `Any` para origem, métodos e
+cabeçalhos, porque quem autoriza é a assinatura, não o CORS) e o teste
+`pedido_de_outra_origem_recebe_cors` ficam prontos para quando o P3 (ou uma
+versão futura do P5) precisar de falar com o segundo nó — mas não há ainda
+um cenário do browser a exercitá-lo a sério, e fica dito para não se
+confundir "código no lugar" com "caminho provado".
+
+**Duas simplificações deliberadas, com custo e caminho de correção
+escritos no próprio código (`ponytail:`):**
+- **Uma só tentativa de subida, sem retoma.** O cliente nativo tenta 3
+  vezes e retoma por `?de=N`; o `WasmBackend` falha à primeira queda de
+  rede. O relay já suporta a retoma — falta o lado do browser voltar a
+  chamar.
+- **Um relay só (a própria origem da PWA), sem HA do lado do emissor.**
+  Se o Pi cair a meio de uma sessão que o service worker manteve viva
+  (cache da casca), o envio falha em vez de tentar o A10. Sem UI para
+  configurar um segundo relay ainda.
+
+**`Blob` em vez de `ReadableStream` no corpo do `PUT`.** O suporte do
+Safari para corpos de `fetch()` em fluxo (upload streaming) é incerto —
+exatamente o tipo de coisa que já surpreendeu neste sprint uma vez
+(`showSaveFilePicker`, no R5). Um `Blob` construído a partir de blocos já
+selados funciona em todo o lado, à custa de os manter todos em memória
+durante a segunda passagem — aceite como troca por agora; o `README`/P3 já
+tem uma nota parecida sobre limites de memória do Safari.
+
+**Provado de ponta a ponta com processos a sério — não simulado, não só em
+loopback com um cliente Rust a fingir ser o browser:**
+
+```
+$ pombo-relay --dados … --app ui/dist --pagina pagina/www --porta 18090 &
+$ pombo --dados ~/desktop ligacao ficheiro-teste.txt
+  → http://127.0.0.1:18090/d/b01af8…#6321aa…
+# Chromium (Playwright) abre o link → pombo-conhecidos aprende
+# "andresantos-M11BB" em localStorage, com as duas chaves públicas certas.
+# Chromium volta à app instalada → "andresantos-M11BB" aparece na lista de
+# dispositivos → clique em "Enviar ficheiro" → seletor real do OS
+# (browser_file_upload do Playwright) → POST /deposito (200) → PUT (200).
+$ pombo --dados ~/desktop caixa
+  → DISPOSITIVO NOVO — confirma este número: 02616 63705 22482 09912 …
+  → Recebido: ~/desktop/recebidos/ficheiro-teste.txt
+$ diff ~/desktop/recebidos/ficheiro-teste.txt ficheiro-teste.txt
+  → (sem diferenças)
+```
+
+"Criar link" a partir da PWA também foi exercitado: o link gerado abre na
+página do R5, decifra o manifesto e mostra o nome e tamanho corretos — a
+confirmação visual de que `construirOferta` produz exatamente o que
+`Descarga::nova` (código do S7, não tocado) sabe ler. Isto está coberto,
+com mais rigor, pelo teste Rust nativo
+`o_que_o_lado_de_enviar_produz_o_lado_de_receber_le` em `pagina/src/lib.rs`
+— construção da oferta e leitura dela no mesmo processo, sem depender de
+um browser para provar que os dois formatos batem certo.
+
+**Um bug apanhado e corrigido durante a própria verificação manual:** o
+evento `depositado` mostrava a impressão digital em hexadecimal em vez do
+nome do dispositivo ("chega a 9ee77a76e99f7dd7" em vez de "chega a
+andresantos-M11BB") — `depositarEm` estava a reutilizar a `caixa` (a chave
+de encaminhamento) também como rótulo de exibição. Corrigido passando o
+nome como parâmetro à parte; sem isto não teria aparecido em nenhum teste
+automático, só ao olhar para o ecrã a sério — o mesmo argumento, outra vez,
+para verificar no browser e não só nos testes.
+
+**Por confirmar no iPhone real:** a mesma incerteza do P2 sobre
+`localStorage` partilhado entre a PWA instalada e o Safari normal, agora
+com uma segunda consequência se for "não" — sem partilha, "aprender um
+conhecido ao abrir um link" não chega à app instalada, e o P5 fica sem
+destino possível até se desenhar outra via.
+
 ---

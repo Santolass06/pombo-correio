@@ -10,10 +10,10 @@
 //! já verificado. Tudo o que decide se algo é legítimo fica deste lado.
 
 use pombo_correio_core::{
-    chunk::Manifest,
-    crypto::{SEAL_OVERHEAD, TransferKey, open_chunk, open_manifest},
-    identity::Identity,
-    protocolo::Oferta,
+    chunk::{Manifest, ManifestBuilder},
+    crypto::{Envelope, SEAL_OVERHEAD, TransferKey, open_chunk, open_manifest, seal_chunk, seal_manifest},
+    identity::{Identity, PublicIdentity},
+    protocolo::{Oferta, mensagem_assinada},
 };
 use wasm_bindgen::prelude::*;
 
@@ -78,6 +78,182 @@ impl IdentidadeWasm {
     pub fn segredo_secret(&self) -> String {
         hex::encode(self.interna.secret_bytes().1)
     }
+
+    /// A identidade pública, como JSON — o que entra no campo `de` de uma
+    /// [`Oferta`] (S8 P5).
+    #[wasm_bindgen(js_name = publicaJson)]
+    pub fn publica_json(&self) -> Result<String, String> {
+        serde_json::to_string(&self.interna.public()).map_err(erro)
+    }
+
+    /// Assina uma mensagem qualquer e devolve a assinatura em hexadecimal.
+    /// Usado para os pedidos ao relay (S8 P5) — `assinarPedido` já monta a
+    /// mensagem certa; isto é o primitivo por trás.
+    pub fn assinar(&self, mensagem: &str) -> String {
+        hex::encode(self.interna.sign(mensagem.as_bytes()))
+    }
+
+    /// Os três cabeçalhos `x-pombo-*` que um pedido assinado ao relay precisa,
+    /// como JSON — a mesma mensagem que `relay::autenticado::verificar`
+    /// exige do outro lado (`core::protocolo::mensagem_assinada`), para não
+    /// haver uma quarta cópia do formato em JavaScript.
+    ///
+    /// `instante` vem de fora (`Date.now()/1000`) porque o `SystemTime` do
+    /// Rust não tem uma fonte de tempo garantida em wasm32 fora do browser, e
+    /// o JavaScript já tem uma sem precisar de nenhuma.
+    #[wasm_bindgen(js_name = assinarPedido)]
+    pub fn assinar_pedido(&self, acao: &str, extra: &str, instante: u64) -> Result<String, String> {
+        let p = self.interna.public();
+        let impressao = self.impressao_curta();
+        let assinatura = hex::encode(
+            self.interna
+                .sign(mensagem_assinada(acao, &impressao, extra, instante).as_bytes()),
+        );
+        #[derive(serde::Serialize)]
+        struct Cabecalhos {
+            identidade: String,
+            instante: String,
+            assinatura: String,
+        }
+        serde_json::to_string(&Cabecalhos {
+            identidade: format!("{}{}", hex::encode(p.verifying), hex::encode(p.encrypting)),
+            instante: instante.to_string(),
+            assinatura,
+        })
+        .map_err(erro)
+    }
+}
+
+/// Uma identidade pública a partir das duas chaves em hexadecimal — o
+/// destinatário de um depósito (S8 P5). A etiqueta fica vazia: não entra na
+/// cifra nem na assinatura, só no envelope é que não faz falta nenhuma.
+fn destinatario_de(verifying_hex: &str, encrypting_hex: &str) -> Result<PublicIdentity, String> {
+    let verifying: [u8; 32] = hex::decode(verifying_hex)
+        .map_err(erro)?
+        .try_into()
+        .map_err(|_| "chave de verificação do destinatário não tem 32 bytes".to_string())?;
+    let encrypting: [u8; 32] = hex::decode(encrypting_hex)
+        .map_err(erro)?
+        .try_into()
+        .map_err(|_| "chave de cifra do destinatário não tem 32 bytes".to_string())?;
+    Ok(PublicIdentity { verifying, encrypting, label: String::new() })
+}
+
+/// A impressão digital de 16 dígitos hexadecimais de um destinatário
+/// qualquer — o que vai no `?para=` de um depósito (S8 P5). Irmã de
+/// `IdentidadeWasm::impressaoCurta`, mas para uma identidade que não é a
+/// nossa: quem envia precisa de saber a impressão de quem vai receber.
+#[wasm_bindgen(js_name = impressaoCurtaDe)]
+pub fn impressao_curta_de(verifying_hex: &str, encrypting_hex: &str) -> Result<String, String> {
+    let destinatario = destinatario_de(verifying_hex, encrypting_hex)?;
+    Ok(hex::encode(destinatario.fingerprint())[..16].to_string())
+}
+
+/// Quantos bytes tem um bloco em claro — o `CHUNK_SIZE` do `core/`, exposto
+/// para quem tem de partir um `File` do browser nesse tamanho antes de o
+/// poder empurrar para o `ManifestoBuilderWasm` (S8 P5). Uma função em vez de
+/// duplicar o número em TypeScript: divergir aqui daria um manifesto que o
+/// `core/` nativo não reproduziria.
+#[wasm_bindgen(js_name = tamanhoBloco)]
+pub fn tamanho_bloco() -> u32 {
+    pombo_correio_core::chunk::CHUNK_SIZE as u32
+}
+
+fn chave_de_hex(chave_hex: &str) -> Result<TransferKey, String> {
+    let bytes: [u8; 32] = hex::decode(chave_hex)
+        .map_err(erro)?
+        .try_into()
+        .map_err(|_| "chave de transferência não tem 32 bytes".to_string())?;
+    Ok(TransferKey::from_bytes(bytes))
+}
+
+/// Gera uma chave de transferência nova, em hexadecimal (S8 P5).
+///
+/// Fica em hexadecimal, não num tipo `TransferKey` exposto ao wasm-bindgen: a
+/// chave viaja por três funções deste ficheiro (selar blocos, selar o
+/// manifesto, montar o envelope) e todas já falam hexadecimal com o
+/// `localStorage` e o JSON — inventar um tipo opaco só obrigava o
+/// TypeScript a passá-lo de um lado para o outro sem lhe poder tocar.
+#[wasm_bindgen(js_name = gerarChaveTransferencia)]
+pub fn gerar_chave_transferencia() -> String {
+    hex::encode(TransferKey::generate().to_bytes())
+}
+
+/// Sela um bloco em claro para subir ao relay (S8 P5).
+#[wasm_bindgen(js_name = selarBloco)]
+pub fn selar_bloco(chave_hex: &str, indice: u32, dados: &[u8]) -> Result<Vec<u8>, String> {
+    Ok(seal_chunk(&chave_de_hex(chave_hex)?, indice, dados))
+}
+
+/// Constrói um manifesto bloco a bloco — ver [`ManifestBuilder`] no `core/`.
+/// Não é `Clone`/`Copy`: cada bloco só se pode empurrar uma vez, na ordem.
+#[wasm_bindgen]
+pub struct ManifestoBuilderWasm(ManifestBuilder);
+
+#[wasm_bindgen]
+impl ManifestoBuilderWasm {
+    #[wasm_bindgen(constructor)]
+    pub fn nova() -> ManifestoBuilderWasm {
+        ManifestoBuilderWasm(Manifest::builder())
+    }
+
+    pub fn push(&mut self, dados: &[u8]) {
+        self.0.push(dados);
+    }
+
+    /// Fecha o manifesto e devolve-o como JSON — pronto para selar
+    /// (`selarManifesto`) e assinar.
+    pub fn finalizar(self, nome: String) -> Result<String, String> {
+        serde_json::to_string(&self.0.finish(nome)).map_err(erro)
+    }
+}
+
+impl Default for ManifestoBuilderWasm {
+    fn default() -> Self {
+        Self::nova()
+    }
+}
+
+/// Sela o manifesto já fechado (S8 P5).
+#[wasm_bindgen(js_name = selarManifesto)]
+pub fn selar_manifesto(chave_hex: &str, manifesto_json: &str) -> Result<Vec<u8>, String> {
+    Ok(seal_manifest(&chave_de_hex(chave_hex)?, manifesto_json.as_bytes()))
+}
+
+/// Monta a [`Oferta`] completa, assinada, pronta a mandar ao relay (S8 P5).
+///
+/// Mesma forma do `depositar_em` nativo (`rede/src/relay.rs`): sela o
+/// manifesto, embrulha a chave para o destinatário, assina o manifesto
+/// selado. Devolvê-la já como JSON (via `serde_json`, não montado à mão em
+/// JavaScript) é o que garante que o formato bate certo com o que um
+/// `serde_json::from_str::<Oferta>` do outro lado espera — divergir aqui
+/// só apareceria quando alguém tentasse ler o depósito.
+///
+/// Para um "link sem instalação" (sem destinatário conhecido), quem chama
+/// passa as chaves de uma identidade gerada e deitada fora — o mesmo truque
+/// do `depositar_ligacao` nativo.
+#[wasm_bindgen(js_name = construirOferta)]
+pub fn construir_oferta(
+    remetente: &IdentidadeWasm,
+    chave_hex: &str,
+    manifesto_json: &str,
+    destinatario_verifying_hex: &str,
+    destinatario_encrypting_hex: &str,
+) -> Result<String, String> {
+    let chave = chave_de_hex(chave_hex)?;
+    let destinatario = destinatario_de(destinatario_verifying_hex, destinatario_encrypting_hex)?;
+
+    let manifesto_selado = seal_manifest(&chave, manifesto_json.as_bytes());
+    let oferta = Oferta {
+        de: remetente.interna.public(),
+        envelope: Envelope::seal(&chave, &destinatario),
+        assinatura: remetente.interna.sign(&manifesto_selado),
+        manifesto_selado,
+        // Sem ligação de volta possível a partir do browser — nunca há
+        // servidor de receção no Safari.
+        porta_resposta: 0,
+    };
+    serde_json::to_string(&oferta).map_err(erro)
 }
 
 /// Uma descida em curso: sabe o manifesto e por que bloco vai.
@@ -85,7 +261,10 @@ impl IdentidadeWasm {
 pub struct Descarga {
     chave: TransferKey,
     manifesto: Manifest,
-    de: String,
+    /// A identidade completa de quem enviou, não só a etiqueta — o S8 P5 usa
+    /// o resto (`remetenteJson`) para a página do link ensinar essa
+    /// identidade à PWA instalada, via `localStorage` (mesma origem).
+    remetente: pombo_correio_core::identity::PublicIdentity,
     proximo: u32,
 }
 
@@ -129,7 +308,7 @@ impl Descarga {
         Ok(Descarga {
             chave,
             manifesto,
-            de: oferta.de.label,
+            remetente: oferta.de,
             proximo: 0,
         })
     }
@@ -147,7 +326,16 @@ impl Descarga {
 
     /// Etiqueta de quem enviou, já com a assinatura verificada.
     pub fn de(&self) -> String {
-        self.de.clone()
+        self.remetente.label.clone()
+    }
+
+    /// A identidade completa de quem enviou (as duas chaves públicas, mais a
+    /// etiqueta), como JSON — para quem quiser guardá-la e passar a poder
+    /// depositar de volta para esta pessoa (S8 P5: é assim que a PWA aprende
+    /// o primeiro dispositivo de casa, ao abrir um link).
+    #[wasm_bindgen(js_name = remetenteJson)]
+    pub fn remetente_json(&self) -> Result<String, String> {
+        serde_json::to_string(&self.remetente).map_err(erro)
     }
 
     pub fn total(&self) -> u32 {
@@ -231,6 +419,68 @@ mod testes {
 
     fn conteudo(n: usize) -> Vec<u8> {
         (0..n).map(|i| ((i * 31 + i / 97) % 256) as u8).collect()
+    }
+
+    #[test]
+    fn o_que_o_lado_de_enviar_produz_o_lado_de_receber_le(){
+        // Interop de ponta a ponta, dentro de um só teste: as funções de
+        // envio novas (S8 P5) e a `Descarga` que já existia (S7 R5) só se
+        // encontram na rede a sério — aqui é onde se prova, sem precisar de
+        // um browser, que produzem e consomem exatamente o mesmo formato.
+        let remetente = IdentidadeWasm::gerar("iPhone da Ana".to_string());
+        let destinatario = Identity::generate("PC da sala");
+
+        let dados = conteudo(pombo_correio_core::chunk::CHUNK_SIZE + 777);
+        let chave_hex = gerar_chave_transferencia();
+
+        let mut builder = ManifestoBuilderWasm::nova();
+        let mut blocos_selados = Vec::new();
+        for (i, bloco) in dados.chunks(pombo_correio_core::chunk::CHUNK_SIZE).enumerate() {
+            builder.push(bloco);
+            blocos_selados.push(selar_bloco(&chave_hex, i as u32, bloco).unwrap());
+        }
+        let manifesto_json = builder.finalizar("ferias.jpg".to_string()).unwrap();
+
+        let dp = destinatario.public();
+        let oferta_json = construir_oferta(
+            &remetente,
+            &chave_hex,
+            &manifesto_json,
+            &hex::encode(dp.verifying),
+            &hex::encode(dp.encrypting),
+        )
+        .unwrap();
+
+        // O lado de receber não sabe que isto veio do wasm — só vê a `Oferta`
+        // JSON e a chave, exatamente como viriam de um link a sério.
+        let mut descarga = Descarga::nova(&chave_hex, &oferta_json).unwrap();
+        assert_eq!(descarga.nome(), "ferias.jpg");
+        assert_eq!(descarga.de(), "iPhone da Ana");
+        assert_eq!(descarga.tamanho(), dados.len() as f64);
+
+        let mut saida = Vec::new();
+        for selado in blocos_selados {
+            assert_eq!(descarga.proximo_tamanho() as usize, selado.len());
+            saida.extend(descarga.bloco(&selado).unwrap());
+        }
+        assert_eq!(saida, dados);
+    }
+
+    #[test]
+    fn assinar_pedido_bate_com_a_verificacao_do_relay() {
+        // O mesmo `mensagem_assinada` que o relay usa para verificar — se
+        // este teste passar sozinho mas a assinatura ainda assim não bater
+        // num pedido a sério, a divergência está no lado do relay, não aqui.
+        let eu = IdentidadeWasm::gerar("iPhone".to_string());
+        let cabecalhos: serde_json::Value =
+            serde_json::from_str(&eu.assinar_pedido("caixa", "", 1_700_000_000).unwrap()).unwrap();
+
+        let msg = mensagem_assinada("caixa", &eu.impressao_curta(), "", 1_700_000_000);
+        let assinatura: [u8; 64] = hex::decode(cabecalhos["assinatura"].as_str().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap();
+        assert!(eu.interna.public().verify(msg.as_bytes(), &assinatura).is_ok());
     }
 
     #[test]

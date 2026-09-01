@@ -213,12 +213,44 @@ async function principal() {
 
   try {
     e = await esperarQueEsteja(e);
-    mostrar(new Descarga(chave, e.oferta));
+    const d = new Descarga(chave, e.oferta);
+    mostrar(d);
+    aprenderRemetente(d);
   } catch (erro) {
     // Mensagens do WASM: chave errada, assinatura que não bate, manifesto
     // adulterado. Todas dizem o que é em português.
     falhar(String(erro.message ?? erro));
   }
+}
+
+/**
+ * Grava a identidade pública de quem criou este link em `localStorage`
+ * (S8 P5) — é assim que a PWA (`ui/`, servida pela mesma origem) aprende o
+ * primeiro dispositivo de casa a que pode depositar de volta, sem mDNS e
+ * sem uma segunda cerimónia de confiança: só abrir um link já existente.
+ *
+ * Mesma chave e formato que `ui/src/lib/wasm-backend.ts` usa — os dois lados
+ * não partilham módulo (são dois bundles servidos à parte), só o contrato.
+ * Falhar aqui nunca impede a descarga: é só menos um dispositivo lembrado.
+ */
+function aprenderRemetente(d) {
+  try {
+    const remetente = JSON.parse(d.remetenteJson());
+    const lista = JSON.parse(localStorage.getItem('pombo-conhecidos') ?? '{}');
+    lista[hex(remetente.verifying)] = {
+      nome: remetente.label,
+      verifying: hex(remetente.verifying),
+      encrypting: hex(remetente.encrypting),
+    };
+    localStorage.setItem('pombo-conhecidos', JSON.stringify(lista));
+  } catch {
+    // localStorage indisponível, ou remetenteJson por alguma razão não deu —
+    // não é motivo para a descarga, que já mostrou o botão, falhar também.
+  }
+}
+
+function hex(bytes) {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 principal();

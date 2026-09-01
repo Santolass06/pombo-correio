@@ -13,7 +13,7 @@
 //! canal é do TLS, que o relay exposto à internet leva de qualquer maneira.
 
 use axum::http::{HeaderMap, StatusCode};
-use pombo_correio_core::identity::PublicIdentity;
+use pombo_correio_core::{identity::PublicIdentity, protocolo::mensagem_assinada};
 
 /// Diferença tolerada entre o relógio de quem pede e o do relay.
 ///
@@ -55,15 +55,6 @@ fn identidade_de(hexa: &str) -> Option<PublicIdentity> {
     })
 }
 
-/// A mensagem assinada.
-///
-/// Leva a ação e os argumentos, e não só o instante: assim uma assinatura feita
-/// para listar a caixa não serve para depositar, e uma feita para um depósito
-/// não serve para outro.
-pub fn mensagem(acao: &str, impressao: &str, extra: &str, instante: u64) -> String {
-    format!("pombo-{acao}-v1|{impressao}|{extra}|{instante}")
-}
-
 /// Confirma quem está do outro lado, ou diz porquê não.
 pub fn verificar(
     cabecalhos: &HeaderMap,
@@ -91,7 +82,7 @@ pub fn verificar(
         .ok_or_else(|| recusa("assinatura em falta ou ilegível"))?;
 
     let impressao = hex::encode(quem.fingerprint())[..16].to_string();
-    quem.verify(mensagem(acao, &impressao, extra, instante).as_bytes(), &assinatura)
+    quem.verify(mensagem_assinada(acao, &impressao, extra, instante).as_bytes(), &assinatura)
         .map_err(|_| recusa("assinatura não bate"))?;
 
     Ok(Prova { impressao })
@@ -141,7 +132,7 @@ mod testes {
     fn cabecalhos(eu: &Identity, acao: &str, extra: &str, instante: u64) -> HeaderMap {
         let p = eu.public();
         let impressao = hex::encode(p.fingerprint())[..16].to_string();
-        let sig = eu.sign(mensagem(acao, &impressao, extra, instante).as_bytes());
+        let sig = eu.sign(mensagem_assinada(acao, &impressao, extra, instante).as_bytes());
 
         let mut h = HeaderMap::new();
         h.insert(

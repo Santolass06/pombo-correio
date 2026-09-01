@@ -6,12 +6,16 @@
     buscarNoRelay,
     cancelar,
     criarLigacao,
+    criarLigacaoWeb,
     dispositivos,
     eAndroid,
+    eTauri,
     enviarAndroid,
     enviarFicheiro,
+    enviarParaConhecido,
     enviarPartilhados,
     identidade,
+    impressaoDigital,
     partilhaPendente,
     tamanhoLegivel,
     type Eu,
@@ -48,6 +52,10 @@
   let ligacao = $state("");
   let aCriarLigacao = $state(false);
   let copiado = $state(false);
+  /** Só não-nulo na PWA — é lá que o relay pode recusar o primeiro depósito
+      com 403 até esta impressão entrar em `--autorizados` (S8 P5). */
+  let impressao = $state<string | null>(null);
+  let seletorFicheiro: HTMLInputElement;
 
   const emCurso = $derived(transferencias.filter((t) => t.estado === "a_correr"));
 
@@ -60,6 +68,7 @@
       procurar();
       verPartilha();
       buscarNoRelay().catch(() => {});
+      impressaoDigital().then((i) => (impressao = i));
       const off = await aoAcontecer(trata);
       if (vivo) parar.fn = off;
       else off();
@@ -186,6 +195,21 @@
     }
   }
 
+  /**
+   * Abre o seletor de ficheiros do browser e espera pela escolha.
+   *
+   * Tem de ser chamado ainda dentro do clique — sem `await` antes — senão
+   * perde-se o gesto do utilizador e o browser recusa o seletor (a mesma
+   * regra que o `showSaveFilePicker` do R5 já respeitava).
+   */
+  function escolherFicheiroWeb(): Promise<File | null> {
+    return new Promise((resolver) => {
+      seletorFicheiro.value = "";
+      seletorFicheiro.onchange = () => resolver(seletorFicheiro.files?.[0] ?? null);
+      seletorFicheiro.click();
+    });
+  }
+
   async function enviarPara(destino: Vizinho) {
     try {
       if (partilha.length > 0) {
@@ -198,6 +222,12 @@
       if (eAndroid()) {
         // O seletor abre-se do lado do Rust; devolve logo, o envio segue por eventos.
         await enviarAndroid(destino);
+        return;
+      }
+      if (!eTauri()) {
+        const ficheiro = await escolherFicheiroWeb();
+        if (!ficheiro) return;
+        await enviarParaConhecido(ficheiro, destino);
         return;
       }
       const escolhido = await open({ multiple: false, title: "O que queres enviar?" });
@@ -214,6 +244,12 @@
     ligacao = "";
     copiado = false;
     try {
+      if (!eTauri()) {
+        const ficheiro = await escolherFicheiroWeb();
+        if (!ficheiro) return;
+        ligacao = await criarLigacaoWeb(ficheiro);
+        return;
+      }
       // No Android o seletor abre-se do lado do Rust, que é onde se sabe lidar
       // com `content://`; aqui passa-se `null` e espera-se.
       let escolhido: string | null = null;
@@ -258,6 +294,11 @@
 </script>
 
 <div class="app">
+  <!-- Sem Tauri (P5): o seletor nativo não existe, isto faz as vezes dele.
+       Escondido, não `display:none` — alguns browsers recusam abrir por
+       script um seletor que nunca chegou a ganhar layout. -->
+  <input bind:this={seletorFicheiro} type="file" style="position:absolute;width:1px;height:1px;opacity:0" />
+
   <nav class="nav linha">
     <strong class="nav-brand">Pombo-Correio</strong>
     <button class="btn btn-ghost" onclick={mudarTema}>
@@ -437,6 +478,18 @@
         </p>
         <div class="numero-seguranca">{eu?.numero_seguranca ?? ""}</div>
       </div>
+
+      {#if impressao}
+        <div class="card elev-sm">
+          <div class="card-title">Impressão digital</div>
+          <p class="text-muted" style="margin:var(--space-1) 0">
+            Antes de conseguires guardar ou enviar ficheiros, alguém tem de
+            acrescentar isto ao <code>--autorizados</code> dos servidores de
+            casa — sem isso, o relay recusa este dispositivo.
+          </p>
+          <div class="numero-seguranca">{impressao}</div>
+        </div>
+      {/if}
 
       <div class="card elev-sm">
         <div class="card-title">Receção</div>

@@ -6,8 +6,8 @@
 
 use std::path::PathBuf;
 
-use pombo_correio_core::identity::Identity;
-use pombo_correio_relay::autenticado::{self, Autorizados};
+use pombo_correio_core::{identity::Identity, protocolo::mensagem_assinada};
+use pombo_correio_relay::autenticado::Autorizados;
 
 struct Temp(PathBuf);
 
@@ -53,7 +53,7 @@ fn assinar(eu: &Identity, acao: &str, extra: &str) -> reqwest::header::HeaderMap
     let p = eu.public();
     let impressao = hex::encode(p.fingerprint())[..16].to_string();
     let t = agora();
-    let sig = eu.sign(autenticado::mensagem(acao, &impressao, extra, t).as_bytes());
+    let sig = eu.sign(mensagem_assinada(acao, &impressao, extra, t).as_bytes());
 
     let mut h = reqwest::header::HeaderMap::new();
     h.insert(
@@ -305,6 +305,34 @@ async fn a_caixa_sem_assinatura_nao_se_ve() {
     let (base, _d) = relay("caixa-nua").await;
     let r = reqwest::get(format!("{base}/caixa")).await.unwrap();
     assert_eq!(r.status(), reqwest::StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pedido_de_outra_origem_recebe_cors() {
+    // S8 P5: a PWA fica servida pelo Pi; os pedidos ao A10 são de outra
+    // origem. Sem isto, o Safari bloqueia a resposta em silêncio e a HA do
+    // R4 parece funcionar até um dos nós cair.
+    let (base, _d) = relay("cors").await;
+
+    let preflight = reqwest::Client::new()
+        .request(reqwest::Method::OPTIONS, format!("{base}/caixa"))
+        .header("Origin", "https://raspberrypi.tail455bb7.ts.net")
+        .header("Access-Control-Request-Method", "GET")
+        .header("Access-Control-Request-Headers", "x-pombo-identidade,x-pombo-instante,x-pombo-assinatura")
+        .send()
+        .await
+        .unwrap();
+    assert!(preflight.status().is_success());
+    assert!(preflight.headers().contains_key("access-control-allow-origin"));
+    assert!(preflight.headers().contains_key("access-control-allow-headers"));
+
+    let resposta = reqwest::Client::new()
+        .get(format!("{base}/saude"))
+        .header("Origin", "https://raspberrypi.tail455bb7.ts.net")
+        .send()
+        .await
+        .unwrap();
+    assert!(resposta.headers().contains_key("access-control-allow-origin"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

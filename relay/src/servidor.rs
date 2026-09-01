@@ -18,6 +18,7 @@ use axum::{
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
     autenticado::{self, Autorizados},
@@ -354,6 +355,17 @@ async fn app_estatico(State(e): State<Arc<Estado>>, uri: axum::http::Uri) -> Res
     }
 }
 
+/// A PWA fica servida por um só nó (S8: `localStorage` é por origem), mas os
+/// dois nós de casa continuam ativo-ativo (R4) — a `WasmBackend` fala com os
+/// dois por `fetch()`, de outra origem. Sem CORS, o Safari bloqueia
+/// silenciosamente essas respostas: a HA degrada-se para um nó só sem erro
+/// nenhum que o diga. Largo de propósito: quem autoriza um pedido é a
+/// assinatura (`autenticado::verificar`), não o CORS — abrir aqui não abre
+/// nada que ela já não guardasse.
+fn cors() -> CorsLayer {
+    CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any)
+}
+
 /// As rotas, num sítio só — senão o servidor de testes e o a sério divergem, e a
 /// diferença aparece em produção.
 fn rotas(estado: Arc<Estado>) -> Router {
@@ -372,6 +384,7 @@ fn rotas(estado: Arc<Estado>) -> Router {
         .route("/d/{id}", get(pagina_do_link))
         .route("/pagina/{*caminho}", get(recurso_da_pagina))
         .fallback(app_estatico)
+        .layer(cors())
         .with_state(estado)
 }
 

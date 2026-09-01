@@ -156,6 +156,11 @@ impl Manifest {
         })
     }
 
+    /// Constrói um `ManifestBuilder` vazio — ver o seu próprio comentário.
+    pub fn builder() -> ManifestBuilder {
+        ManifestBuilder::default()
+    }
+
     /// Número de blocos esperado a partir do tamanho declarado.
     pub fn expected_chunks(&self) -> u32 {
         self.size.div_ceil(self.chunk_size as u64) as u32
@@ -219,12 +224,68 @@ impl Manifest {
     }
 }
 
+/// Constrói um [`Manifest`] bloco a bloco, para quando quem chama já traz os
+/// bytes em blocos e não tem um `std::io::Read` para dar ao `from_reader`.
+///
+/// É o caso do wasm da PWA (S8 P5): um `File` do browser lê-se por
+/// `file.slice(...).arrayBuffer()`, que dá exatamente um bloco de cada vez —
+/// e sem `std::io::Read` no browser, `from_reader` não serve. Aceitar blocos
+/// já prontos, em vez de reimplementar aqui a leitura, mantém o hash de cada
+/// bloco no mesmo sítio (`hash_chunk`) que o `from_reader` já usa, para as
+/// duas formas de construir um manifesto continuarem a dar a mesma raiz.
+#[derive(Default)]
+pub struct ManifestBuilder {
+    chunks: Vec<ChunkHash>,
+    size: u64,
+}
+
+impl ManifestBuilder {
+    /// Resume mais um bloco. **Pela ordem**: o índice é a posição na
+    /// sequência de chamadas, não algo que se possa saltar ou repetir — tal
+    /// como o `from_reader`, que também não admite blocos fora de ordem.
+    pub fn push(&mut self, dados: &[u8]) {
+        let indice = self.chunks.len() as u32;
+        self.chunks.push(hash_chunk(indice, dados));
+        self.size += dados.len() as u64;
+    }
+
+    /// Fecha o manifesto. Não valida `chunk_size` contra os blocos que
+    /// entraram — quem chama é responsável por lhes dar sempre o mesmo
+    /// tamanho, exceto o último; um manifesto construído com blocos
+    /// irregulares falha depois em `validate()`, não aqui.
+    pub fn finish(self, name: impl Into<String>) -> Manifest {
+        Manifest {
+            name: name.into(),
+            size: self.size,
+            chunk_size: CHUNK_SIZE as u32,
+            root: merkle_root(&self.chunks),
+            chunks: self.chunks,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn dados(n: usize) -> Vec<u8> {
         (0..n).map(|i| (i % 251) as u8).collect()
+    }
+
+    #[test]
+    fn manifesto_do_builder_reproduz_o_de_memoria() {
+        // O caminho do wasm (S8 P5) é este: se divergisse do `from_bytes`, um
+        // ficheiro enviado do iPhone teria uma raiz diferente da que o
+        // `from_reader` calcularia do outro lado, e a verificação rejeitava
+        // um ficheiro correto.
+        let d = dados(CHUNK_SIZE * 2 + 4321);
+        let esperado = Manifest::from_bytes("v.mp4", &d);
+
+        let mut b = Manifest::builder();
+        for bloco in d.chunks(CHUNK_SIZE) {
+            b.push(bloco);
+        }
+        assert_eq!(b.finish("v.mp4"), esperado);
     }
 
     #[test]

@@ -36,6 +36,22 @@ pub struct Aceite {
     pub tenho: u32,
 }
 
+/// A mensagem que se assina para provar identidade a um relay (S7 R2, S8 P5).
+///
+/// Vivia duplicada — uma cópia do lado de quem verifica
+/// (`relay::autenticado`), outra do lado de quem assina em Rust nativo
+/// (`rede::relay`) — e o wasm da PWA ia ser uma terceira. Três cópias de um
+/// formato de string é o tipo de coisa que diverge um dia sem ninguém notar,
+/// até uma assinatura deixar de bater; fica aqui, em `core/`, que todos os
+/// três já dependem.
+///
+/// A ação e os argumentos entram na mensagem, não só o instante: assim uma
+/// assinatura feita para listar a caixa não serve para depositar, e uma feita
+/// para um depósito não serve para outro.
+pub fn mensagem_assinada(acao: &str, impressao: &str, extra: &str, instante: u64) -> String {
+    format!("pombo-{acao}-v1|{impressao}|{extra}|{instante}")
+}
+
 /// O `serde` não trata arrays de 64 por omissão; passa por Vec na fronteira.
 mod sig {
     use serde::{Deserialize, Deserializer, Serializer};

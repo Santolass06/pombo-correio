@@ -11,7 +11,11 @@ import * as wasm from "./wasm-backend";
 /// `window.__TAURI_INTERNALS__` é o mesmo sinal que o `main.ts` usa para
 /// decidir se regista o service worker — dentro do Tauri não há nada disso a
 /// fazer, e aqui é o inverso: dentro do Tauri há sempre `invoke`.
-const eTauri = () => "__TAURI_INTERNALS__" in window;
+///
+/// Exportada: a interface usa-a para escolher entre o diálogo nativo e um
+/// `<input type=file>` (P5) — a mesma pergunta que aqui decide `invoke` vs.
+/// `wasm`.
+export const eTauri = () => "__TAURI_INTERNALS__" in window;
 
 export type Eu = { nome: string; numero_seguranca: string };
 
@@ -104,6 +108,22 @@ export const criarLigacao = (ficheiro: string | null) =>
 
 export const aoAcontecer = (f: (e: Evento) => void) =>
   eTauri() ? listen<Evento>("pombo", (m) => f(m.payload)) : wasm.aoAcontecer(f);
+
+/// A impressão digital de 16 dígitos hexadecimais desta identidade, ou
+/// `null` no Tauri (não há comando equivalente — o desktop/Android ainda
+/// não precisam de a mostrar). É a que entra em `--autorizados`; sem ela lá,
+/// o primeiro depósito da PWA leva 403.
+export const impressaoDigital = () => (eTauri() ? Promise.resolve(null) : wasm.impressaoDigital());
+
+/// Envia para um dispositivo de casa já conhecido — aprendido ao abrir um
+/// link criado nesse dispositivo (ver `PLANO.md`, desenho do P5). Só existe
+/// na PWA: no Tauri o envio segue por `enviarFicheiro`/`enviarAndroid`.
+export const enviarParaConhecido = (ficheiro: File, destino: Vizinho) =>
+  wasm.enviarParaConhecido(ficheiro, destino);
+
+/// Cria um link a partir de um `File` do browser — o equivalente PWA de
+/// `criarLigacao`.
+export const criarLigacaoWeb = (ficheiro: File) => wasm.criarLigacaoWeb(ficheiro);
 
 /// Tamanhos em unidades que uma pessoa lê sem contar zeros.
 export function tamanhoLegivel(bytes: number): string {

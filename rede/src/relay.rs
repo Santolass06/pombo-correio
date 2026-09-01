@@ -15,6 +15,7 @@ use pombo_correio_core::{
     chunk::Manifest,
     crypto::{Envelope, SEAL_OVERHEAD, TransferKey, open_manifest, seal_manifest},
     identity::{Identity, PublicIdentity},
+    protocolo::mensagem_assinada,
 };
 use tokio::io::AsyncSeekExt;
 
@@ -95,10 +96,7 @@ fn assinado(eu: &Identity, acao: &str, extra: &str) -> reqwest::header::HeaderMa
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let msg = format!(
-        "pombo-{acao}-v1|{}|{extra}|{instante}",
-        impressao_curta(&p)
-    );
+    let msg = mensagem_assinada(acao, &impressao_curta(&p), extra, instante);
 
     let mut h = reqwest::header::HeaderMap::new();
     let ident = format!("{}{}", hex::encode(p.verifying), hex::encode(p.encrypting));
