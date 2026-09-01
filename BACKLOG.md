@@ -1743,3 +1743,33 @@ concorrentes do mesmo depósito — revisto por leitura, não por uma corrida
 provocada a sério (para isso seria preciso atrasar deliberadamente uma
 resposta e forçar dois `buscarNoRelay()` a sobrepor-se, o que a mesma
 limitação do `page.route()` acima também impediria de fazer de forma limpa).
+
+### Q3 — Limitador de débito: o sintoma apontava para a causa errada
+
+O `tower_governor` com `PeerIpKeyExtractor` precisa do `ConnectInfo<SocketAddr>`
+nas extensões do pedido — só lá chega com
+`.into_make_service_with_connect_info::<SocketAddr>()` a substituir o
+`Router` nu passado a `axum::serve`. Há **dois** sítios a chamar
+`axum::serve` no `servidor.rs`: o de produção (`servir()`) e o dos testes
+(`servir_em_porta_livre_com_pagina_e_app()`, usado por praticamente toda a
+suite). Mudei só o primeiro.
+
+O resultado, a correr `cargo test -p pombo-correio-relay`: 5 dos 51 testes
+a falhar, todos os que tocam `/saude`, `/vapid` ou `/d/{id}` — mas cada um
+com **um só pedido**, bem dentro da rajada de 5 configurada. A leitura óbvia
+("o limite ficou baixo demais para os testes") estava errada: sem
+`ConnectInfo`, o `PeerIpKeyExtractor` falha a extrair uma chave para
+**qualquer** pedido, e o `tower_governor` recusa em vez de deixar passar —
+por isso até o primeiro pedido de cada teste rebentava, não só o sexto em
+diante. Confirmado a correr um teste falhado **sozinho**, isolado de
+qualquer possível partilha de estado com os outros: falhava igual, o que
+eliminou de vez a hipótese de contenção entre testes e apontou para a
+configuração do próprio extrator.
+
+**Lição:** quando um limite/contador só devia disparar a partir do N-ésimo
+pedido mas dispara logo no primeiro, o problema quase nunca é o número —
+é a coisa que alimenta o contador (aqui, a chave de extração) a vir vazia
+ou errada. Isolar a MENOR reprodução possível (um teste sozinho, sem os
+outros 50 a correr) foi o que distinguiu "estado a vazar entre testes" de
+"o extrator está mal configurado" — duas causas com o mesmo sintoma
+agregado, mas comportamentos diferentes em isolamento.

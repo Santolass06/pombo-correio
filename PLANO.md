@@ -1033,11 +1033,31 @@ arrancar já; as outras três dependem de uma decisão ou conta do André. Ver
       4 s a apanhá-lo, descarga e `DELETE` automático, como antes desta
       fase. **Não testado ao vivo**: o `Set` `emCurso` (revisto por leitura,
       não por uma corrida provocada a sério).
-- [ ] **Q3 — Limitador de débito (Review0 F-02 / Review2 F-09).**
-      `tower_governor` sobre o `axum` do relay, nas rotas públicas não
-      autenticadas (`/saude`, `/vapid`, `GET /d/{id}`). Testável já em
-      loopback, sem esperar pelo Q4 — mas só ganha sentido a sério quando o
-      relay for alcançável de fora da tailnet.
+- [x] **Q3 — Limitador de débito (Review0 F-02 / Review2 F-09).**
+      `tower_governor` sobre um sub-`Router` só com as rotas públicas sem
+      assinatura nenhuma (`/saude`, `/vapid`, `GET /d/{id}`) — as outras já
+      custam uma identidade Ed25519 gerada, não um pedido HTTP, por isso
+      ficam de fora. Chave por IP do TCP (`PeerIpKeyExtractor`), não por
+      `X-Forwarded-For`: não há proxy nenhum entre o cliente e o relay,
+      nem antes nem depois do Q4. `ponytail:` 5 de rajada, 1/s a reencher —
+      números de partida, por afinar quando o Q4 puser o relay mesmo
+      alcançável de fora da tailnet.
+
+      **Armadilha encontrada a testar, não hipotética:** `PeerIpKeyExtractor`
+      precisa do IP real do TCP, que só chega ao `axum` com
+      `into_make_service_with_connect_info::<SocketAddr>()` em vez do
+      `Router` nu. Mudei o `axum::serve` de produção (`servir()`) mas
+      esqueci o dos testes (`servir_em_porta_livre_com_pagina_e_app`) — sem
+      o `ConnectInfo`, o extrator falha a **todos** os pedidos, não só aos
+      que excedem o limite: 5 dos 51 testes do `relay` começaram a falhar,
+      todos os que tocam em `/saude`/`/vapid`/`/d/{id}`, um só pedido cada,
+      bem dentro da rajada de 5 — o sintoma certo apontava para a causa
+      errada (parecia "o limite é baixo demais", era "o extrator nunca
+      encontra o IP"). Corrigido nos dois sítios; os 51 testes voltaram a
+      passar, mais dois novos (`rajada_no_saude_acaba_por_levar_429`,
+      `a_mesma_rajada_nao_atinge_uma_rota_autenticada`, este último a provar
+      que martelar `/saude` não arrasta `/caixa` com ele). `cargo clippy -p
+      pombo-correio-relay --all-targets`: zero avisos.
 - [ ] **Q4 — DDNS pública (DuckDNS).** Expor o relay a quem não tem
       Tailscale instalado. Bloqueado no token do André (ver "Antes do S9").
       Entra depois ou junto do Q3 — nunca antes, para não abrir a porta sem

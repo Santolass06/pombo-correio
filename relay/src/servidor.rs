@@ -18,6 +18,7 @@ use axum::{
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
@@ -420,11 +421,38 @@ fn cors() -> CorsLayer {
     CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any)
 }
 
+/// Limite de débito por IP — só nas rotas públicas sem autenticação nenhuma
+/// (`/saude`, `/vapid`, `GET /d/{id}`): as outras já exigem uma assinatura
+/// Ed25519 válida, que custa uma identidade gerada, não um pedido HTTP
+/// (Review0 F-02 / Review2 F-09). Chave por IP do TCP, não por
+/// `X-Forwarded-For` — não há proxy nenhum entre o cliente e o relay, nem
+/// aqui nem depois do Q4 (DDNS aponta direto para esta porta).
+///
+/// `ponytail:` 5 pedidos de rajada, 1/s a reencher — números de partida,
+/// nunca medidos contra tráfego a sério. Afinar quando o Q4 puser o relay
+/// mesmo alcançável de fora da tailnet.
+fn rotas_publicas() -> Router<Arc<Estado>> {
+    let limite = Arc::new(
+        GovernorConfigBuilder::default()
+            .key_extractor(PeerIpKeyExtractor)
+            .per_second(1)
+            .burst_size(5)
+            .finish()
+            .expect("configuração do limitador de débito é estática e válida"),
+    );
+
+    Router::new()
+        .route("/saude", get(saude))
+        .route("/vapid", get(vapid_publica))
+        .route("/d/{id}", get(pagina_do_link))
+        .layer(GovernorLayer::new(limite))
+}
+
 /// As rotas, num sítio só — senão o servidor de testes e o a sério divergem, e a
 /// diferença aparece em produção.
 fn rotas(estado: Arc<Estado>) -> Router {
     Router::new()
-        .route("/saude", get(saude))
+        .merge(rotas_publicas())
         .route("/deposito", post(criar))
         // Os três métodos do mesmo caminho vão juntos: registá-lo duas vezes faz
         // o axum entrar em pânico ao arrancar.
@@ -434,10 +462,9 @@ fn rotas(estado: Arc<Estado>) -> Router {
         )
         .route("/deposito/{id}/blocos", get(descer))
         .route("/caixa", get(caixa))
-        .route("/vapid", get(vapid_publica))
         .route("/subscricao", post(subscrever))
-        // O link sem instalação: a página, e o que ela precisa de carregar.
-        .route("/d/{id}", get(pagina_do_link))
+        // O link sem instalação: o que a página precisa de carregar (o `/d/{id}`
+        // em si já vai em `rotas_publicas`, com o limitador).
         .route("/pagina/{*caminho}", get(recurso_da_pagina))
         .fallback(app_estatico)
         .layer(cors())
@@ -489,7 +516,13 @@ pub async fn servir(
 
     let escuta = tokio::net::TcpListener::bind(("0.0.0.0", porta)).await?;
     eprintln!("pombo-relay à escuta na porta {}", escuta.local_addr()?.port());
-    axum::serve(escuta, rotas(estado)).await?;
+    // `with_connect_info`: o limitador de débito (Q3) precisa do IP real do
+    // TCP, não só do que os cabeçalhos dizem.
+    axum::serve(
+        escuta,
+        rotas(estado).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -523,7 +556,11 @@ pub async fn servir_em_porta_livre_com_pagina_e_app(
     let escuta = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
     let endereco = escuta.local_addr()?;
     let tarefa = tokio::spawn(async move {
-        let _ = axum::serve(escuta, rotas(estado)).await;
+        let _ = axum::serve(
+            escuta,
+            rotas(estado).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await;
     });
     Ok((endereco, tarefa))
 }

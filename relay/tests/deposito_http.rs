@@ -336,6 +336,39 @@ async fn pedido_de_outra_origem_recebe_cors() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rajada_no_saude_acaba_por_levar_429() {
+    // S9 Q3 (Review0 F-02 / Review2 F-09): sem assinatura nenhuma a proteger
+    // `/saude`, é a única coisa a impedir alguém de o martelar sem limite.
+    let (base, _d) = relay("debito").await;
+    let cliente = reqwest::Client::new();
+
+    let mut algum_429 = false;
+    for _ in 0..10 {
+        let r = cliente.get(format!("{base}/saude")).send().await.unwrap();
+        if r.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            algum_429 = true;
+        }
+    }
+    assert!(algum_429, "10 pedidos seguidos deviam ter esbarrado no limite");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_mesma_rajada_nao_atinge_uma_rota_autenticada() {
+    // O limitador só cobre as rotas públicas (Q3) — `/caixa` já exige
+    // assinatura Ed25519, que já custa uma identidade gerada, não um pedido
+    // HTTP. Martelar `/saude` não pode travar `/caixa`.
+    let (base, _d) = relay("debito-outra-rota").await;
+    let cliente = reqwest::Client::new();
+
+    for _ in 0..10 {
+        let _ = cliente.get(format!("{base}/saude")).send().await.unwrap();
+    }
+
+    let r = reqwest::get(format!("{base}/caixa")).await.unwrap();
+    assert_eq!(r.status(), reqwest::StatusCode::UNAUTHORIZED); // não 429
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn depositar_sem_assinatura_nao_da()  {
     let (base, _d) = relay("dep-nu").await;
     let r = reqwest::Client::new()
