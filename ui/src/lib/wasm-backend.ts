@@ -156,12 +156,8 @@ export const listarDispositivos = async (): Promise<Vizinho[]> =>
     impressao: null,
   }));
 
-/** Nada corre ainda em wasm que se possa cancelar — P3/P4 mudam isto. */
+/** Nada corre ainda em wasm que se possa cancelar — P4 muda isto (a subida do P5 já corre até ao fim). */
 export const cancelar = async (_id: string): Promise<void> => {};
-
-export const buscarNoRelay = async (): Promise<number> => {
-  throw new Error("a caixa do relay ainda não está ligada nesta versão — chega no P3");
-};
 
 type Ouvinte = (e: Evento) => void;
 const ouvintes = new Set<Ouvinte>();
@@ -350,4 +346,147 @@ export async function criarLigacaoWeb(ficheiro: File): Promise<string> {
   );
 
   return `${relayDeCasa()}/d/${idRelay}#${chaveHex}`;
+}
+
+// --- P3: receber pelo relay ao abrir a app -----------------------------
+
+/**
+ * Acima disto, juntar tudo em memória arrisca a aba (sem `showSaveFilePicker`
+ * fiável — mesma limitação que o R5 já tinha). Mesmo número do `pagina.js`,
+ * por consistência; **não medido num iPhone real**, ver o desenho do P3 no
+ * PLANO.md.
+ */
+const LIMITE_MEMORIA = 500 * 1024 * 1024;
+
+interface EstadoDeposito {
+  oferta: string;
+  bytes: number;
+  tamanho: number;
+  completo: boolean;
+}
+
+/** Dispara a gravação de um `Blob` sem depender de um clique — chamado ao abrir a app, não a um gesto do utilizador. */
+function descarregarBlob(blob: Blob, nome: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nome;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+async function cabecalhosAssinados(acao: string, extra: string): Promise<HeadersInit> {
+  const agora = BigInt(Math.floor(Date.now() / 1000));
+  const cab: CabecalhosAssinados = JSON.parse(identidadeAtual!.assinarPedido(acao, extra, agora));
+  return {
+    "x-pombo-identidade": cab.identidade,
+    "x-pombo-instante": cab.instante,
+    "x-pombo-assinatura": cab.assinatura,
+  };
+}
+
+/**
+ * Traz um depósito completo da caixa. Devolve `true` se o ficheiro chegou.
+ *
+ * `ponytail:` sem retoma — uma queda de rede a meio falha o depósito
+ * inteiro; a próxima `buscarNoRelay()` tenta-o de novo do byte 0. Mesma nota
+ * do P5: o relay já suporta `Range`, falta o lado do browser voltar a pedir.
+ */
+async function trazer(base: string, idRelay: string): Promise<boolean> {
+  const m = await carregarWasm();
+  const remetente = identidadeAtual!;
+
+  const e: EstadoDeposito = await (await fetch(`${base}/deposito/${idRelay}`)).json();
+  if (!e.completo) return false; // ainda a subir — fica para a próxima
+
+  const d = m.Descarga.daCaixa(remetente, e.oferta);
+  const total = d.total();
+
+  if (d.tamanho() > LIMITE_MEMORIA) {
+    emitir({
+      tipo: "falhou",
+      id: "",
+      erro: `${d.nome()} é grande demais para este browser guardar (mais de ${Math.round(LIMITE_MEMORIA / 1e6)} MB) — abre-o num computador.`,
+    });
+    return false;
+  }
+
+  const lista = lerConhecidos();
+  const remetenteJson = JSON.parse(d.remetenteJson()) as { verifying: number[]; encrypting: number[]; label: string };
+  const impressaoRemetente = hexDe(remetenteJson.verifying);
+  const novo = !(impressaoRemetente in lista);
+  // Reciprocidade: quem nos depositou algo já nos ensinou a sua identidade —
+  // não é preciso esperar por um link para o conhecer também neste sentido.
+  aprenderConhecido({ nome: remetenteJson.label, verifying: impressaoRemetente, encrypting: hexDe(remetenteJson.encrypting) });
+
+  const id = crypto.randomUUID();
+  emitir({
+    tipo: "oferta",
+    id,
+    de: d.de(),
+    numero_seguranca: "",
+    ficheiro: d.nome(),
+    tamanho: d.tamanho(),
+    novo,
+    nome_anterior: null,
+    retoma: 0,
+    total,
+  });
+
+  try {
+    const resposta = await fetch(`${base}/deposito/${idRelay}/blocos`);
+    if (!resposta.ok || !resposta.body) throw new Error(`o relay respondeu ${resposta.status}`);
+
+    const leitor = resposta.body.getReader();
+    let buffer = new Uint8Array(0);
+    const partes: Uint8Array[] = [];
+
+    for (let feitos = 0; ; feitos++) {
+      const preciso = d.proximo_tamanho();
+      if (preciso === 0) break;
+
+      while (buffer.length < preciso) {
+        const { done, value } = await leitor.read();
+        if (done) throw new Error("a ligação ao relay caiu — continua da próxima vez");
+        const junto = new Uint8Array(buffer.length + value.length);
+        junto.set(buffer);
+        junto.set(value, buffer.length);
+        buffer = junto;
+      }
+
+      partes.push(d.bloco(buffer.subarray(0, preciso)));
+      buffer = buffer.slice(preciso);
+      emitir({ tipo: "progresso", id, feitos: feitos + 1, total, bytes: 0, bytes_por_seg: 0 });
+    }
+
+    descarregarBlob(new Blob(partes as BlobPart[]), d.nome());
+    emitir({ tipo: "recebido", id, caminho: d.nome() });
+
+    // Só se apaga depois de o ficheiro estar gravado — apagar antes trocaria
+    // uma falha recuperável (voltar a descarregar) por perda, mesma razão do
+    // `trazer()` nativo.
+    await fetch(`${base}/deposito/${idRelay}`, { method: "DELETE" });
+    return true;
+  } catch (erro) {
+    emitir({ tipo: "falhou", id, erro: String((erro as Error).message ?? erro) });
+    return false;
+  }
+}
+
+/** Vai ver ao relay de casa se chegou coisa. Devolve quantos ficheiros chegaram. */
+export async function buscarNoRelay(): Promise<number> {
+  await obterIdentidade();
+  const base = relayDeCasa();
+
+  const respCaixa = await fetch(`${base}/caixa`, { headers: await cabecalhosAssinados("caixa", "") });
+  if (!respCaixa.ok) throw new Error(`não consegui falar com o relay: ${respCaixa.status}`);
+  const ids: string[] = await respCaixa.json();
+
+  let chegaram = 0;
+  for (const idRelay of ids) {
+    // Um depósito estragado não pode impedir os outros de chegar — mesma
+    // regra do `buscar()` nativo.
+    if (await trazer(base, idRelay).catch(() => false)) chegaram++;
+  }
+  return chegaram;
 }

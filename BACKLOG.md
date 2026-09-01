@@ -1385,4 +1385,78 @@ com uma segunda consequência se for "não" — sem partilha, "aprender um
 conhecido ao abrir um link" não chega à app instalada, e o P5 fica sem
 destino possível até se desenhar outra via.
 
+### P3 — Receber pelo relay ao abrir a app
+
+**`Descarga` ganhou um segundo construtor em vez de um struct novo — a
+sugestão do `advisor()` na primeira chamada da sessão, confirmada a valer
+a pena ao escrever o código.** `daCaixa` só difere de `nova` em como se
+chega à `chave` (abrir o envelope com a identidade do dispositivo, não
+decifrar com uma chave vinda de um fragmento de URL); o resto —
+verificação da assinatura, abertura e validação do manifesto, a leitura
+bloco a bloco com o índice como AAD — é código do S7 que não mudou uma
+linha. A extração ficou limpa: `verificar()` sai para fora dos dois
+construtores (evitar verificar a assinatura duas vezes no caminho do
+`daCaixa`, que precisa dela **antes** de abrir o envelope), e
+`de_oferta_e_chave()` é a cauda partilhada.
+
+**Dois testes novos, e um deles é o que mais interessa preservar:**
+`da_caixa_recusa_um_envelope_que_nao_e_para_esta_identidade` prova que um
+depósito endereçado a outra identidade não abre só por aparecer na caixa
+errada — é o caso central de segurança desta fase, e correu sem precisar
+de um relay a sério.
+
+**Reciprocidade acrescentada sem pedir no plano, porque o código já
+estava ali:** `trazer()` do lado wasm (a função interna `trazer` em
+`wasm-backend.ts`) aprende a identidade de quem depositou, tal como
+`pagina.js` aprende a de quem criou um link. Depois de uma troca em
+qualquer sentido, os dois lados já se conhecem — não é preciso abrir um
+link nos dois sentidos.
+
+**Limite de memória com falha explícita, não silenciosa.** Acima de
+500 MB (o mesmo número do `pagina.js`), `buscarNoRelay()` nem tenta — emite
+`falhou` com uma mensagem que diz porquê, antes de pedir um único byte.
+Sem isto, o comportamento seria "junta tudo em memória e reza", que é
+exatamente o que o P1/P5 já evitaram nos outros caminhos.
+
+**O proxy de streaming por service worker (para lá dos 500 MB) ficou de
+fora desta fase — decisão registada no PLANO.md, não esquecimento.** O
+próprio texto do S8 já dizia que o limiar exato só se mede num iPhone a
+sério; construir o proxy sem poder validar o número não provava nada a
+mais, só adicionava uma peça sem teste real possível ainda.
+
+**Provado de ponta a ponta com processos a sério, incluindo o sentido
+contrário do teste do P5:**
+
+```
+$ pombo-relay --dados … --app ui/dist --pagina pagina/www --porta 18100 &
+$ pombo --dados ~/desktop ligacao ficheiro-para-pwa.txt   # prepara o link
+# Chromium abre o link → pombo-conhecidos aprende o desktop
+# Chromium: PWA envia um ficheiro ao desktop (como no P5) →
+$ pombo --dados ~/desktop caixa    # aprende a PWA em conhecidos.json
+$ pombo --dados ~/desktop enviar ficheiro-para-pwa.txt <impressão da PWA>
+  → "O destino não responde — a deixar no relay."
+  → "Guardado no relay — chega a Navegador quando ele abrir a app."
+# Chromium recarrega a app (não um clique — abrir a app, como o desenho
+# pede) → onMount chama buscarNoRelay() sozinho:
+  GET /caixa → 200
+  GET /deposito/{id} → 200 (completo)
+  GET /deposito/{id}/blocos → 200
+  DELETE /deposito/{id} → 204        (limpeza só depois de gravado)
+  # download disparado por script, sem clique — o Playwright apanhou-o:
+  "Downloaded file ficheiro-para-pwa.txt"
+$ sha256sum ficheiro-para-pwa.txt(original) ficheiro-para-pwa.txt(descarregado)
+  → hashes idênticos
+```
+
+Sem aviso de "dispositivo novo" no ecrã de receção — correto, porque a
+PWA já conhecia o desktop desde o passo do link, exatamente o
+comportamento que `conhecidos.json`/`pombo-conhecidos` prometem.
+
+**Por confirmar no iPhone real:** o limite de memória exato (o 500 MB é
+herdado do `pagina.js`, nunca medido num aparelho a sério), e se um
+download disparado por script — sem um clique fresco do utilizador —
+passa no Safari como passou no Chromium. Esta segunda incerteza é nova
+desta fase e pode obrigar a repensar `descarregarBlob()` se o Safari o
+bloquear silenciosamente.
+
 ---

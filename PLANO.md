@@ -637,17 +637,52 @@ que Chromium esconde coisas, como o `showSaveFilePicker`).
       sugere que sim mas isso só se decide depois de testado. Mostrar a
       impressão digital (`impressaoCurta()`) em destaque na interface fica
       para o P5, que é quando ela passa a ser precisa (`--autorizados`).
-- [ ] **P3 — Receber pelo relay ao abrir a app.** Equivalente ao
+**Desenho do P3, antes de mexer (regra 8):**
+
+- **`Descarga` ganha um segundo construtor, não um struct novo.** O de
+  sempre (`nova`) abre o envelope com a `TransferKey` do fragmento do URL;
+  o da caixa (`daCaixa`) abre-o com a `Identity` do dispositivo
+  (`Envelope::open`). Os dois chegam ao mesmo sítio — um `Descarga` com o
+  manifesto validado — e daí para a frente é o código que o R5 já tem e já
+  testa (`bloco`, `proximo_tamanho`, o índice como AAD): sem isto duplicava-
+  -se a lógica de abrir blocos, que é a parte que mais importa não errar.
+- **Igual ao `trazer()` nativo, minus a escrita em disco.** Consulta
+  `/caixa` (assinado), para cada id por completar salta (`trazer()` também
+  salta — "um depósito que ainda esteja a subir fica para a próxima"),
+  descarrega `/deposito/{id}/blocos`, decifra bloco a bloco.
+- **Memória, com um limite explícito, não "até rebentar".** Sem
+  `showSaveFilePicker` fiável (é o mesmo R5 que já sabia disto), os blocos
+  decifrados juntam-se num `Blob`. Um ficheiro maior do que
+  `LIMITE_MEMORIA` (o mesmo número do `pagina.js`, 500 MB, por
+  consistência — **não medido em iPhone real**) não se tenta: falha com uma
+  mensagem clara em vez de arriscar a aba. O proxy de streaming por
+  service worker (para lá desse limite) fica de fora desta fase — o
+  próprio texto do S8 já dizia que o limiar certo só se mede no aparelho a
+  sério, e construir o proxy sem poder validar o número não prova nada a
+  mais; entra se/quando um ficheiro real do tamanho de um vídeo do iPhone
+  mostrar que faz falta.
+- **Descarregar sem gesto de clique.** `buscarNoRelay()` corre ao abrir a
+  app (não a um clique) — um `<a download>` disparado por script chega para
+  gravar o ficheiro, mas não é `showSaveFilePicker` e por isso não pede
+  onde guardar. **Por confirmar no iPhone real:** se o Safari deixa um
+  download disparado por script (fora de um clique) passar sem bloquear.
+- **Pré-mortem, uma linha:** se a descida cair a meio, o depósito fica
+  incompleto no relay (não se apaga) e a próxima `buscarNoRelay()` tenta-o
+  de novo do princípio — sem retoma nesta fase, pela mesma razão do P5
+  (`ponytail`, mesma nota).
+
+- [x] **P3 — Receber pelo relay ao abrir a app.** Equivalente ao
       `buscarNoRelay()` do Android, em wasm+`fetch()`: consulta `/caixa`,
-      decifra e verifica com o `core/`. **A gravação não pode ser só "cai
-      para memória" como no R5** — o Safari do iOS mata a aba quando um
-      `Blob`/`ArrayBuffer` em memória cresce demais (a ordem de grandeza
-      exata fica por medir no aparelho real, não por confiar num número lido
-      algures). Para ficheiros pequenos, `Blob` + link `download` chega; para
-      grandes, o service worker do P1 serve de proxy de streaming — a página
-      pede um URL sintético e o worker devolve um `ReadableStream` alimentado
-      pelos blocos que o wasm vai decifrando. O caso central do pedido
-      original — a mãe abre a app e o que estava à espera aparece.
+      decifra e verifica com o `core/` (`Descarga.daCaixa`, que reutiliza
+      toda a verificação por bloco do R5). Ficheiros até 500 MB juntam-se
+      num `Blob` e descarregam-se sozinhos (`<a download>` clicado por
+      script); acima disso falha com aviso em vez de arriscar a aba —
+      **o proxy de streaming por service worker fica de fora**, por decisão
+      registada acima, não por esquecimento. **Provado em
+      Chromium/loopback**, processos a sério (relay, `pombo enviar` nativo,
+      PWA a receber por `buscarNoRelay()`), byte a byte idêntico.
+      **Por confirmar no iPhone real:** o limite de memória exato e se um
+      download disparado por script (sem clique) passa no Safari.
 - [ ] **P4 — Push.** Service worker subscreve Web Push (VAPID), o relay
       guarda a subscrição e avisa quando há depósito novo. **`PushManager` só
       existe depois de a PWA estar instalada no ecrã principal** (iOS

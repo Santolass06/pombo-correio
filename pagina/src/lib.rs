@@ -292,16 +292,43 @@ impl Descarga {
             .try_into()
             .map_err(|_| "a chave do link não tem 32 bytes".to_string())?;
         let chave = TransferKey::from_bytes(bytes);
-
         let oferta: Oferta = serde_json::from_str(oferta_json).map_err(erro)?;
+        Self::verificar(&oferta)?;
+        Self::de_oferta_e_chave(oferta, chave)
+    }
 
+    /// Prepara a descida a partir da caixa do relay (S8 P3) — o equivalente
+    /// ao `trazer()` nativo (`rede/src/relay.rs`), até este ponto: aqui a
+    /// chave não vem de um fragmento de URL, vem de abrir o envelope com a
+    /// **identidade do dispositivo**, porque é a ele que o depósito está
+    /// endereçado. Dali para a frente é o mesmo `Descarga` de sempre — as
+    /// mesmas verificações por bloco, os mesmos testes.
+    #[wasm_bindgen(js_name = daCaixa)]
+    pub fn da_caixa(remetente: &IdentidadeWasm, oferta_json: &str) -> Result<Descarga, String> {
+        let oferta: Oferta = serde_json::from_str(oferta_json).map_err(erro)?;
+        // Autenticar antes de abrir seja o que for — mesma ordem do `nova` e
+        // do `trazer()` nativo: sem isto estaríamos a decifrar o envelope de
+        // material de qualquer um.
+        Self::verificar(&oferta)?;
+        let chave = oferta
+            .envelope
+            .open(&remetente.interna)
+            .map_err(|_| "este depósito não é para mim".to_string())?;
+        Self::de_oferta_e_chave(oferta, chave)
+    }
+
+    fn verificar(oferta: &Oferta) -> Result<(), String> {
         oferta
             .de
             .verify(&oferta.manifesto_selado, &oferta.assinatura)
-            .map_err(|_| "a assinatura de quem enviou não bate certo".to_string())?;
+            .map_err(|_| "a assinatura de quem enviou não bate certo".to_string())
+    }
 
+    /// A parte partilhada pelos dois construtores, já com a assinatura
+    /// verificada e a `chave` em mãos — só muda como se chegou a ela.
+    fn de_oferta_e_chave(oferta: Oferta, chave: TransferKey) -> Result<Descarga, String> {
         let bruto = open_manifest(&chave, &oferta.manifesto_selado)
-            .map_err(|_| "a chave deste link não abre este ficheiro".to_string())?;
+            .map_err(|_| "a chave deste depósito não abre este ficheiro".to_string())?;
         let manifesto: Manifest = serde_json::from_slice(&bruto).map_err(erro)?;
         manifesto.validate().map_err(erro)?;
 
@@ -464,6 +491,59 @@ mod testes {
             saida.extend(descarga.bloco(&selado).unwrap());
         }
         assert_eq!(saida, dados);
+    }
+
+    #[test]
+    fn da_caixa_abre_com_a_identidade_em_vez_da_chave_do_link() {
+        // S8 P3, sentido contrário do teste acima: um PC de casa deposita
+        // (endereçado à PWA a sério, não a um "ninguém" de link), e a PWA
+        // abre-o com a própria identidade — não com nenhuma chave que tenha
+        // vindo de um URL, porque não há URL nenhum neste caminho.
+        let remetente = Identity::generate("PC da sala");
+        let destinatario = IdentidadeWasm::gerar("iPhone da Ana".to_string());
+
+        let dados = conteudo(5000);
+        let manifesto = Manifest::from_bytes("nota.pdf", &dados);
+        let chave = TransferKey::generate();
+        let manifesto_selado = seal_manifest(&chave, &serde_json::to_vec(&manifesto).unwrap());
+        let dp: PublicIdentity = serde_json::from_str(&destinatario.publica_json().unwrap()).unwrap();
+
+        let oferta = Oferta {
+            de: remetente.public(),
+            envelope: Envelope::seal(&chave, &dp),
+            assinatura: remetente.sign(&manifesto_selado),
+            manifesto_selado,
+            porta_resposta: 0,
+        };
+        let oferta_json = serde_json::to_string(&oferta).unwrap();
+
+        let mut descarga = Descarga::da_caixa(&destinatario, &oferta_json).unwrap();
+        assert_eq!(descarga.nome(), "nota.pdf");
+        assert_eq!(descarga.de(), "PC da sala");
+
+        let selado = seal_chunk(&chave, 0, &dados);
+        assert_eq!(descarga.bloco(&selado).unwrap(), dados);
+    }
+
+    #[test]
+    fn da_caixa_recusa_um_envelope_que_nao_e_para_esta_identidade() {
+        // O caso central de segurança do P3: um depósito endereçado a outra
+        // pessoa não pode abrir só porque calhou de aparecer na caixa errada.
+        let remetente = Identity::generate("PC da sala");
+        let outro = Identity::generate("outro dispositivo qualquer");
+        let eu = IdentidadeWasm::gerar("iPhone da Ana".to_string());
+
+        let chave = TransferKey::generate();
+        let manifesto_selado = seal_manifest(&chave, b"{}");
+        let oferta = Oferta {
+            de: remetente.public(),
+            envelope: Envelope::seal(&chave, &outro.public()),
+            assinatura: remetente.sign(&manifesto_selado),
+            manifesto_selado,
+            porta_resposta: 0,
+        };
+
+        assert!(Descarga::da_caixa(&eu, &serde_json::to_string(&oferta).unwrap()).is_err());
     }
 
     #[test]
