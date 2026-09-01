@@ -209,3 +209,48 @@ async fn aprender_as_chaves_nao_cala_o_aviso_de_dispositivo_novo() {
         "o aviso de dispositivo novo não apareceu — saber as chaves de alguém passou a valer por o ter recebido"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn receber_ja_ensina_a_chave_de_quem_nunca_recebeu_de_nos() {
+    // Parecia um buraco por fechar (ficou escrito assim no PLANO.md, a
+    // acompanhar o teste do Android) mas não é: `chaves_para` já consulta o
+    // `conhecidos.json`, e esse ficheiro já é escrito, incondicional, em
+    // qualquer oferta assinada que se receba — antes mesmo deste teste
+    // existir. Confirmado ao tentar "corrigir": comentar a escrita extra em
+    // `vistos.json` que ia acrescentar aqui não fez este teste falhar. Fica o
+    // teste, sem o código morto, a proteger o comportamento real.
+    let casa_minha = Temp::nova("so-recebe");
+    let casa_dele = Temp::nova("so-envia");
+
+    let (minha_porta, _) = recetor_de_pe(&casa_minha, "eu", pombo_correio_rede::silencio()).await;
+
+    let eu_quem_envia = Identity::generate("Tablet");
+    let a_chave_dele = eu_quem_envia.public();
+    let curta_dele = hex::encode(a_chave_dele.fingerprint())[..16].to_string();
+
+    // Antes de ele me enviar nada, não sei as chaves dele.
+    assert!(
+        conhecidos::chaves_para(&casa_minha.0, &curta_dele).is_none(),
+        "já sabia as chaves de alguém com quem nunca falou"
+    );
+
+    let origem = casa_dele.0.join("z.bin");
+    std::fs::write(&origem, vec![7u8; 200_000]).unwrap();
+    enviar::enviar(
+        &eu_quem_envia,
+        &origem,
+        format!("127.0.0.1:{minha_porta}").parse().unwrap(),
+        pombo_correio_rede::silencio(),
+        Default::default(),
+        &Metricas::desligada(),
+        0,
+        Some(&casa_dele.0),
+    )
+    .await
+    .unwrap();
+
+    // Nunca lhe enviei nada — só recebi. Ainda assim, tenho de saber a chave.
+    let aprendida = conhecidos::chaves_para(&casa_minha.0, &curta_dele)
+        .expect("não aprendeu a chave de quem só me enviou, nunca recebeu");
+    assert_eq!(aprendida, a_chave_dele);
+}

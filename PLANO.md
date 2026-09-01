@@ -389,6 +389,40 @@ app — e não a camada testada. Foi preciso olhar para os ficheiros em disco de
 máquinas a sério para dar por isso. *Testar a camada onde a lógica vive não chega
 quando o comportamento errado está na de cima.*
 
+#### O "buraco" da secção do Android, revisitado — já estava fechado
+
+A secção do S7/Android (mais abaixo) descrevia isto como um problema em
+aberto: *só se consegue depositar para quem já nos enviou algo*, e "quem
+envia nunca guarda as chaves de quem recebeu". Fui desenhar a correção —
+aprender a chave também ao **receber**, não só ao enviar — e antes de a
+escrever a sério, o passo de sempre: um teste que prove a falha primeiro
+(`receber_ja_ensina_a_chave_de_quem_nunca_recebeu_de_nos`, em
+`rede/tests/chaves_de_quem_recebe.rs`).
+
+**Não falhou.** `chaves_para` já consulta o `conhecidos.json` antes do
+`vistos.json`, e o `conhecidos.json` já é escrito, incondicional, em
+`propor()`, para **qualquer** oferta com assinatura válida — desde a correção
+original ("Chaves de quem nunca nos enviou", acima). Ou seja: assim que A
+recebe um ficheiro de B, mesmo que A nunca lhe tenha enviado nada, A já fica
+com a chave de B em `conhecidos.json` — e é aí que `chaves_para` a encontra.
+**O caso "só recebi, nunca enviei" já funcionava.**
+
+Cheguei a implementar a escrita extra em `vistos.json` no `propor()` (com o
+desenho todo, pré-mortem incluído) e o teste passou **igual** com essa linha
+comentada — a prova de que era código morto. Revertido antes de commitar.
+
+**O que realmente falta**, e continua a ser o que a secção original já dizia:
+depositar para quem nunca houve contacto nenhum, em nenhum dos dois sentidos.
+Isso é emparelhamento por QR ou código — está fora de alcance de qualquer
+correção nos registos, porque não há chave nenhuma para aprender.
+
+**Lição:** o texto da secção do Android ficou escrito no calor do teste
+manual (o "programa descartável" que fabricava o registo), sem confirmar se o
+`conhecidos.json` já resolvia o caso por si — o programa a fabricar o
+registo escrevia-o diretamente, sem passar pelo `chaves_para`, por isso não
+provava que o caminho normal falhava. O passo "escrever um teste que falhe
+primeiro" já teria apanhado isto na altura.
+
 ## Diagnóstico
 
 Registo de métricas em `<dados>/metricas/eventos.jsonl` (`rede/src/metricas.rs`),
@@ -1496,6 +1530,14 @@ escolhido pelo nome no mDNS (que não autentica ninguém) calar o aviso de
 dispositivo novo numa receção futura. Precisa de separar *"sei as chaves dele"*
 de *"já recebi dele"*, e isso é desenho, não remendo.
 
+> **Correção a uma leitura anterior, 01/09/2026.** Isto já estava separado —
+> era exatamente a distinção `conhecidos.json`/`vistos.json` da secção
+> anterior — e o "buraco" era o andaime do teste manual a fabricar o registo
+> por fora, não uma falha do caminho normal. Ver "O 'buraco' da secção do
+> Android, revisitado" acima: o `chaves_para` já resolve este caso sozinho,
+> porque `conhecidos.json` é escrito em qualquer oferta assinada, venha de
+> onde vier. Nada por implementar aqui.
+
 - [ ] **R6 — push.** FCM no Android, Web Push no iOS. Precisa de contas e chaves
       de serviço — decisão do utilizador, não técnica.
 - [x] **R7 — TLS, no Pi 5.** ✅ Confirmado a sério em 01/09/2026:
@@ -1654,7 +1696,7 @@ trabalho por fazer — é trabalho que precisa de coisas que este lado não tem:
 | A página no Safari do iPhone | Um iPhone — **já disponível**, ver "Antes do S8" |
 | R6 (push) | Conta e chaves de serviço do FCM (Android) e do Web Push (iOS) — a preparar, ver "Antes do S8" |
 | A **janela** da app em Windows | Nada — só falta correr `npm run app:build` lá e olhar para ela |
-| Separar "sei as chaves dele" de "já recebi dele" nos `Conhecidos` | Nada — é desenho por fazer, ver "Antes do S8" |
+| ~~Separar "sei as chaves dele" de "já recebi dele"~~ | ✅ Já estava feito — investigado em 01/09/2026, ver a secção "O 'buraco' revisitado" |
 
 Onde é que cada coisa está provada, sem arredondar: o protocolo, a retoma nos
 dois sentidos e a opacidade do relay estão provados **em loopback**; o caminho
@@ -1675,7 +1717,7 @@ raciocínio completo.
 |---|---|---|---|
 | TLS no A10 | Sim — sem ele um depósito no A10 sai em `http://` e o Safari recusa | André | `sudo tailscale serve --bg --https=443 http://127.0.0.1:53319` no A10 |
 | iPhone na tailnet | Sim, para testar a sério | André | Instalar a app Tailscale no iPhone, entrar em `tail455bb7.ts.net` |
-| Buraco dos `Conhecidos` (depositar para quem só recebeu) | Não | Eu | Desenho + implementação, ver abaixo |
+| ~~Buraco dos `Conhecidos` (depositar para quem só recebeu)~~ | — | — | ✅ Investigado e fechado: já funcionava, sem código a mudar |
 | Binários musl amd64+arm64 | Não | Eu | Instalar targets, configurar `relay/` |
 | DDNS (DuckDNS) | Não — só para quem não tem Tailscale | André depois eu | André cria a conta e dá-me o token; eu trato do resto |
 | Push — Firebase (Android) | Não para arrancar o S8; sim para R6 | André depois eu | André cria o projeto Firebase e a conta de serviço; eu integro |
