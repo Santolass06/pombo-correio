@@ -12,3 +12,6 @@ dist/
 
 # Ficheiros grandes para testes manuais
 /test_docs/
+
+# Auditorias de outro agente — não versionadas, por decisão do André
+/audit/
