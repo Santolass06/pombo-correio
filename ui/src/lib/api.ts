@@ -125,6 +125,11 @@ export const enviarParaConhecido = (ficheiro: File, destino: Vizinho) =>
 /// `criarLigacao`.
 export const criarLigacaoWeb = (ficheiro: File) => wasm.criarLigacaoWeb(ficheiro);
 
+/// Pede notificações push e regista a subscrição no relay (P4). Só existe na
+/// PWA — o desktop/Android já ficam abertos e reparam sozinhos.
+export const ativarPush = () => wasm.ativarPush();
+export type { ResultadoPush } from "./wasm-backend";
+
 /// Tamanhos em unidades que uma pessoa lê sem contar zeros.
 export function tamanhoLegivel(bytes: number): string {
   if (bytes < 1000) return `${bytes} B`;

@@ -26,6 +26,30 @@ self.addEventListener("activate", (e) => {
   );
 });
 
+// P4 — push sem carga: o relay não manda o que chegou, só acorda isto. Sem
+// `event.data`, mostra-se sempre o mesmo aviso genérico; quem quer ver o
+// ficheiro abre a app, que já sabe ir buscar o resto (`buscarNoRelay`, P3).
+self.addEventListener("push", (e) => {
+  e.waitUntil(
+    self.registration.showNotification("Pombo-Correio", {
+      body: "Chegou um ficheiro novo — abre a app para o veres.",
+      icon: "/icons/icon-192.png",
+      tag: "pombo-deposito", // substitui um aviso antigo em vez de os empilhar
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  e.waitUntil(
+    self.clients.matchAll({ type: "window" }).then((lista) => {
+      const aberta = lista.find((c) => c.url.startsWith(location.origin));
+      if (aberta) return aberta.focus();
+      return self.clients.openWindow("/");
+    }),
+  );
+});
+
 self.addEventListener("fetch", (e) => {
   // Só pedidos GET da mesma origem: o relay tem rotas com efeitos (`/deposito`
   // por POST) e falar com outro relay pela HA vai para outra origem — nenhum

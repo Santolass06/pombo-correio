@@ -1585,3 +1585,79 @@ teste automatizado (ou o próprio autor, com pressa) tende a fazer sem
 querer. Chromium/loopback não os apanharia por construção: os testes de
 Playwright desta sessão sempre reabriam a página depois do depósito
 existir, nunca a deixaram aberta a render enquanto o depósito chegava.
+
+---
+
+### P4 — Push, construído depois de eu ter proposto adiá-lo
+
+O plano original (ver a secção S8 acima) tinha isto como o único item por
+fazer, deliberadamente bloqueado — o argumento, chamado ao `advisor()`: sem
+um aparelho a instalar a PWA de verdade não há `endpoint` nem `aud` a que
+assinar um JWT VAPID, por isso a primeira execução a sério do código seria
+contra o serviço de push da Apple, sem forma de a validar daqui. Perguntado
+ao André, a resposta foi avançar mesmo assim.
+
+**O que quase ficou por ver antes de escrever uma linha:** o `relays` dos
+dois nós de casa tinha o A10 primeiro na lista, e "ao depositar, fica-se com
+o primeiro que responder ao `/saude`". A PWA nunca lê esse ficheiro — só
+verifica a própria origem (`location.origin`, sempre o Pi). Um envio nativo
+para um contacto aprendido por link caía sempre no A10, que a PWA nunca
+consultaria — o P4 teria avisado de um depósito que o destinatário jamais
+iria buscar. Não foi hipotético: a pergunta nasceu de reler o código com o
+`advisor()` antes de desenhar o resto, e confirmou-se a verificar os
+ficheiros `relays` a sério nos dois nós. Corrigido a reordenar (Pi primeiro)
+e documentado no `COMO_CORRER.md` — sem isto, nenhum dos passos abaixo tinha
+o que quer que fosse a desencadear.
+
+**A simplificação que ficou, e porquê.** O desenho original queria um push
+sem carga que acordasse o service worker e o mandasse perguntar ao `/caixa`
+sozinho, sem intervenção nenhuma da app aberta. Ao escrever o service
+worker, apareceu o obstáculo óbvio-em-retrospetiva: um service worker não
+tem acesso a `localStorage` (só a `IndexedDB`, e a identidade vive em
+`localStorage` desde o P2). Ir buscar a identidade a outro sítio, assinar um
+pedido lá de dentro, e duplicar a lógica de `trazer()` só para o service
+worker dobrava o âmbito do P4 por uma diferença que ninguém ia sentir: o
+utilizador toca na notificação de qualquer maneira, o que já abre a app, que
+já sabe perguntar ao `/caixa` sozinha (P3). Ficou com um aviso genérico
+("Chegou um ficheiro novo") em vez de um específico — `ponytail:` no
+`sw.js`, com o teto anotado: sem pré-visualização do que chegou.
+
+**Onde a assinatura ES256 podia ter saído silenciosamente errada, e como se
+apanhou sem precisar de um serviço de push a sério.** O RFC 8292 pede a
+assinatura em bruto (`r‖s`, 64 bytes) — não o DER que a mesma biblioteca
+(`p256`/`ecdsa`) também sabe produzir, e que teria dado um JWT bem formado
+que qualquer serviço de push real recusaria com 401, sem dizer porquê. O
+teste que apanha isto (`vapid::testes::o_jwt_verifica_com_a_propria_chave_publica`)
+não confia em `to_bytes()` ter feito a coisa certa: assina, decompõe o JWT
+de volta às três partes, e **verifica a assinatura com a própria chave
+pública**, exatamente como um serviço de push a sério faria. Passou à
+primeira — mas o teste existe porque passar "por engano" (byte a mais, byte
+a menos, ordem trocada) era o modo de falha mais provável e o mais difícil
+de apanhar só a olho para o código.
+
+**Provado contra infraestrutura a sério, não só um mock — mas a do Chrome,
+não a da Apple.** Com o relay a servir a PWA construída (`--app ui/dist`,
+loopback) e o Playwright a carregar a página a sério: `Notification.
+requestPermission()` concedida, `pushManager.subscribe()` chamado com a
+chave pública VAPID gerada pelo relay — e o Chrome **aceitou-a e devolveu um
+`endpoint` genuíno de `fcm.googleapis.com`**, não um erro de formato. A
+subscrição foi ao `POST /subscricao` do relay a sério e voltou `204`. Isto
+prova que a codificação do ponto público (sem compressão, base64url) está
+certa contra um serviço de push que a valida de verdade — só não prova nada
+sobre o serviço da Apple especificamente, que é outra implementação.
+
+**Os cinco testes de integração** (`relay/tests/deposito_http.rs`, módulo
+`push`) sobem um serviço de push falso a sério (axum, HTTP real) e provam,
+pelo pedido capturado: o aviso só sai depois do depósito ficar completo
+(uma subida a meio, cortada a propósito no teste, não dispara nada); o
+cabeçalho `Authorization: vapid t=…, k=…` sai bem formado; o `aud` do JWT
+bate com a origem do **serviço de push falso**, não com a do relay — o erro
+mais fácil de cometer sem reparar, porque os dois "funcionam" em loopback
+por terem a mesma origem se não se prestar atenção; um `410` apaga a
+subscrição sozinho; e um depósito sem subscrição nenhuma continua a
+entregar-se — o push é sempre um extra, nunca uma condição.
+
+**Por confirmar no iPhone real:** tudo o que só a Apple pode confirmar — se
+o `PushManager` aparece mesmo depois da instalação (iOS 16.4+), se o
+`web.push.apple.com` aceita a mesma forma de JWT que o Chrome aceitou, e se
+a notificação chega e o toque nela abre a app.

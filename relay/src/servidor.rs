@@ -23,6 +23,9 @@ use tower_http::cors::{Any, CorsLayer};
 use crate::{
     autenticado::{self, Autorizados},
     deposito::{Deposito, VALIDADE},
+    push,
+    subscricoes::{Subscricao, Subscricoes},
+    vapid::Vapid,
 };
 
 struct Estado {
@@ -39,6 +42,13 @@ struct Estado {
     /// ambas — indistinguível de corrupção, e só descoberto no fim, na
     /// verificação de quem recebe.
     a_subir: tokio::sync::Mutex<HashSet<String>>,
+    /// A identidade do relay perante os serviços de push (P4). Gerada uma
+    /// vez, vive em `--dados` — nunca no repositório.
+    vapid: Vapid,
+    subscricoes: Subscricoes,
+    /// Um só cliente HTTP, reutilizado — não um novo por push (o `reqwest`
+    /// junta ligações num pool; recriá-lo a cada envio perdia isso).
+    cliente_push: reqwest::Client,
 }
 
 type Erro = (StatusCode, String);
@@ -129,6 +139,17 @@ async fn subir(
     e.a_subir.lock().await.remove(&id);
 
     let bytes = resultado.map_err(|x| mau(StatusCode::BAD_REQUEST, x))?;
+
+    // Só ao ficar completo — não a cada bloco, e não em `criar()`: a `caixa`
+    // lista o depósito assim que é aberto, mas a app de quem recebe não sabe
+    // retomar uma subida a meio (P3/P5, `ponytail`), por isso avisar cedo
+    // mandava-o buscar um manifesto que ainda não fecha.
+    if bytes >= ficha.tamanho {
+        let e = e.clone();
+        let para = ficha.para.clone();
+        tokio::spawn(async move { push::notificar(&e.cliente_push, &e.vapid, &e.subscricoes, &para).await });
+    }
+
     Ok(Json(Subiu { bytes }))
 }
 
@@ -248,6 +269,39 @@ async fn caixa(State(e): State<Arc<Estado>>, cabecalhos: HeaderMap) -> Result<Js
 
 async fn saude() -> impl IntoResponse {
     "pombo-relay"
+}
+
+#[derive(Serialize)]
+struct ChaveVapid {
+    chave: String,
+}
+
+/// A chave pública VAPID — sem segredo nenhum aqui dentro, por isso sem
+/// autenticação: é o que `pushManager.subscribe()` precisa antes de sequer
+/// haver uma identidade a assinar coisa nenhuma.
+async fn vapid_publica(State(e): State<Arc<Estado>>) -> Json<ChaveVapid> {
+    Json(ChaveVapid { chave: e.vapid.chave_publica_base64url() })
+}
+
+/// Regista (ou substitui) a subscrição de push de quem pede.
+///
+/// Assinado como tudo o resto — a `extra` liga a assinatura ao `endpoint`
+/// concreto, não só à ação, senão uma assinatura apanhada a subscrever
+/// serviria para registar qualquer outro endpoint em nome da mesma pessoa.
+async fn subscrever(
+    State(e): State<Arc<Estado>>,
+    cabecalhos: HeaderMap,
+    Json(sub): Json<Subscricao>,
+) -> Result<StatusCode, Erro> {
+    let prova = autenticado::verificar(&cabecalhos, "subscricao", &sub.endpoint)?;
+    if !e.autorizados.deixa(&prova.impressao) {
+        return Err(mau(StatusCode::FORBIDDEN, "este relay não é teu"));
+    }
+    e.subscricoes
+        .guardar(&prova.impressao, sub)
+        .await
+        .map_err(|x| mau(StatusCode::INTERNAL_SERVER_ERROR, x))?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Recusa tudo o que não seja um nome de ficheiro nosso.
@@ -380,6 +434,8 @@ fn rotas(estado: Arc<Estado>) -> Router {
         )
         .route("/deposito/{id}/blocos", get(descer))
         .route("/caixa", get(caixa))
+        .route("/vapid", get(vapid_publica))
+        .route("/subscricao", post(subscrever))
         // O link sem instalação: a página, e o que ela precisa de carregar.
         .route("/d/{id}", get(pagina_do_link))
         .route("/pagina/{*caminho}", get(recurso_da_pagina))
@@ -397,6 +453,9 @@ fn montar(
     app: Option<std::path::PathBuf>,
 ) -> Result<Arc<Estado>> {
     Ok(Arc::new(Estado {
+        vapid: Vapid::carregar_ou_gerar(&raiz)?,
+        subscricoes: Subscricoes::carregar(&raiz)?,
+        cliente_push: reqwest::Client::new(),
         deposito: Deposito::novo(raiz)?,
         autorizados,
         pagina,

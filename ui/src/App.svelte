@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import {
+    ativarPush,
     aoAcontecer,
     buscarNoRelay,
     cancelar,
@@ -21,6 +22,7 @@
     type Eu,
     type Evento,
     type Partilhado,
+    type ResultadoPush,
     type Vizinho,
   } from "./lib/api";
 
@@ -55,6 +57,7 @@
   /** Só não-nulo na PWA — é lá que o relay pode recusar o primeiro depósito
       com 403 até esta impressão entrar em `--autorizados` (S8 P5). */
   let impressao = $state<string | null>(null);
+  let estadoPush = $state<ResultadoPush | "a_pedir" | null>(null);
   let seletorFicheiro: HTMLInputElement;
 
   const emCurso = $derived(transferencias.filter((t) => t.estado === "a_correr"));
@@ -269,6 +272,18 @@
       aviso = String(erro);
     } finally {
       aCriarLigacao = false;
+    }
+  }
+
+  /** `estadoPush` tem de mudar de sítio nenhum código assíncrono antes desta
+      chamada — é o botão em si que é o gesto que o Safari exige. */
+  async function ativarNotificacoes() {
+    estadoPush = "a_pedir";
+    try {
+      estadoPush = await ativarPush();
+    } catch (erro) {
+      aviso = String(erro);
+      estadoPush = null;
     }
   }
 
@@ -504,6 +519,29 @@
             casa — sem isso, o relay recusa este dispositivo.
           </p>
           <div class="numero-seguranca">{impressao}</div>
+        </div>
+
+        <div class="card elev-sm">
+          <div class="card-title">Notificações</div>
+          <p class="text-muted" style="margin:var(--space-1) 0">
+            Sem isto, só reparas num ficheiro novo ao abrires a app. Só
+            funciona depois de adicionada ao ecrã principal.
+          </p>
+          {#if estadoPush === "ativado"}
+            <p class="text-muted" style="margin:var(--space-1) 0">Ativadas.</p>
+          {:else if estadoPush === "recusado"}
+            <p class="text-muted" style="margin:var(--space-1) 0">
+              Recusaste a permissão — muda-a nas definições do Safari para tentar de novo.
+            </p>
+          {:else if estadoPush === "sem_suporte"}
+            <p class="text-muted" style="margin:var(--space-1) 0">
+              Este aparelho ou este modo não suporta notificações.
+            </p>
+          {:else}
+            <button class="btn btn-secondary" onclick={ativarNotificacoes} disabled={estadoPush === "a_pedir"}>
+              {estadoPush === "a_pedir" ? "A pedir..." : "Ativar notificações"}
+            </button>
+          {/if}
         </div>
       {/if}
 

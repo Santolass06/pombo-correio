@@ -527,3 +527,112 @@ mod app {
         assert!(reqwest::get(format!("{base}/saude")).await.unwrap().status().is_success());
     }
 }
+
+/// P4, de ponta a ponta pelo HTTP a sério: subscrever, depositar, ver o push
+/// sair — não só a função de envio isolada (`push::testes` já a cobre).
+mod push {
+    use super::*;
+    use axum::{Router, extract::State, http::HeaderMap as AxumHeaderMap, response::IntoResponse, routing::post};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default, Clone)]
+    struct Capturado(Arc<Mutex<Vec<AxumHeaderMap>>>, Arc<tokio::sync::Notify>);
+
+    async fn capturar(State(c): State<Capturado>, cabecalhos: AxumHeaderMap) -> impl IntoResponse {
+        c.0.lock().unwrap().push(cabecalhos);
+        c.1.notify_one();
+        axum::http::StatusCode::CREATED
+    }
+
+    async fn servico_de_push_falso() -> (String, Capturado) {
+        let capturado = Capturado::default();
+        let app = Router::new().route("/entrega", post(capturar)).with_state(capturado.clone());
+        let escuta = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endereco = escuta.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(escuta, app).await;
+        });
+        (format!("http://{endereco}/entrega"), capturado)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn depositar_ate_ao_fim_avisa_quem_subscreveu() {
+        let (base, _d) = relay("push-fim").await;
+        let eu = Identity::generate("quem recebe");
+        let impressao = impressao_de(&eu);
+        let (endpoint, capturado) = servico_de_push_falso().await;
+
+        let sub = serde_json::json!({"endpoint": endpoint, "keys": {"p256dh": "x", "auth": "y"}});
+        let r = reqwest::Client::new()
+            .post(format!("{base}/subscricao"))
+            .headers(assinar(&eu, "subscricao", &endpoint))
+            .json(&sub)
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success(), "subscrição falhou: {}", r.status());
+
+        let bytes = vec![7u8; 1000];
+        let id = criar_como(&Identity::generate("emissor"), &base, &impressao, bytes.len() as u64, "{}")
+            .await
+            .unwrap();
+
+        // A meio da subida ainda não há aviso — só ao completar.
+        let r = reqwest::Client::new()
+            .put(format!("{base}/deposito/{id}"))
+            .body(bytes[..500].to_vec())
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success());
+        assert!(capturado.0.lock().unwrap().is_empty(), "avisou antes do depósito estar completo");
+
+        let r = reqwest::Client::new()
+            .put(format!("{base}/deposito/{id}?de=500"))
+            .body(bytes[500..].to_vec())
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success());
+
+        // O aviso sai numa tarefa à parte (não atrasa a resposta da subida) —
+        // espera-se por ele em vez de o assumir já lá.
+        tokio::time::timeout(std::time::Duration::from_secs(2), capturado.1.notified())
+            .await
+            .expect("o push não chegou a tempo");
+
+        let capturas = capturado.0.lock().unwrap();
+        assert_eq!(capturas.len(), 1);
+        let auth = capturas[0].get("authorization").unwrap().to_str().unwrap();
+        assert!(auth.starts_with("vapid t="));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn sem_subscricao_o_deposito_continua_a_funcionar() {
+        // Ninguém subscreveu — o depósito tem de completar-se na mesma; o
+        // push é um extra, nunca uma condição para a entrega em si.
+        let (base, _d) = relay("push-sem-sub").await;
+        let bytes = vec![9u8; 100];
+        let id = criar(&base, "ninguem-subscreveu", bytes.len() as u64, "{}").await;
+
+        let r = reqwest::Client::new().put(format!("{base}/deposito/{id}")).body(bytes).send().await.unwrap();
+        assert!(r.status().is_success());
+    }
+
+    #[tokio::test]
+    async fn subscrever_sem_assinatura_nao_da() {
+        let (base, _d) = relay("push-sem-assinatura").await;
+        let sub = serde_json::json!({"endpoint": "https://exemplo.org/x", "keys": {"p256dh": "x", "auth": "y"}});
+        let r = reqwest::Client::new().post(format!("{base}/subscricao")).json(&sub).send().await.unwrap();
+        assert_eq!(r.status(), reqwest::StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn a_chave_vapid_nao_precisa_de_assinatura() {
+        let (base, _d) = relay("push-vapid-publica").await;
+        let r = reqwest::get(format!("{base}/vapid")).await.unwrap();
+        assert!(r.status().is_success());
+        let corpo: serde_json::Value = r.json().await.unwrap();
+        assert!(corpo["chave"].as_str().unwrap().len() > 40);
+    }
+}

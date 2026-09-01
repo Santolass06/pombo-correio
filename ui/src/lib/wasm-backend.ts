@@ -490,3 +490,50 @@ export async function buscarNoRelay(): Promise<number> {
   }
   return chegaram;
 }
+
+/** O que `ativarPush()` pode devolver — a interface decide o texto a mostrar. */
+export type ResultadoPush = "ativado" | "sem_suporte" | "recusado";
+
+function base64UrlParaBytes(base64url: string): Uint8Array {
+  const preenchimento = "=".repeat((4 - (base64url.length % 4)) % 4);
+  const base64 = (base64url + preenchimento).replace(/-/g, "+").replace(/_/g, "/");
+  const bruto = atob(base64);
+  return Uint8Array.from(bruto, (c) => c.charCodeAt(0));
+}
+
+/**
+ * Pede permissão, subscreve push e regista a subscrição no relay (P4).
+ *
+ * A ordem importa: `Notification.requestPermission()` tem de ser a primeira
+ * chamada, sem `await` nenhum antes dela no manipulador do clique — o Safari
+ * só mostra o pedido dentro do mesmo gesto que carregou no botão (a mesma
+ * armadilha do seletor de ficheiros em `escolherFicheiroWeb`). Depois de
+ * concedida, a permissão já vale para o resto da função — `subscribe()` não
+ * precisa de gesto próprio.
+ */
+export async function ativarPush(): Promise<ResultadoPush> {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return "sem_suporte";
+
+  const permissao = await Notification.requestPermission();
+  if (permissao !== "granted") return "recusado";
+
+  const base = relayDeCasa();
+  const { chave }: { chave: string } = await (await fetch(`${base}/vapid`)).json();
+  const registo = await navigator.serviceWorker.ready;
+  const subscricao = await registo.pushManager.subscribe({
+    userVisibleOnly: true,
+    // O buffer nunca é partilhado a sério — só o tipo genérico do
+    // `Uint8Array` não o garante ao TypeScript.
+    applicationServerKey: base64UrlParaBytes(chave) as BufferSource,
+  });
+  const json = subscricao.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } };
+
+  await obterIdentidade();
+  await fetch(`${base}/subscricao`, {
+    method: "POST",
+    headers: { ...(await cabecalhosAssinados("subscricao", json.endpoint)), "content-type": "application/json" },
+    body: JSON.stringify(json),
+  });
+
+  return "ativado";
+}

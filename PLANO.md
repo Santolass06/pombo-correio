@@ -345,7 +345,7 @@ parte para não entrar disfarçado de screen sharing.
 - [x] **S5 — Interface e desktop** (em Windows a app corre e recebe; falta olhar para o ecrã)
 - [x] **S6 — Android**
 - [ ] **S7 — Relay e link sem instalação**
-- [ ] **S8 — PWA iOS** (P1/P2/P5/P3/P6 fechados e provados; P4 — push — bloqueado à espera do André, ver fim da secção S8)
+- [x] **S8 — PWA iOS** (as seis fases construídas; P1/P2/P5/P3/P6 provados no iPhone real; P4 provado contra o Chrome/FCM a sério, falta confirmar a entrega da Apple)
 
 ### S1 — Primitivas do núcleo ✅
 
@@ -698,26 +698,64 @@ em Chromium (`browser_resize` a 720p–4K, sem servidor nenhum de terceiros
 envolvido), e o André pediu-o explicitamente à parte. Trocada a ordem por
 isso — não por o P4 ser menos importante.
 
-- [ ] **P4 — Push. Bloqueado, à espera do André — ver "Estado ao fechar esta
-      sessão" no fim da secção S8.** Service worker subscreve Web Push
-      (VAPID), o relay guarda a subscrição e avisa quando há depósito novo.
-      **`PushManager` só existe depois de a PWA estar instalada no ecrã
-      principal** (iOS 16.4+) — a interface deve dizer isso explicitamente
-      antes de pedir a subscrição, não falhar em silêncio. Sem isto, P3 só
-      corre quando alguém lembra de abrir a app. Push **sem carga**
-      (payload-less): o service worker acorda, pergunta ao `/caixa` e monta
-      a notificação do lado do cliente — dispensa a cifra RFC 8291 do relay
-      inteira, e ainda assim cumpre a regra do iOS de que todo o push mostra
-      uma notificação. Só o JWT VAPID (ES256, RFC 8292) é preciso, e gera-se
-      sem conta nenhuma. **A chave privada do VAPID nunca pode ser
-      versionada** — gera-se para `/state/` ou outro caminho já coberto
-      pelo `.gitignore`, lida pelo relay por uma flag como o
-      `--autorizados`. **O bloqueio não é "não há iPhone para testar" — é
-      que a `pushManager.subscribe(vapidPublicKey)` só existe depois de um
-      aparelho real instalar a PWA, e é essa chamada que devolve o endpoint
-      e o público a que o relay assina o JWT.** Escrever a assinatura ES256
-      agora seria código cuja primeira execução a sério é contra o serviço
-      de push da própria Apple — exatamente o que a regra 3 do
+- [x] **P4 — Push.** Construído a pedido explícito do André, depois de eu ter
+      proposto adiar (o bloqueio original: `pushManager.subscribe()` só
+      existe depois de instalar no ecrã principal, e é essa chamada que dá o
+      endpoint e o público a que o relay assina o JWT — não havia como
+      escrever a assinatura ES256 sem a primeira execução a sério ser contra
+      um serviço de push de verdade). O André decidiu avançar mesmo assim.
+      **VAPID (ES256, RFC 8292):** `relay/src/vapid.rs` gera o par P-256 na
+      primeira vez e guarda o escalar em `<dados>/vapid_chave`, `0600` — o
+      mesmo `--dados` que já guarda os depósitos, já fora do `git` de
+      propósito, por isso sem flag nova nenhuma a inventar. `GET /vapid`
+      devolve a chave pública (sem segredo, sem autenticação); `POST
+      /subscricao` guarda a subscrição do browser, assinado como tudo o
+      resto (`autenticado::verificar`, ação `"subscricao"`, `extra` = o
+      `endpoint` — sem isso, uma assinatura apanhada a subscrever servia
+      para registar o endpoint de outra pessoa em nome de quem a apanhou).
+      **O aviso sai só quando o depósito fica completo** (`subir()`, não
+      `criar()`) — avisar mais cedo mandava quem recebe atrás de um
+      manifesto que a `caixa` já lista mas que ainda não fecha (P3/P5 não
+      sabem retomar). Um `410`/`404` do serviço de push apaga a subscrição
+      morta sozinho.
+      **Simplificação deliberada (`ponytail:` no código):** o service worker
+      **não** pergunta ao `/caixa` sozinho — mostra sempre o mesmo aviso
+      genérico ("Chegou um ficheiro novo"). O desenho original queria isso
+      sem carga nenhuma, mas o service worker não tem acesso a
+      `localStorage` (só a `IndexedDB`), e ir lá buscar a identidade para
+      assinar um pedido a sério dobrava o âmbito desta fase por pouco — o
+      clique na notificação já abre a app, que faz exatamente essa pergunta
+      sozinha (P3, já construído). Teto: nenhuma pré-visualização do que
+      chegou na própria notificação; sobe quando isso for pedido a sério.
+      **Provado, não só em Chromium simulado — contra o serviço de push a
+      sério do Chrome (FCM), com o botão "Ativar notificações" a sério em
+      Definições:** `pushManager.subscribe()` aceitou a chave pública VAPID
+      e devolveu um `endpoint` genuíno da Google; `POST /subscricao`
+      guardou-a (`204`). Cinco testes de integração
+      (`relay/tests/deposito_http.rs`, módulo `push`) provam a escada
+      completa contra um serviço de push falso que captura o pedido a
+      sério: o aviso só sai depois de o depósito ficar completo (não a meio
+      de uma subida cortada), o cabeçalho `Authorization: vapid t=…, k=…`
+      está bem formado, o `aud` do JWT bate com a origem do **serviço de
+      push**, não com a do relay, um `410` apaga a subscrição, e um depósito
+      sem subscrição continua a entregar-se na mesma. Um teste de
+      auto-verificação (`vapid::testes`) assina um JWT e confirma-o com a
+      própria chave pública — é o que teria apanhado um erro de codificação
+      da assinatura (DER em vez de r‖s) que um serviço de push a sério
+      recusaria em silêncio com 401, sem dizer porquê.
+      **Achado a rever isto antes de escrever código:** o `relays` dos dois
+      nós de casa tinha o A10 primeiro — "ao depositar, fica-se com o
+      primeiro que responder ao `/saude`" — e a PWA só verifica a própria
+      origem (o Pi) ao buscar. Um envio nativo para um contacto aprendido
+      por link caía sempre no A10, onde a PWA nunca olharia; sem isso
+      corrigido, o P4 não teria nada de real para desencadear. Corrigido
+      (Pi primeiro nos dois `relays`) e documentado no `COMO_CORRER.md`.
+      **Por confirmar no iPhone real:** tudo — a Apple é um serviço de push
+      diferente do Chrome/FCM, e o `PushManager` só existe depois da
+      instalação. O que muda em relação ao resto do S8: desta vez a
+      mecânica de fio (formato do JWT, do pedido, da chave pública) já foi
+      testada contra infraestrutura a sério, só não a da Apple — o risco que
+      sobra é mais estreito do que "nada disto correu fora de um mock".
       `CLAUDE.md` diz para não fechar sem máquina real.
 **Desenho do P5, antes de mexer (regra 8) — revisto depois de ler o código a
 sério, não só o resumo do plano:**
@@ -853,14 +891,20 @@ Cada fase segue a regra 8 (desenhar antes de implementar) quando arrancar a
 sério — este roteiro é a ordem de trabalho, não o desenho protocolar de cada
 peça.
 
-### Estado do S8 (01/09/2026) — provado no iPhone real, não só em Chromium
+### Estado do S8 (01/09/2026) — as seis fases construídas, cinco provadas no iPhone real
 
-**As cinco fases construídas fecharam com prova de ponta a ponta entre
-aparelhos a sério — o computador (app nativa, A10) e um iPhone real, não só
-Chromium/loopback:** P1, P2, P5, P3, P6. Envio e receção nos dois sentidos,
-byte a byte iguais; instalação no ecrã principal, modo isolado; `localStorage`
-sobrevive à instalação (a incerteza repetida em P2/P3/P5, fechada); descarga
-disparada por script no Safari, sem gesto de clique, sem bloqueio.
+**Cinco fases fecharam com prova de ponta a ponta entre aparelhos a sério —
+o computador (app nativa, A10) e um iPhone real, não só Chromium/loopback:**
+P1, P2, P5, P3, P6. Envio e receção nos dois sentidos, byte a byte iguais;
+instalação no ecrã principal, modo isolado; `localStorage` sobrevive à
+instalação (a incerteza repetida em P2/P3/P5, fechada); descarga disparada
+por script no Safari, sem gesto de clique, sem bloqueio.
+
+**O P4 (push) fechou depois, a pedido explícito do André** — eu tinha
+proposto adiá-lo (ver a bala do P4 para o porquê). Provado contra o serviço
+de push a sério do Chrome (não o da Apple — ver a bala) e por cinco testes
+de integração contra um serviço de push falso que captura o pedido HTTP
+real. Ainda por confirmar no iPhone: tudo o que só a Apple pode confirmar.
 
 **Dois bugs reais, só visíveis a testar com o iPhone a sério, não hipotéticos:**
 
@@ -878,10 +922,10 @@ disparada por script no Safari, sem gesto de clique, sem bloqueio.
 Os dois foram corrigidos, reconstruídos e reimplantados (Pi + A10) antes da
 confirmação final do André.
 
-**O que fica mesmo por fazer: só o P4 (push), deliberadamente bloqueado —
-ver a bala do P4 acima para o motivo.** A decisão de o construir agora
-(contra um comportamento de entrega nunca exercitado) ou fechar o S8 sem
-push e deixá-lo para um sprint à parte ainda não foi tomada.
+**O S8 está construído por inteiro.** Falta um guião de verificação no
+iPhone para o P4 — pedir permissão de notificações em Definições, esperar
+por um depósito, confirmar que a notificação chega e que tocar nela abre a
+app — o único passo que só a Apple pode fechar.
 
 ---
 
