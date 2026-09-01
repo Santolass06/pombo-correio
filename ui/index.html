@@ -1,10 +1,24 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-PT">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ui</title>
+    <!-- viewport-fit=cover: sem isto as `env(safe-area-*)` do app.css ficam a
+         zero, e o cabeçalho vai para debaixo do entalhe em modo standalone. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Pombo-Correio</title>
+
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#161826" />
+
+    <!-- O Safari não lê o `manifest.json` para o ícone do ecrã principal nem
+         para o modo `standalone` — precisa destas três, à parte. -->
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <!-- O Chrome já lê a versão sem `apple-`; o Safari só conhece a de cima. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Pombo-Correio" />
   </head>
   <body>
     <div id="app"></div>

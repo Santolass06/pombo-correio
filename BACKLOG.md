@@ -1169,4 +1169,57 @@ sem erro. **O R5 deixou de estar limitado à memória do browser no Pi** —
 config" — nunca chegou a ser configurado, porque o `sudo` dessa máquina pede
 password. Ver "Antes do S8" no `PLANO.md` para o ponto de situação atual.
 
+## S8 — PWA iOS
+
+### P1 — Fundação instalável
+
+**Ícones sem ferramenta de imagem instalada.** Nem `imagemagick` (só os
+ficheiros comuns, sem o binário `magick`) nem `cairosvg` estavam disponíveis
+para rasterizar `favicon.svg` — que usa `<filter>` com `feGaussianBlur`, algo
+que só um motor de render a sério (não o `PIL`) desenha certo. Em vez de
+instalar uma dependência de sistema para uma tarefa de arranque único, usou-se
+o Chromium que já estava disponível por MCP do Playwright: uma paginazinha
+HTML com o SVG centrado a 64% sobre fundo sólido, `browser_resize` para o
+tamanho exato de cada ícone (512, 192, 180), `browser_take_screenshot`. Serviu
+duas vezes: a rasterização em si, e a confirmação a bytes (`PIL.getextrema()`)
+de que o `apple-touch-icon` saiu sem canal alfa — o Chromium não escreve
+transparência quando a página não tem nenhuma.
+
+**O `icon.png` do Tauri (`ui/src-tauri/icons/`) não é a marca.** É o ícone
+placeholder do template do `create-tauri-app` (círculos amarelo/ciano
+entrelaçados, RGBA com o canto totalmente transparente) — nunca foi
+substituído pela marca real, que só existe em `ui/public/favicon.svg` (o
+relâmpago roxo, também usado no cabeçalho da app). Os ícones do P1 vieram do
+`favicon.svg`, não do `icon.png`. Fica por resolver — não bloqueia o S8 — que
+a build **desktop/Android** do Tauri continua a instalar com o ícone errado;
+entra como item avulso, fora dos P1–P6.
+
+**Bug pré-existente encontrado, não deste sprint: fontes por resolver em
+`app.css`.** A verificação em Chromium mostrou `OTS parsing error` a repetir
+para vários `@font-face` — o `src: url("498a130e-...")` aponta para um
+identificador de asset de uma ferramenta de design que nunca chegou a
+resolver para um ficheiro real. Não é o que o P1 tocou (vem de antes, do
+`app.css` interino do S5) e o P6 substitui este ficheiro inteiro pelo
+`design/claude-design/`, por isso fica registado aqui e não se mexe agora —
+corrigir a fonte de um ficheiro que vai ser substituído era trabalho a
+deitar fora.
+
+**A rota estática do relay reutilizou a sanitização da página do link.**
+`app_estatico` (novo `fallback()` do axum) chama a mesma `caminho_de_pagina`
+que já protegia `/pagina/{*caminho}` contra `../../etc/passwd` — nenhuma
+lógica de segurança nova, só um segundo lugar a precisar dela. O `fallback`
+do axum só dispara depois de tentadas todas as rotas exatas, por isso não há
+ordem a gerir entre `/saude`/`/deposito`/`/caixa`/`/d/{id}` e os ficheiros do
+build — confirmado por teste (`as_rotas_do_relay_ganham_a_um_ficheiro_do_build_com_o_mesmo_nome`),
+não só por leitura da ordem do axum.
+
+**Provado:** `cargo test` (5 testes novos no `relay`, todos os 20+15+17
+antigos continuam a passar), `cargo clippy --workspace --all-targets` limpo,
+e em Chromium/loopback contra um `pombo-relay --app ui/dist` a sério —
+`navigator.serviceWorker.getRegistrations()` devolve 1 registo com
+`scope: "/"`, o `manifest.json` e os ícones respondem com o `content-type`
+certo. **Por provar:** tudo o que só o Safari do iPhone decide — HTTPS real
+(o R7 resolve a parte do certificado, falta juntar as duas pontas),
+Add-to-Home-Screen, e o modo `standalone` sem a barra do Safari.
+
 ---

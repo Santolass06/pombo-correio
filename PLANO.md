@@ -569,14 +569,52 @@ Fases pequenas, ao estilo do S6/S7 — cada uma a acabar em algo que corre e se
 prova **no iPhone a sério**, não só em Chromium (regra 10; o R5 já mostrou
 que Chromium esconde coisas, como o `showSaveFilePicker`).
 
-- [ ] **P1 — Fundação instalável.** `manifest.json`, ícones (incluindo
-      `apple-touch-icon` 180×180 **sem canal alfa** — o iOS preenche
-      transparência a preto), meta tags do Safari
-      (`apple-mobile-web-app-capable`, `apple-mobile-web-app-status-bar-style:
-      black-translucent`, `viewport-fit=cover` para as safe areas — já há
-      `env(safe-area-*)` desde o S5), um service worker mínimo. Servido por
-      HTTPS — já resolvido pelo R7. Prova: instalar no ecrã principal do
-      iPhone, abrir como app isolada, sem barra do Safari.
+**Desenho, antes de mexer (regra 8):**
+
+- **Um único sítio serve a app.** `localStorage`/`IndexedDB` são por origem —
+  uma PWA instalada a partir do Pi e outra a partir do A10 seriam duas apps
+  com identidades diferentes. A app fica servida **só pelo Pi**
+  (`raspberrypi...ts.net`, o nó sempre ligado); o A10 continua a ser só um
+  relay. A HA dos dois nós (R4) é para onde os **depósitos** vivem, não para
+  onde a app é servida — a `WasmBackend` fala com os dois por `fetch()`.
+- **CORS entra por causa disto.** A app do Pi vai chamar `/caixa` e
+  `/deposito*` no A10. Sem `Access-Control-Allow-Origin` (mais os cabeçalhos
+  `x-pombo-*` e `Range` no preflight), a chamada ao segundo nó falha em
+  silêncio no Safari e a HA parece funcionar até o Pi cair. Entra no P2/P3/P5,
+  onde o `fetch()` é escrito.
+- **Ordem real: P1 → P2 → P5 → P3 → P4 → P6**, não a ordem de leitura da
+  lista abaixo. `chaves_para()` só resolve depois de um `conhecidos.json` ter
+  sido escrito, e isso só acontece ao **receber** uma oferta assinada — nunca
+  aconteceu vindo do iPhone. Por isso ninguém consegue depositar *para* o
+  iPhone (P3) antes de o iPhone ter enviado *de* si próprio uma vez (P5). A
+  lista de tarefas fica pela ordem lógica de leitura; a ordem de trabalho é
+  esta.
+  - **Pré-mortem, uma linha:** se o depósito P5→relay morrer a meio da
+    subida, quem envia (o iPhone) vê `Falhou` e tenta de novo — exatamente
+    como já acontece no `depositar_em` de sempre; nada disto é novo código,
+    só um chamador novo.
+- **A primeira identidade do iPhone não está em `--autorizados`.** Gerada no
+  primeiro arranque (P2), o relay recusa-lhe o primeiro depósito com 403 até
+  o André a acrescentar aos dois nós e reiniciar o `pombo-relay` — o
+  `Autorizados` só se lê uma vez, ao arrancar (`montar()`). A interface tem de
+  mostrar a impressão digital em destaque no primeiro arranque para isto ser
+  uma instrução, não um mistério.
+
+- [x] **P1 — Fundação instalável.** `manifest.json`, ícones (`apple-touch-icon`
+      180×180 gerado sem canal alfa, confirmado a bytes — verificado com
+      `PIL.getextrema()`, não só de olho), meta tags do Safari
+      (`apple-mobile-web-app-capable` + a versão sem `apple-` que o Chrome
+      pede, `black-translucent`, `viewport-fit=cover`), service worker
+      mínimo (rede-primeiro-cai-para-cache, sem pré-carregar nomes de
+      ficheiro do build). `relay/` ganhou `--app <ui/dist>`: rota
+      `fallback()` do axum, que só dispara depois de todas as rotas
+      exatas — sem colisão possível com `/saude`, `/deposito*`, `/caixa`,
+      `/d/{id}`. **Provado em Chromium/loopback** (`sw.register` regista com
+      `scope: "/"`, manifest e ícones servidos com o `content-type` certo, 5
+      testes novos no `relay`); **HTTPS real, Add-to-Home-Screen e o modo
+      standalone no Safari continuam por provar no iPhone** — só aí o R7
+      (TLS) e este P1 se encontram a sério. Decisão tomada aqui, sem
+      perguntar: a app fica servida **só pelo Pi** (ver "Desenho" acima).
 - [ ] **P2 — A `ui/` corre sem Tauri.** `api.ts` ganha duas implementações
       por trás de uma interface comum (`PomboBackend`, sugestão da Review1 —
       `obterIdentidade`, `listarDispositivos`, `enviar`, `buscarCaixaRelay`,

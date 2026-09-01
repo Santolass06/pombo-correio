@@ -29,6 +29,14 @@ struct Cli {
     /// os links é que deixam de abrir.
     #[arg(long)]
     pagina: Option<std::path::PathBuf>,
+
+    /// Pasta com a PWA construída (`ui/dist`, `npm run build`), servida na raiz.
+    ///
+    /// Só faz sentido num único nó de casa — ver "Antes do S8" no PLANO.md: uma
+    /// PWA instalada a partir de dois sítios diferentes seria duas apps com
+    /// identidades diferentes (`localStorage` é por origem).
+    #[arg(long)]
+    app: Option<std::path::PathBuf>,
 }
 
 #[tokio::main]
@@ -43,5 +51,5 @@ async fn main() -> Result<()> {
         }
     };
 
-    pombo_correio_relay::servidor::servir(cli.dados, cli.porta, autorizados, cli.pagina).await
+    pombo_correio_relay::servidor::servir(cli.dados, cli.porta, autorizados, cli.pagina, cli.app).await
 }

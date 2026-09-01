@@ -30,6 +30,9 @@ struct Estado {
     /// Pasta com a página do link sem instalação. `None` desliga o caminho todo
     /// — quem não a instalar tem um relay que continua a servir a app na mesma.
     pagina: Option<std::path::PathBuf>,
+    /// Pasta com a PWA construída (`ui/dist`). Servida na raiz — ver `app_estatico`.
+    /// Só faz sentido num dos nós de casa (S8: "um único sítio serve a app").
+    app: Option<std::path::PathBuf>,
     /// Depósitos com uma subida a decorrer. Duas subidas ao mesmo depósito
     /// escreveriam por cima uma da outra e o ficheiro sairia com blocos de
     /// ambas — indistinguível de corrupção, e só descoberto no fim, na
@@ -279,6 +282,10 @@ fn tipo_de(ficheiro: &std::path::Path) -> &'static str {
         Some("wasm") => "application/wasm",
         Some("css") => "text/css; charset=utf-8",
         Some("json") => "application/json",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("ico") => "image/x-icon",
+        Some("webmanifest") => "application/manifest+json",
         _ => "application/octet-stream",
     }
 }
@@ -313,6 +320,40 @@ async fn recurso_da_pagina(
     ficheiro_da_pagina(&e, &relativo).await
 }
 
+/// A PWA (`ui/dist`), servida na raiz.
+///
+/// É `fallback`, não uma rota própria — o axum só a chama depois de tentar
+/// todas as rotas exatas acima, por isso `/saude`, `/deposito`, `/caixa` etc.
+/// nunca colidem com um ficheiro do build que se chamasse na mesma. Sem
+/// rotas do lado do cliente hoje, mas cai para o `index.html` de qualquer
+/// forma: é o comportamento certo para uma SPA, e um caminho que não é
+/// ficheiro nenhum (`/`, por exemplo) tem de chegar a alguma página.
+async fn app_estatico(State(e): State<Arc<Estado>>, uri: axum::http::Uri) -> Result<Response, Erro> {
+    let raiz = e
+        .app
+        .as_ref()
+        .ok_or_else(|| mau(StatusCode::NOT_FOUND, "este relay não serve a app"))?;
+
+    let pedido = uri.path().trim_start_matches('/');
+    let relativo = if pedido.is_empty() {
+        std::path::PathBuf::from("index.html")
+    } else {
+        // Mesma sanitização da página do link — vem do URL e vira caminho em
+        // disco, pela mesma razão de sempre.
+        caminho_de_pagina(pedido).unwrap_or_else(|| std::path::PathBuf::from("index.html"))
+    };
+
+    match tokio::fs::read(raiz.join(&relativo)).await {
+        Ok(bytes) => Ok(([(header::CONTENT_TYPE, tipo_de(&relativo))], bytes).into_response()),
+        Err(_) => {
+            let bytes = tokio::fs::read(raiz.join("index.html"))
+                .await
+                .map_err(|_| mau(StatusCode::NOT_FOUND, "não existe"))?;
+            Ok(([(header::CONTENT_TYPE, "text/html; charset=utf-8")], bytes).into_response())
+        }
+    }
+}
+
 /// As rotas, num sítio só — senão o servidor de testes e o a sério divergem, e a
 /// diferença aparece em produção.
 fn rotas(estado: Arc<Estado>) -> Router {
@@ -330,6 +371,7 @@ fn rotas(estado: Arc<Estado>) -> Router {
         // O link sem instalação: a página, e o que ela precisa de carregar.
         .route("/d/{id}", get(pagina_do_link))
         .route("/pagina/{*caminho}", get(recurso_da_pagina))
+        .fallback(app_estatico)
         .with_state(estado)
 }
 
@@ -339,11 +381,13 @@ fn montar(
     raiz: std::path::PathBuf,
     autorizados: Autorizados,
     pagina: Option<std::path::PathBuf>,
+    app: Option<std::path::PathBuf>,
 ) -> Result<Arc<Estado>> {
     Ok(Arc::new(Estado {
         deposito: Deposito::novo(raiz)?,
         autorizados,
         pagina,
+        app,
         a_subir: Default::default(),
     }))
 }
@@ -353,8 +397,9 @@ pub async fn servir(
     porta: u16,
     autorizados: Autorizados,
     pagina: Option<std::path::PathBuf>,
+    app: Option<std::path::PathBuf>,
 ) -> Result<()> {
-    let estado = montar(raiz, autorizados, pagina)?;
+    let estado = montar(raiz, autorizados, pagina, app)?;
 
     // A limpeza corre à parte e não bloqueia nada. De hora a hora chega: a
     // validade é de dias, e o que importa é que aconteça sem ninguém se lembrar.
@@ -391,7 +436,17 @@ pub async fn servir_em_porta_livre_com_pagina(
     autorizados: Autorizados,
     pagina: Option<std::path::PathBuf>,
 ) -> Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
-    let estado = montar(raiz, autorizados, pagina)?;
+    servir_em_porta_livre_com_pagina_e_app(raiz, autorizados, pagina, None).await
+}
+
+/// Como o anterior, mas também com a PWA instalada.
+pub async fn servir_em_porta_livre_com_pagina_e_app(
+    raiz: std::path::PathBuf,
+    autorizados: Autorizados,
+    pagina: Option<std::path::PathBuf>,
+    app: Option<std::path::PathBuf>,
+) -> Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
+    let estado = montar(raiz, autorizados, pagina, app)?;
 
     let escuta = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
     let endereco = escuta.local_addr()?;

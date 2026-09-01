@@ -423,3 +423,79 @@ mod pagina {
         assert!(reqwest::get(format!("{base}/saude")).await.unwrap().status().is_success());
     }
 }
+
+/// A PWA (`ui/dist`), servida na raiz por `fallback` — a rota que o P1 do S8
+/// acrescentou. Testa a mesma coisa que a `mod pagina` acima, e mais uma: que
+/// as rotas exatas do relay continuam a ganhar a um ficheiro do build com o
+/// mesmo nome, e que uma rota sem ficheiro cai para o `index.html` (SPA).
+mod app {
+    use super::*;
+
+    async fn relay_com_app(nome: &str) -> (String, Temp, Temp) {
+        let dados = Temp::nova(nome);
+        let dist = Temp::nova(&format!("{nome}-dist"));
+        std::fs::write(dist.0.join("index.html"), "<!doctype html><p>pombo</p>").unwrap();
+        std::fs::create_dir_all(dist.0.join("assets")).unwrap();
+        std::fs::write(dist.0.join("assets/App.abc123.js"), "console.log(1)").unwrap();
+        std::fs::write(dist.0.join("manifest.json"), "{}").unwrap();
+
+        let (endereco, _) = pombo_correio_relay::servidor::servir_em_porta_livre_com_pagina_e_app(
+            dados.0.clone(),
+            Autorizados::abertos(),
+            None,
+            Some(dist.0.clone()),
+        )
+        .await
+        .unwrap();
+        (format!("http://{endereco}"), dados, dist)
+    }
+
+    #[tokio::test]
+    async fn a_raiz_serve_o_index() {
+        let (base, _d, _dist) = relay_com_app("raiz").await;
+
+        let r = reqwest::get(&base).await.unwrap();
+        assert!(r.status().is_success());
+        assert_eq!(r.headers()["content-type"], "text/html; charset=utf-8");
+        assert!(r.text().await.unwrap().contains("pombo"));
+    }
+
+    #[tokio::test]
+    async fn um_ficheiro_do_build_sai_com_o_tipo_certo() {
+        let (base, _d, _dist) = relay_com_app("tipo").await;
+
+        let r = reqwest::get(format!("{base}/assets/App.abc123.js")).await.unwrap();
+        assert!(r.status().is_success());
+        assert_eq!(r.headers()["content-type"], "text/javascript; charset=utf-8");
+    }
+
+    #[tokio::test]
+    async fn caminho_sem_ficheiro_cai_para_o_index() {
+        // Uma SPA sem rotas do lado do cliente hoje — mas uma recarga numa
+        // rota futura, ou um erro de digitação, tem de dar a app, não um 404.
+        let (base, _d, _dist) = relay_com_app("spa").await;
+
+        let r = reqwest::get(format!("{base}/isto/nao/existe")).await.unwrap();
+        assert!(r.status().is_success());
+        assert!(r.text().await.unwrap().contains("pombo"));
+    }
+
+    #[tokio::test]
+    async fn as_rotas_do_relay_ganham_a_um_ficheiro_do_build_com_o_mesmo_nome() {
+        // O `fallback` só dispara quando nada acima bate certo — é o que evita
+        // a app e o relay pisarem-se um ao outro.
+        let (base, _d, _dist) = relay_com_app("colisao").await;
+
+        assert!(reqwest::get(format!("{base}/saude")).await.unwrap().status().is_success());
+        assert_eq!(reqwest::get(format!("{base}/saude")).await.unwrap().text().await.unwrap(), "pombo-relay");
+    }
+
+    #[tokio::test]
+    async fn sem_app_instalada_o_resto_do_relay_continua_a_servir() {
+        let (base, _d) = relay("sem-app").await;
+
+        let r = reqwest::get(&base).await.unwrap();
+        assert!(!r.status().is_success());
+        assert!(reqwest::get(format!("{base}/saude")).await.unwrap().status().is_success());
+    }
+}
