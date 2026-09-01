@@ -813,12 +813,31 @@ sério, não só o resumo do plano:**
       partilhado entre a PWA instalada e o Safari normal (de que o
       aprender-por-link depende) sobrevive à instalação — a mesma incerteza
       do P2, agora com uma segunda consequência se for "não".
-- [ ] **P6 — O design a sério, responsivo.** Aplicar
-      `design/claude-design/` ao `ui/App.svelte`/`app.css` — a mesma
-      extração que o S5 já fez uma vez ("o desenho vinha empacotado"), agora
-      com breakpoints de 720p a 4K, testado em telemóvel, tablet, laptop e
-      desktop. Por ser o mesmo `ui/` em todo o lado, o desktop e o Android
-      herdam o resultado de graça.
+- [x] **P6 — O design a sério, responsivo.** A extração do design empacotado
+      (`design/claude-design/_ds/nocturne-.../styles.css` — o sistema já
+      linkado a partir do `.dc.html`, não a página composta) confirmou que
+      o `app.css` do S5 já usava a folha certa; o que faltava era o `@font-
+      face` do "Inter" que só existe resolvido dentro da ferramenta de
+      design (a raiz do `OTS parsing error` do P1) — **removido**, com
+      `system-ui` (já era o segundo nome em `--font-heading`/`--font-body`)
+      a fazer de letra, sem ficheiro nenhum a servir. `ui/src/App.svelte`
+      ganhou uma grelha responsiva para "Os teus dispositivos"
+      (`grid-template-columns: repeat(auto-fill, minmax(240px, 1fr))` —
+      1 coluna num telemóvel, várias num ecrã largo, sem pontos de quebra à
+      mão) e `.app` passou de 780px fixo para `clamp(780px, 70vw, 1400px)`
+      (texto continua estreito e legível; a grelha ganha espaço em ecrãs
+      grandes). Dois bugs visuais **encontrados a testar, não hipotéticos**:
+      o cartão "Para quem não tem a app" sobrepunha-se a si próprio em
+      telemóvel (`.linha:has(.btn-block-mobile)` empilha agora abaixo de
+      480px) e `--autorizados` partia a meio do "--" ao fim da linha
+      (`code { white-space: nowrap }`). **Provado em Chromium**:
+      `browser_resize` a 390 (telemóvel), 768 (tablet), 1280×720, 1920×1080,
+      2560×1440 e 3840×2160, nos dois temas — sem deslocamento horizontal
+      em nenhum (`scrollWidth === clientWidth` confirmado), grelha a 1→7
+      colunas conforme a largura. Por ser o mesmo `ui/` em todo o lado, o
+      desktop e o Android herdam o resultado de graça — nenhuma das duas
+      builds foi corrida nesta verificação (fora do alcance daqui), mas não
+      tocaram em nada que as distinga da PWA.
 
 Cada fase segue a regra 8 (desenhar antes de implementar) quando arrancar a
 sério — este roteiro é a ordem de trabalho, não o desenho protocolar de cada

@@ -1459,4 +1459,86 @@ passa no Safari como passou no Chromium. Esta segunda incerteza é nova
 desta fase e pode obrigar a repensar `descarregarBlob()` se o Safari o
 bloquear silenciosamente.
 
+### P6 — O design a sério, responsivo
+
+**Feito fora de ordem, por decisão do `advisor()`:** o P4 (push) não tinha
+uma única linha verificável sem um iPhone a sério; o P6 prova-se por
+inteiro em Chromium e o André tinha-o pedido à parte. Trocada a ordem, não
+o âmbito.
+
+**O desenho "empacotado" desta vez não precisou de bundler nenhum a
+correr.** Ao contrário da primeira extração do S5, `design/claude-design/`
+trouxe também o próprio sistema de design por trás do `.dc.html`, já
+desempacotado, em `_ds/nocturne-.../styles.css` — a folha de estilo linkada
+por `<link rel="stylesheet">`, não a página composta pela ferramenta. Ler
+o `readme.md` desse sistema pouco depois mostrou que **o `app.css` do S5
+já era essa folha**, quase byte a byte — os tokens de cor, a escala de
+espaço, `.card`/`.btn`/`.tag`/`.nav` batiam todos certo com o
+`_ds_manifest.json`. O trabalho do P6 não foi "aplicar o design", foi
+**encontrar o que faltava** entre o que já lá estava e o que a ferramenta
+gera.
+
+**A causa raiz do bug do P1 (`OTS parsing error`) confirmada, não só
+contornada.** O sistema de design (`_ds/nocturne/styles.css`) não define
+`@font-face` nenhum — só referencia `"Inter"` pelo nome, a assumir que
+quem consome o sistema trata da fonte. As oito declarações `@font-face`
+com URLs em UUID que estavam no `app.css` vieram de outro sítio: a página
+*composta* (`Pombo-Correio (standalone).html`), que embebe os `.woff2` a
+sério como assets do pacote e troca as URLs por elas ao desempacotar — um
+processo que só corre dentro da ferramenta. A extração do S5 copiou o
+`<style>` já resolvido de uma instância a correr, com as URLs por
+resolver. Removidas as oito declarações; `system-ui` (segundo nome da
+pilha, sempre lá) preenche o lugar sem pedir nenhum ficheiro extra — a
+app deste projeto já rejeita serviços de terceiros (CLAUDE.md), e
+autoalojar o `.woff2` só para repor uma letra que o sistema operativo já
+tem de graça não pagava o peso.
+
+**A grelha de dispositivos é o único sítio que ganha com mais colunas —
+verificado ao correr o mockup real, não assumido.** Abrir
+`Pombo-Correio.dc.html` num Chromium a servir `design/claude-design/`
+mostrou uma grelha de 3 colunas para os dispositivos a 1280px, mas as
+transferências continuam em cartões de largura cheia, uma coluna, mesmo a
+esse tamanho — texto e barras de progresso leem mal esticados. Replicado
+só onde faz sentido: `.grelha-dispositivos` (CSS Grid,
+`auto-fill`/`minmax(240px, 1fr)`) na lista de "Os teus dispositivos";
+`.lista` (transferências) manteve-se como estava.
+
+**O mockup da ferramenta não é responsivo por si — foi preciso decidir,
+não copiar.** A mesma página a 390px de largura tinha os separadores do
+topo ("Dispositivos"/"Histórico"/"Definições") a sair do ecrã sem
+quebrar — é uma pré-visualização de largura fixa, não uma prova de
+comportamento a estreitar. As decisões responsivas do P6
+(`.grelha-dispositivos`, o `clamp()` do `.app`, o empilhar da
+`.linha:has(.btn-block-mobile)`) são deste sprint, não do desenho.
+
+**Ecrãs do mockup deliberadamente não replicados — mesma disciplina do
+S5.** "Histórico", "Emparelhar" (QR) e "Dispositivos de confiança"
+apareceram na pré-visualização mas não têm suporte no núcleo; construir a
+casca visual sem a função por trás é pior do que não a mostrar. Ficam de
+fora, tal como já ficavam desde o S5.
+
+**Dois bugs visuais reais, apanhados só ao testar a sério em Chromium —
+nenhum dos dois apareceria numa leitura do CSS:**
+- O cartão "Para quem não tem a app" sobrepunha o botão "Criar link" ao
+  texto da descrição, abaixo de 480px — `.linha` (flexbox em linha) mais
+  um botão a `width: 100%` (`.btn-block-mobile`) sem `flex-wrap`
+  correspondente. `.linha:has(.btn-block-mobile) { flex-direction:
+  column }`, escopado só às linhas que já têm esse botão — as outras
+  (etiqueta e valor, por exemplo) continuam em linha.
+- `--autorizados` partia visualmente a meio do "--" no fim de uma linha
+  ("- -\nautorizados") — um hífen duplo é ponto de quebra válido por
+  omissão. `code { white-space: nowrap }`.
+
+**Provado em Chromium, com processos a sério:** `pombo-relay --app
+ui/dist`, `pombo-conhecidos` semeado com 7 dispositivos falsos para a
+grelha ter conteúdo real, `browser_resize` a 390/768/1280×720/1920×1080/
+2560×1440/3840×2160, nos dois temas — sem deslocamento horizontal
+(`document.documentElement.scrollWidth === clientWidth`, não só de olho),
+`clamp()` do `.app` medido a bater os 1400px em 1440p e 4K
+(`getBoundingClientRect()`, não assumido). `npx tsc --noEmit` e
+`svelte-check` limpos. **Por confirmar:** o mesmo ecrã num Safari real —
+Chromium e Safari já divergiram antes neste projeto (`showSaveFilePicker`,
+o suporte a upload em fluxo) e não há razão para assumir que a tipografia
+do sistema ou os `:has()` se comportam exatamente na mesma aqui.
+
 ---

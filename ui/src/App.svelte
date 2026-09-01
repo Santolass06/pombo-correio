@@ -358,12 +358,17 @@
         </p>
       </div>
     {:else}
-      <div class="lista">
+      <div class="grelha-dispositivos">
         {#each vizinhos as v (v.endereco)}
-          <div class="card elev-sm linha">
+          <div class="card elev-sm dispositivo">
             <div class="cresce">
               <div class="card-title trunca">{v.nome}</div>
-              <div class="card-meta text-muted trunca">{v.endereco}</div>
+              <!-- Na PWA `endereco` não é um endereço de rede (não há um: tudo
+                   passa pelo relay) — leva as chaves públicas em hex, uso
+                   interno do envio (ver wasm-backend.ts). Mostrar isso seria
+                   ruído; o que interessa dizer é como este dispositivo se
+                   tornou conhecido. -->
+              <div class="card-meta text-muted trunca">{eTauri() ? v.endereco : "Aprendido por link"}</div>
             </div>
             <button class="btn btn-primary btn-block-mobile" onclick={() => enviarPara(v)}>
               {partilha.length > 0 ? "Enviar aqui" : "Enviar ficheiro"}
