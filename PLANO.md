@@ -631,10 +631,10 @@ que Chromium esconde coisas, como o `showSaveFilePicker`).
       Chromium/loopback:** a app carrega sem Tauri, gera uma identidade nova
       na primeira visita, mostra o número de segurança real no separador
       Definições, e mantém a mesma identidade a recarregar a página (bytes
-      de `localStorage` idênticos antes/depois). **Por confirmar no
-      iPhone real:** se `localStorage` sobrevive à instalação como app no
-      ecrã principal — só aí se sabe se compensa `IndexedDB`, a Review1
-      sugere que sim mas isso só se decide depois de testado. Mostrar a
+      de `localStorage` idênticos antes/depois). **Confirmado no iPhone
+      real (01/09/2026):** `localStorage` sobrevive à instalação como app no
+      ecrã principal — o computador aprendido por link antes de instalar
+      continuou lá depois. Não foi preciso `IndexedDB`. Mostrar a
       impressão digital (`impressaoCurta()`) em destaque na interface fica
       para o P5, que é quando ela passa a ser precisa (`--autorizados`).
 **Desenho do P3, antes de mexer (regra 8):**
@@ -664,8 +664,8 @@ que Chromium esconde coisas, como o `showSaveFilePicker`).
 - **Descarregar sem gesto de clique.** `buscarNoRelay()` corre ao abrir a
   app (não a um clique) — um `<a download>` disparado por script chega para
   gravar o ficheiro, mas não é `showSaveFilePicker` e por isso não pede
-  onde guardar. **Por confirmar no iPhone real:** se o Safari deixa um
-  download disparado por script (fora de um clique) passar sem bloquear.
+  onde guardar. **Confirmado no iPhone real:** o Safari deixa passar um
+  download disparado por script, sem bloquear e sem gesto nenhum.
 - **Pré-mortem, uma linha:** se a descida cair a meio, o depósito fica
   incompleto no relay (não se apaga) e a próxima `buscarNoRelay()` tenta-o
   de novo do princípio — sem retoma nesta fase, pela mesma razão do P5
@@ -681,8 +681,11 @@ que Chromium esconde coisas, como o `showSaveFilePicker`).
       registada acima, não por esquecimento. **Provado em
       Chromium/loopback**, processos a sério (relay, `pombo enviar` nativo,
       PWA a receber por `buscarNoRelay()`), byte a byte idêntico.
-      **Por confirmar no iPhone real:** o limite de memória exato e se um
-      download disparado por script (sem clique) passa no Safari.
+      **E confirmado no iPhone real (01/09/2026):** ficheiro depositado do
+      computador chegou igual ao iPhone, descarregado sozinho ao abrir a
+      app, sem gesto de clique e sem o Safari bloquear nada. O limite exato
+      de memória continua por medir (não houve ficheiro perto de 500 MB à
+      mão), mas o caminho abaixo desse limite está provado.
       **Correção pós-P5/P3, apanhada pelo `advisor()` a rever a sessão:** o
       cartão de dispositivo novo mostrava o número de segurança em branco
       — `Descarga` ganhou `numeroSegurancaDe()`, testado.
@@ -814,10 +817,12 @@ sério, não só o resumo do plano:**
       manifesto e mostra nome/tamanho corretos). **Simplificações
       deliberadas** (`ponytail:` no código): uma só tentativa de subida,
       sem retoma; um único relay (a própria origem da PWA), sem HA do
-      lado do emissor. **Por confirmar no iPhone real:** se o `localStorage`
-      partilhado entre a PWA instalada e o Safari normal (de que o
-      aprender-por-link depende) sobrevive à instalação — a mesma incerteza
-      do P2, agora com uma segunda consequência se for "não".
+      lado do emissor. **Confirmado no iPhone real (01/09/2026):** o
+      `localStorage` partilhado entre a PWA instalada e o Safari normal (de
+      que o aprender-por-link depende) sobrevive à instalação — envio e
+      receção nos dois sentidos, entre o iPhone a sério e a app do
+      computador, byte a byte iguais, com uma correção no caminho: ver
+      "bug do `buscarNoRelay()` só ao arranque" na secção seguinte.
 - [x] **P6 — O design a sério, responsivo.** A extração do design empacotado
       (`design/claude-design/_ds/nocturne-.../styles.css` — o sistema já
       linkado a partir do `.dc.html`, não a página composta) confirmou que
@@ -848,40 +853,35 @@ Cada fase segue a regra 8 (desenhar antes de implementar) quando arrancar a
 sério — este roteiro é a ordem de trabalho, não o desenho protocolar de cada
 peça.
 
-### Estado do S8 ao fechar esta sessão (01/09/2026)
+### Estado do S8 (01/09/2026) — provado no iPhone real, não só em Chromium
 
-**Cinco das seis fases fecharam com prova de ponta a ponta, entre processos a
-sério (`pombo-relay`, `pombo` nativo, PWA em Chromium) — não só loopback
-simulado, e byte a byte idêntica onde havia ficheiro a comparar:** P1, P2,
-P5, P3, P6. O P4 é o único que falta, e fica **deliberadamente bloqueado**,
-não esquecido — motivo em cima, na própria bala do P4.
+**As cinco fases construídas fecharam com prova de ponta a ponta entre
+aparelhos a sério — o computador (app nativa, A10) e um iPhone real, não só
+Chromium/loopback:** P1, P2, P5, P3, P6. Envio e receção nos dois sentidos,
+byte a byte iguais; instalação no ecrã principal, modo isolado; `localStorage`
+sobrevive à instalação (a incerteza repetida em P2/P3/P5, fechada); descarga
+disparada por script no Safari, sem gesto de clique, sem bloqueio.
 
-**O guião de verificação no iPhone real** (nenhum passo daqui foi possível
-nesta sessão — nem o A10 nem o Pi têm ecrã, e não há iPhone acessível ao
-ambiente onde este agente corre). Ordenado para que uma falha pare a cadeia
-em vez de gastar os passos seguintes com um pressuposto já errado:
+**Dois bugs reais, só visíveis a testar com o iPhone a sério, não hipotéticos:**
 
-1. **A pergunta que decide tudo o resto primeiro:** cria um link no desktop
-   (`criarLigacao`), abre-o no Safari do iPhone, confirma que o dispositivo
-   fica listado depois de a app **instalada** abrir Definições. Isto prova
-   (ou desmente) que o `localStorage` sobrevive entre o Safari normal e a
-   PWA instalada na mesma origem — a incerteza repetida em P2, P3 e P5.
-   **Se falhar, os passos 4 e 5 falham por construção** (nada aprendeu quem
-   é o desktop) — não continues sem resolver este primeiro.
-2. Confirma a impressão digital nos dois nós (`--autorizados`) e reinicia
-   (`systemctl --user restart`) antes de continuar.
-3. Adiciona ao ecrã principal; confirma modo isolado (sem barra do Safari) e
-   o ícone correto.
-4. Envia um ficheiro do iPhone; confirma que chega **byte a byte idêntico**
-   ao desktop.
-5. Deposita um ficheiro do desktop para o iPhone; abre a app; confirma que a
-   descarga automática (disparada por script, sem clique — funcionou em
-   Chromium, nunca testada em Safari) não fica presa em silêncio.
+- **`buscarNoRelay()` só corria uma vez, ao abrir a app** (`App.svelte`,
+  tanto no Tauri como na PWA) — quem já tinha a app aberta antes de o outro
+  lado enviar nunca reparava no depósito novo, sem reiniciar. O comentário
+  no Rust já dizia "chamado ao abrir a app e **de vez em quando** pela
+  interface", mas nada chamava o "de vez em quando". Passou a correr no
+  mesmo temporizador de 4 s que já refrescava a lista de dispositivos.
+- **O texto do ecrã vazio de dispositivos mentia em modo PWA:** "Abre o
+  Pombo-Correio noutro aparelho, na mesma rede. Aparece aqui sozinho" — verdade
+  no Tauri (mDNS), falso na PWA (sem mDNS possível num browser; só se
+  conhecem por link). Corrigido para um texto próprio nesse modo.
 
-**A decisão que fica para o André, não só o teste:** construir o P4 agora,
-contra um comportamento de push nunca exercitado, ou esperar que os passos
-1–5 voltem limpos primeiro. Dado que o passo 1 pode obrigar a redesenhar
-como o iPhone aprende os conhecidos, a recomendação é esperar.
+Os dois foram corrigidos, reconstruídos e reimplantados (Pi + A10) antes da
+confirmação final do André.
+
+**O que fica mesmo por fazer: só o P4 (push), deliberadamente bloqueado —
+ver a bala do P4 acima para o motivo.** A decisão de o construir agora
+(contra um comportamento de entrega nunca exercitado) ou fechar o S8 sem
+push e deixá-lo para um sprint à parte ainda não foi tomada.
 
 ---
 

@@ -83,8 +83,14 @@
     // dispositivo que só liga a app depois de nós não apareceria até se carregar
     // em "Procurar". Enquanto estamos no ecrã de dispositivos, refresca-se em
     // silêncio para a lista se ir preenchendo sozinha.
+    //
+    // `buscarNoRelay()` ia só ao `onMount` (bug: sem push, a app só reparava
+    // num depósito novo se fosse reaberta depois de ele chegar) — corre aqui
+    // também, sem depender do separador, porque o que chega por relay importa
+    // em qualquer ecrã.
     const timer = setInterval(() => {
       if (aba === "dispositivos" && !aProcurar) procurar(true);
+      buscarNoRelay().catch(() => {});
     }, 4000);
 
     return () => {
@@ -354,7 +360,12 @@
       <div class="card elev-sm vazio">
         <h3>Ainda não há nenhum dispositivo à espera</h3>
         <p class="text-muted">
-          Abre o Pombo-Correio noutro aparelho, na mesma rede. Aparece aqui sozinho.
+          {#if eTauri()}
+            Abre o Pombo-Correio noutro aparelho, na mesma rede. Aparece aqui sozinho.
+          {:else}
+            Sem procura automática aqui — cria um link em baixo e abre-o no outro
+            aparelho para se conhecerem.
+          {/if}
         </p>
       </div>
     {:else}

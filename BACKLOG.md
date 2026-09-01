@@ -1542,3 +1542,46 @@ o suporte a upload em fluxo) e não há razão para assumir que a tipografia
 do sistema ou os `:has()` se comportam exatamente na mesma aqui.
 
 ---
+
+### Verificação no iPhone real (01/09/2026) — os dois bugs que só apareceram fora do Chromium
+
+Tudo o que ficara marcado "por confirmar no iPhone real" ao longo de P1, P2,
+P3 e P5 foi testado no aparelho a sério do André, não simulado: instalação
+no ecrã principal, modo isolado, `localStorage` a sobreviver à instalação,
+envio e receção nos dois sentidos byte a byte iguais, descarga disparada
+por script no Safari sem gesto de clique. Tudo passou — mas só depois de
+dois bugs reais aparecerem, nenhum deles visível em Chromium nem previsto
+no desenho:
+
+**1. `buscarNoRelay()` só corria uma vez, ao abrir a app.** O sintoma:
+computador e iPhone, ambos com a app aberta, "não se detetavam" um ao
+outro — parecia um problema de descoberta, mas era um problema de
+frequência. `App.svelte` chamava `buscarNoRelay()` só dentro do `onMount`;
+o temporizador de 4 s que já existia só refrescava a lista de dispositivos
+(`procurar()`), nunca voltava a perguntar ao relay se havia depósito novo.
+Isto é código de antes do S8 (introduzido em R3, o cliente a subir pela
+escada relay), não uma regressão desta sessão — só ficou visível agora
+porque foi a primeira vez que alguém deixou a app aberta de propósito à
+espera de um envio, em vez de a reabrir depois. O comentário Rust já dizia
+"chamado ao abrir a app e **de vez em quando** pela interface" — a
+interface nunca cumpriu a segunda parte. Corrigido a juntar a chamada ao
+mesmo temporizador de 4 s.
+
+**2. O texto do ecrã vazio de dispositivos prometia uma coisa que a PWA não
+faz.** "Abre o Pombo-Correio noutro aparelho, na mesma rede. Aparece aqui
+sozinho" é verdade na app nativa (mDNS varre a LAN); é falso na PWA — um
+browser não fala mDNS, e o único jeito de dois aparelhos se conhecerem é um
+abrir o link do outro. O texto genérico (partilhado entre os dois modos)
+mandava o André à procura de um bug de descoberta que nunca existiu; o
+`aProcurar` a "não fazer nada" ao clicar era o comportamento correto
+(reler uma lista local, instantâneo, sem indicação visual de que correu).
+Corrigido com um texto próprio em modo PWA, a apontar para o link em vez de
+prometer deteção automática.
+
+**A lição, para o resto do projeto:** os dois bugs só apareceram porque o
+teste foi feito com os dois lados a sério, ao vivo, um à espera do outro —
+não com um "abrir depois de o outro já ter enviado", que é o que qualquer
+teste automatizado (ou o próprio autor, com pressa) tende a fazer sem
+querer. Chromium/loopback não os apanharia por construção: os testes de
+Playwright desta sessão sempre reabriam a página depois do depósito
+existir, nunca a deixaram aberta a render enquanto o depósito chegava.
