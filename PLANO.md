@@ -354,7 +354,7 @@ parte para não entrar disfarçado de screen sharing.
 - [x] **S6 — Android**
 - [ ] **S7 — Relay e link sem instalação**
 - [x] **S8 — PWA iOS** (as seis fases construídas; P1/P2/P5/P3/P6 provados no iPhone real; P4 provado contra o Chrome/FCM a sério, falta confirmar a entrega da Apple)
-- [ ] **S9 — Distribuição e exposição pública** (a partir da Review2: musl, DDNS+débito, FCM Android, retoma de descarga na PWA)
+- [ ] **S9 — Distribuição e exposição pública** (Q1 musl, Q2 retoma de descarga e Q3 limitador de débito feitos e em produção nos dois nós; Q4 DDNS e Q5 FCM Android bloqueados no André)
 
 ### S1 — Primitivas do núcleo ✅
 
