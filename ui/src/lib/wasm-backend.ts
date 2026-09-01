@@ -424,7 +424,7 @@ async function trazer(base: string, idRelay: string): Promise<boolean> {
     tipo: "oferta",
     id,
     de: d.de(),
-    numero_seguranca: "",
+    numero_seguranca: d.numeroSegurancaDe(),
     ficheiro: d.nome(),
     tamanho: d.tamanho(),
     novo,

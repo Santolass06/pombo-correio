@@ -356,6 +356,15 @@ impl Descarga {
         self.remetente.label.clone()
     }
 
+    /// O número de segurança de quem enviou — o que se lê em voz alta ao
+    /// telefone para confirmar um dispositivo novo (S8 P3). Sem isto, o
+    /// aviso de "dispositivo novo" ficava com o número em branco: a única
+    /// parte da interface cujo trabalho é ser lida ao telefone, vazia.
+    #[wasm_bindgen(js_name = numeroSegurancaDe)]
+    pub fn numero_seguranca_de(&self) -> String {
+        self.remetente.safety_number()
+    }
+
     /// A identidade completa de quem enviou (as duas chaves públicas, mais a
     /// etiqueta), como JSON — para quem quiser guardá-la e passar a poder
     /// depositar de volta para esta pessoa (S8 P5: é assim que a PWA aprende
@@ -520,6 +529,9 @@ mod testes {
         let mut descarga = Descarga::da_caixa(&destinatario, &oferta_json).unwrap();
         assert_eq!(descarga.nome(), "nota.pdf");
         assert_eq!(descarga.de(), "PC da sala");
+        // O que se lê em voz alta no aviso de dispositivo novo — vazio aqui
+        // já foi um bug real (App.svelte mostrava o cartão sem número).
+        assert_eq!(descarga.numero_seguranca_de(), remetente.public().safety_number());
 
         let selado = seal_chunk(&chave, 0, &dados);
         assert_eq!(descarga.bloco(&selado).unwrap(), dados);
