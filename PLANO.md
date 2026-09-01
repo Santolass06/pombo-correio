@@ -1498,8 +1498,12 @@ de *"já recebi dele"*, e isso é desenho, não remendo.
 
 - [ ] **R6 — push.** FCM no Android, Web Push no iOS. Precisa de contas e chaves
       de serviço — decisão do utilizador, não técnica.
-- [ ] **R7 — TLS.** Decidido e escrito abaixo; falta correr três comandos com
-      `sudo` nos dois nós. Sem ele o link não serve para ficheiros grandes.
+- [x] **R7 — TLS, no Pi 5.** ✅ Confirmado a sério em 01/09/2026:
+      `curl https://raspberrypi.tail455bb7.ts.net/saude` → 200, certificado
+      Let's Encrypt válido. O bug do lado do Tailscale (abaixo) resolveu-se
+      sozinho. **Falta o mesmo no A10** — `tailscale serve` nunca foi
+      configurado lá, e o `sudo` dessa máquina pede password. Ver "Antes do
+      S8".
 - [ ] Binários musl para amd64 e arm64.
 
 #### R7 — TLS: a decisão, e porque não se escreve código
@@ -1620,10 +1624,23 @@ configuração. O `tailscale serve` no Pi já está de pé e agarra o certificad
 instante em que ele emitir. Se passar de um ou dois dias, aí sim, suporte do
 Tailscale com este diagnóstico, que é mais do que costumam pedir.
 
-**Estado honesto:** o `tailscale serve` está de pé no Pi e cai sozinho para o
-lugar certo quando o certificado emitir. Enquanto não emitir, **o HTTPS não
-existe** e o R5 continua limitado à memória do browser. Nenhum link em `https://`
-foi aberto por browser nenhum.
+**Atualização, 01/09/2026 — o bug resolveu-se sozinho.** O incidente do
+Tailscale fechou (não se corrigiu nada deste lado). Confirmado a sério no
+Pi 5:
+
+```
+$ curl -sS https://raspberrypi.tail455bb7.ts.net/saude -w '\nhttp_code=%{http_code}\n'
+pombo-relay
+http_code=200
+```
+
+Certificado Let's Encrypt válido, `tailscale cert` devolve a cadeia completa
+sem erro. **O R5 deixa de estar limitado à memória do browser no Pi** —
+`showSaveFilePicker` e `crypto.subtle` passam a existir aí. Falta o mesmo no
+A10: `tailscale serve status` diz "No serve config", porque nunca chegou a
+ser configurado, e o `sudo` dessa máquina pede password (ver "Antes do S8").
+Enquanto isso não estiver feito, um depósito que caia no A10 continua a sair
+em `http://`.
 
 #### O que está bloqueado, e em quê
 
@@ -1632,22 +1649,45 @@ trabalho por fazer — é trabalho que precisa de coisas que este lado não tem:
 
 | O que falta | O que precisa |
 |---|---|
-| **TLS** — o primeiro da fila, e **já decidido** | Três comandos com `sudo` nos dois nós (ver abaixo). Nenhuma linha de código nossa |
-| Ponta pela internet | Decidir se o link sai por domínio próprio ou DDNS. **Sem CGNAT**, com IPv6 global, NAT de cone e UPnP — a rede de casa dá para tudo, falta o nome |
-| A página no Safari do iPhone | Um iPhone. É o browser onde o caminho de memória parte primeiro |
-| R6 (push) | Conta e chaves de serviço do FCM (Android) e do Web Push (iOS) |
+| **TLS no A10** | Um comando com `sudo` — ver "Antes do S8" |
+| Ponta pela internet | DDNS, escolhido em vez de domínio próprio — ver "Antes do S8" |
+| A página no Safari do iPhone | Um iPhone — **já disponível**, ver "Antes do S8" |
+| R6 (push) | Conta e chaves de serviço do FCM (Android) e do Web Push (iOS) — a preparar, ver "Antes do S8" |
 | A **janela** da app em Windows | Nada — só falta correr `npm run app:build` lá e olhar para ela |
-| Separar "sei as chaves dele" de "já recebi dele" nos `Conhecidos` | Nada — é desenho por fazer. Hoje só se deposita para quem já nos enviou |
+| Separar "sei as chaves dele" de "já recebi dele" nos `Conhecidos` | Nada — é desenho por fazer, ver "Antes do S8" |
 
 Onde é que cada coisa está provada, sem arredondar: o protocolo, a retoma nos
 dois sentidos e a opacidade do relay estão provados **em loopback**; o caminho
-direto, o degrau do relay e a queda de um nó estão provados **entre o A10 e o
-Pi 5, na LAN**; **pela internet não está provado nada**, e é assim que fica
+direto, o degrau do relay, a queda de um nó e agora o TLS estão provados
+**entre o A10 e o Pi 5, na LAN** (TLS só confirmado no Pi); **pela internet
+não está provado nada**, e é assim que fica
 escrito até alguém o correr de fora de casa.
+
+### Antes do S8
+
+Análise feita em 01/09/2026, com o estado de cada máquina confirmado a
+sério antes de escrever a tabela — não é uma repetição do "O que está
+bloqueado" acima, é a ordem de trabalho combinada com o André para fechar
+tudo isso. Ver `~/.claude/plans/elegant-frolicking-liskov.md` para o
+raciocínio completo.
+
+| Item | Bloqueia o S8? | De quem é a próxima ação | Ação concreta |
+|---|---|---|---|
+| TLS no A10 | Sim — sem ele um depósito no A10 sai em `http://` e o Safari recusa | André | `sudo tailscale serve --bg --https=443 http://127.0.0.1:53319` no A10 |
+| iPhone na tailnet | Sim, para testar a sério | André | Instalar a app Tailscale no iPhone, entrar em `tail455bb7.ts.net` |
+| Buraco dos `Conhecidos` (depositar para quem só recebeu) | Não | Eu | Desenho + implementação, ver abaixo |
+| Binários musl amd64+arm64 | Não | Eu | Instalar targets, configurar `relay/` |
+| DDNS (DuckDNS) | Não — só para quem não tem Tailscale | André depois eu | André cria a conta e dá-me o token; eu trato do resto |
+| Push — Firebase (Android) | Não para arrancar o S8; sim para R6 | André depois eu | André cria o projeto Firebase e a conta de serviço; eu integro |
+| Push — VAPID (iOS) | Não para arrancar o S8; sim para R6 | Eu | Gero o par de chaves, sem depender de conta nenhuma |
+| Janela da app em Windows | Não | André | Olhar para ela depois de `npm run app:build`, enviar algo de lá |
+
+**Quando a linha do TLS no A10 e a do iPhone estiverem fechadas, o S8 arranca
+a sério.** As restantes correm em paralelo, sem bloquear.
 
 ### S8 — PWA iOS
 
-- [ ] `core/` para WASM.
+- [x] `core/` para WASM — já feito, herdado do R5 (`pagina/`).
 - [ ] Service worker, Web Push, instalação no ecrã principal.
 - [ ] Encaminhamento explícito para a app Ficheiros (contorna o HEIC→JPEG).
 
