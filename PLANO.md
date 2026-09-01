@@ -423,6 +423,23 @@ registo escrevia-o diretamente, sem passar pelo `chaves_para`, por isso não
 provava que o caminho normal falhava. O passo "escrever um teste que falhe
 primeiro" já teria apanhado isto na altura.
 
+## Review0 — auditoria externa
+
+`audit/Review0.md`, 01/09/2026, de um agente à parte que passa a ser
+responsável por testar, validar e sugerir correções ao código. Maioritariamente
+positiva, sem falhas críticas nem bugs bloqueantes. Cinco achados (F-01 a
+F-05); confirmei cada um contra o código antes de agir — a sessão anterior já
+tinha mostrado que um relatório escrito sem correr o teste pode descrever um
+buraco que não existe.
+
+| Achado | Confirmado? | O que se fez |
+|---|---|---|
+| F-01 — zeroização de memória em falta | Parcial: `SigningKey`/`StaticSecret`/`EphemeralSecret` já zeroizam sozinhas (`ZeroizeOnDrop`, confirmado na fonte do `x25519-dalek`/`ed25519-dalek` 3.0.0). Só `TransferKey` (`core/src/crypto.rs`) era um `[u8; 32]` nosso, sem `Drop` nenhum | ✅ `TransferKey` passou a `Zeroize`/`ZeroizeOnDrop`. `zeroize` já era dependência transitiva (via `x25519-dalek`), passou a direta. Teste `transfer_key_zeroiza_ao_sair_de_ambito` — asserção em tempo de compilação, não leitura de memória pós-`drop` (seria UB) |
+| F-02 — sem limite de débito no `PUT /deposito` do relay | Confirmado: só há validação de tamanho declarado e o portão `--autorizados` na criação; nada limita repetição de pedidos | Agendado, não implementado — só importa quando o relay for exposto para lá da tailnet. Anotado na secção de DDNS abaixo |
+| F-03 — sem TLS, sem `isSecureContext` | Já resolvido no Pi 5 (ver R7 acima); a auditoria só confirma o que já se sabia | Sem ação nova |
+| F-04 — throttling do progresso a 100 ms | A própria auditoria diz "manter como padrão" | Sem ação |
+| F-05 — interface Svelte | "N/A" na própria auditoria | Sem ação |
+
 ## Diagnóstico
 
 Registo de métricas em `<dados>/metricas/eventos.jsonl` (`rede/src/metricas.rs`),
@@ -1710,16 +1727,21 @@ escrito até alguém o correr de fora de casa.
 Análise feita em 01/09/2026, com o estado de cada máquina confirmado a
 sério antes de escrever a tabela — não é uma repetição do "O que está
 bloqueado" acima, é a ordem de trabalho combinada com o André para fechar
-tudo isso. Ver `~/.claude/plans/elegant-frolicking-liskov.md` para o
-raciocínio completo.
+tudo isso.
+
+> Nota de método: esta tabela **não** deve depender de ficheiros em
+> `~/.claude/plans/` para o raciocínio — esses ficheiros são reescritos a
+> cada sessão de planeamento nova (foi o que aconteceu ao plano do Review0,
+> que reescreveu o desta tabela). O que interessa fica aqui, no `PLANO.md`.
 
 | Item | Bloqueia o S8? | De quem é a próxima ação | Ação concreta |
 |---|---|---|---|
 | TLS no A10 | Sim — sem ele um depósito no A10 sai em `http://` e o Safari recusa | André | `sudo tailscale serve --bg --https=443 http://127.0.0.1:53319` no A10 |
 | iPhone na tailnet | Sim, para testar a sério | André | Instalar a app Tailscale no iPhone, entrar em `tail455bb7.ts.net` |
 | ~~Buraco dos `Conhecidos` (depositar para quem só recebeu)~~ | — | — | ✅ Investigado e fechado: já funcionava, sem código a mudar |
+| ~~Zeroização de `TransferKey` (Review0 F-01)~~ | — | — | ✅ Feito — ver secção Review0 |
 | Binários musl amd64+arm64 | Não | Eu | Instalar targets, configurar `relay/` |
-| DDNS (DuckDNS) | Não — só para quem não tem Tailscale | André depois eu | André cria a conta e dá-me o token; eu trato do resto |
+| DDNS (DuckDNS) | Não — só para quem não tem Tailscale | André depois eu | André cria a conta e dá-me o token; ao expor o relay, junto ao `--autorizados` entra também um limitador de débito por IP (Review0 F-02 — `tower_governor`, sobre o `axum` que já temos) |
 | Push — Firebase (Android) | Não para arrancar o S8; sim para R6 | André depois eu | André cria o projeto Firebase e a conta de serviço; eu integro |
 | Push — VAPID (iOS) | Não para arrancar o S8; sim para R6 | Eu | Gero o par de chaves, sem depender de conta nenhuma |
 | Janela da app em Windows | Não | André | Olhar para ela depois de `npm run app:build`, enviar algo de lá |

@@ -28,7 +28,12 @@ fn random_bytes<const N: usize>() -> [u8; N] {
 }
 
 /// Chave simétrica de uma transferência. Vive só o tempo da transferência.
-#[derive(Clone)]
+///
+/// `ZeroizeOnDrop`: ao contrário da `SigningKey` e da `StaticSecret` (que já
+/// zeroizam sozinhas, por dentro do `ed25519-dalek`/`x25519-dalek`), este é
+/// um `[u8; 32]` nosso — sem isto, ficaria em memória depois de sair de
+/// âmbito, até ser reescrito por outra coisa.
+#[derive(Clone, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
 pub struct TransferKey([u8; 32]);
 
 impl TransferKey {
@@ -183,6 +188,15 @@ pub fn open_manifest(key: &TransferKey, sealed: &[u8]) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Não lê memória depois do `drop` — seria UB e um teste instável. Só
+    /// confirma, em tempo de compilação, que a `TransferKey` zeroiza a si
+    /// própria ao sair de âmbito.
+    #[test]
+    fn transfer_key_zeroiza_ao_sair_de_ambito() {
+        fn implementa_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+        implementa_zeroize_on_drop::<TransferKey>();
+    }
 
     #[test]
     fn bloco_selado_reabre_igual() {
