@@ -12,9 +12,73 @@
 use pombo_correio_core::{
     chunk::Manifest,
     crypto::{SEAL_OVERHEAD, TransferKey, open_chunk, open_manifest},
+    identity::Identity,
     protocolo::Oferta,
 };
 use wasm_bindgen::prelude::*;
+
+/// A identidade do dispositivo, para quando o `ui/` corre sem Tauri (S8 P2).
+///
+/// Gerar e assinar já não tocam em I/O — é por isso que `core::identity` sempre
+/// compilou para wasm32. O que falta só é a fronteira: o `localStorage` é quem
+/// persiste (não há sistema de ficheiros no browser), por isso os bytes
+/// secretos saem daqui em hexadecimal e voltam pela mesma via — o mesmo desenho
+/// do `secret_bytes()`/`from_secret_bytes()` que o Tauri já usa, só que ali o
+/// destino é um ficheiro `0600` e aqui é o `localStorage` da origem.
+#[wasm_bindgen]
+pub struct IdentidadeWasm {
+    interna: Identity,
+}
+
+#[wasm_bindgen]
+impl IdentidadeWasm {
+    /// Gera uma identidade nova. Só deve ser chamado uma vez por dispositivo —
+    /// quem chama grava logo o segredo, senão a próxima visita gera outra.
+    pub fn gerar(nome: String) -> IdentidadeWasm {
+        IdentidadeWasm { interna: Identity::generate(nome) }
+    }
+
+    /// Reconstrói a partir do que ficou em `localStorage`.
+    #[wasm_bindgen(js_name = deSegredo)]
+    pub fn de_segredo(signing_hex: &str, secret_hex: &str, nome: String) -> Result<IdentidadeWasm, String> {
+        let signing: [u8; 32] = hex::decode(signing_hex)
+            .map_err(erro)?
+            .try_into()
+            .map_err(|_| "chave de assinatura guardada não tem 32 bytes".to_string())?;
+        let secret: [u8; 32] = hex::decode(secret_hex)
+            .map_err(erro)?
+            .try_into()
+            .map_err(|_| "chave de cifra guardada não tem 32 bytes".to_string())?;
+        Ok(IdentidadeWasm { interna: Identity::from_secret_bytes(signing, secret, nome) })
+    }
+
+    pub fn nome(&self) -> String {
+        self.interna.label.clone()
+    }
+
+    #[wasm_bindgen(js_name = numeroSeguranca)]
+    pub fn numero_seguranca(&self) -> String {
+        self.interna.public().safety_number()
+    }
+
+    /// A impressão digital de 16 dígitos hexadecimais — a que o relay pede em
+    /// `--autorizados` e que a interface mostra em destaque no primeiro
+    /// arranque, para o André a poder copiar para lá.
+    #[wasm_bindgen(js_name = impressaoCurta)]
+    pub fn impressao_curta(&self) -> String {
+        hex::encode(self.interna.public().fingerprint())[..16].to_string()
+    }
+
+    #[wasm_bindgen(js_name = segredoSigning)]
+    pub fn segredo_signing(&self) -> String {
+        hex::encode(self.interna.secret_bytes().0)
+    }
+
+    #[wasm_bindgen(js_name = segredoSecret)]
+    pub fn segredo_secret(&self) -> String {
+        hex::encode(self.interna.secret_bytes().1)
+    }
+}
 
 /// Uma descida em curso: sabe o manifesto e por que bloco vai.
 #[wasm_bindgen]
@@ -167,6 +231,24 @@ mod testes {
 
     fn conteudo(n: usize) -> Vec<u8> {
         (0..n).map(|i| ((i * 31 + i / 97) % 256) as u8).collect()
+    }
+
+    #[test]
+    fn identidade_wasm_sobrevive_a_ida_e_volta_pelo_hexadecimal() {
+        // O caminho real: gerar, guardar os dois segredos em `localStorage`
+        // (aqui, só as strings), e reconstruir na visita seguinte.
+        let original = IdentidadeWasm::gerar("iPhone da Ana".to_string());
+        let signing = original.segredo_signing();
+        let secret = original.segredo_secret();
+
+        let restaurada = IdentidadeWasm::de_segredo(&signing, &secret, "iPhone da Ana".to_string()).unwrap();
+        assert_eq!(original.numero_seguranca(), restaurada.numero_seguranca());
+        assert_eq!(original.impressao_curta(), restaurada.impressao_curta());
+    }
+
+    #[test]
+    fn identidade_wasm_recusa_segredo_com_tamanho_errado() {
+        assert!(IdentidadeWasm::de_segredo("ab", "cd", "x".to_string()).is_err());
     }
 
     #[test]

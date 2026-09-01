@@ -226,6 +226,32 @@ Três coisas que convém saber antes de mandar um link a alguém:
 - **Não se gasta ao ser aberto.** Ao contrário da caixa, a página não apaga o
   depósito — quem tiver o endereço busca as vezes que quiser durante os 7 dias.
 
+## App instalável (PWA, S8)
+
+O iPhone não corre Tauri — corre a mesma interface Svelte (`ui/`) servida como
+página, instalável no ecrã principal. Duas construções antes de servir:
+
+```sh
+cd ui && npm run build                                        # ui/dist
+cd pagina && wasm-pack build --target web --out-dir ../ui/public/wasm
+cd ui && npm run build                                        # outra vez, para incluir o wasm em dist/
+```
+
+A ordem importa: o wasm tem de existir em `ui/public/` **antes** do `npm run
+build`, senão o Vite copia a pasta sem ele. Depois aponta-se o relay:
+
+```
+ExecStart=… pombo-relay --dados … --porta 53319 --app %h/pombo-app
+```
+
+**Só um nó de casa deve servir a app** — ver "Antes do S8" no `PLANO.md`: o
+`localStorage` é por origem, e uma PWA instalada a partir de dois sítios
+diferentes seria duas apps com identidades diferentes. O Pi (sempre ligado) é
+quem serve; o A10 continua só como relay.
+
+Sem `--app`, a raiz do relay responde 404 e o resto continua a funcionar —
+mesma opção de sempre, sem obrigar ninguém a instalar nada.
+
 ## HTTPS pelo Tailscale
 
 Sem TLS o browser trata a página do link como insegura e fecha-lhe a porta do

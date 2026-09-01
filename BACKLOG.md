@@ -1222,4 +1222,65 @@ certo. **Por provar:** tudo o que só o Safari do iPhone decide — HTTPS real
 (o R7 resolve a parte do certificado, falta juntar as duas pontas),
 Add-to-Home-Screen, e o modo `standalone` sem a barra do Safari.
 
+### P2 — A `ui/` corre sem Tauri (identidade)
+
+**A interface `PomboBackend` que o PLANO.md e a Review1 desenhavam não
+sobreviveu ao confronto com o código real.** `enviarFicheiro` no Tauri recebe
+um caminho de ficheiro (`string`); o equivalente no browser vai receber um
+`File` do `<input type=file>` — não há assinatura comum possível sem fingir
+(por exemplo, aceitar `string | File` e desmontar por dentro, o que só move a
+divergência para dentro da função em vez de a admitir). A decisão tomada:
+`api.ts` mantém as mesmas funções exportadas de sempre — nada em `App.svelte`
+mudou — e só ramificam por `eTauri()` as que têm **a mesma forma nos dois
+lados**: `identidade`, `dispositivos`, `cancelar`, `buscarNoRelay`,
+`aoAcontecer`. As que não têm (`enviarFicheiro`, `criarLigacao`) continuam
+Tauri-only até o P5 desenhar o que fazem no browser — não é dívida técnica,
+é adiar uma decisão de desenho para quando há informação para a tomar.
+
+**`wasm-pack build --target web` não passa pelo bundler do Vite — de
+propósito.** O `pagina/www/` já provava isto (R5): o glue-code do
+`wasm-bindgen` é servido como ficheiro estático e importado em runtime, não
+compilado pelo Vite. Copiar o padrão evitou meter o Vite a tentar perceber
+`import.meta.url` dentro de um `.wasm` — mas trouxe dois problemas próprios,
+os dois resolvidos sem novas dependências:
+
+1. **`tsc` tentava resolver `"/wasm/pombo_correio_pagina.js"` como módulo do
+   projeto** (falha: não existe nesse caminho, é servido à parte) mesmo com
+   `/* @vite-ignore */` — esse comentário é só para o Vite, o `tsc` não o lê.
+   Resolvido guardando o caminho numa `const` antes do `import()`: uma
+   `string` normal (não um literal) faz o TypeScript inferir `Promise<any>`
+   em vez de tentar encontrar o módulo.
+2. **`InstanceType<ModuloWasm["IdentidadeWasm"]>` não compilava** — o
+   `wasm-bindgen` gera `private constructor()` de propósito (só se cria por
+   `gerar`/`deSegredo`), e `InstanceType` exige um construtor público.
+   Resolvido com `ReturnType<...["gerar"]>`, que dá o mesmo tipo sem pedir
+   acesso ao construtor.
+
+**O tipo do módulo wasm precisa do `.d.ts` gerado para existir em disco.**
+`type ModuloWasm = typeof import("../../public/wasm/....js")` só compila
+depois de um `wasm-pack build` — exatamente como o `pagina/www/wasm/*.d.ts`
+já exigia para quem mexesse ali. Documentado em `COMO_CORRER.md`, secção nova
+("App instalável (PWA, S8)"): compilar o wasm **antes** do `npm run build`
+final, senão o Vite copia `ui/public/` sem ele.
+
+**A persistência da identidade ficou em TypeScript, não em Rust.** O
+`IdentidadeWasm` só expõe os bytes secretos em hexadecimal
+(`segredoSigning`/`segredoSecret`); é o `wasm-backend.ts` que lê e escreve o
+`localStorage`. Dar ao wasm acesso direto ao `localStorage` (via `web-sys`)
+teria sido mais código Rust para chamar uma API que o TypeScript já tem de
+graça — o mesmo raciocínio do S7 R5, onde a página também decide o que fazer
+com os bytes do outro lado da fronteira, não o wasm.
+
+**Provado em Chromium/loopback:** `npx tsc --noEmit`, `npx svelte-check`, e
+os testes Rust novos (`identidade_wasm_sobrevive_a_ida_e_volta_pelo_hexadecimal`,
+`identidade_wasm_recusa_segredo_com_tamanho_errado`) — mas sobretudo, a app a
+correr a sério: 0 erros na consola (antes do P2, `identidade()` rebentava
+com "Cannot read properties of undefined (reading 'invoke')"), identidade
+nova gerada e gravada em `localStorage` na primeira visita, número de
+segurança real mostrado em Definições, e a mesma identidade a sobreviver a
+um `location.reload()`. **Por confirmar no iPhone real:** se o `localStorage`
+sobrevive à instalação como PWA no ecrã principal (o ITP do Safari expira
+`localStorage` de páginas web ao fim de 7 dias sem visita — mas há isolamento
+para apps instaladas; só se sabe testando).
+
 ---

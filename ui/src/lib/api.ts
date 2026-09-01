@@ -1,11 +1,17 @@
-// Fronteira com o Rust.
-//
-// Nenhuma destas funções move bytes de ficheiros. O IPC do Tauri serializa tudo
-// para JSON, por isso o conteúdo fica sempre do lado do Rust e daqui só passam
-// nomes, tamanhos e contagens.
+// Fronteira com o backend — Rust por Tauri no desktop/Android, wasm+fetch na
+// PWA de iOS (S8). Nenhuma função de envio direto move bytes de ficheiros por
+// aqui: no Tauri, o IPC serializa tudo para JSON, por isso o conteúdo fica do
+// lado do Rust e só passam nomes, tamanhos e contagens; no wasm, os bytes
+// já vão diretos do browser para o `fetch()`, sem passar por este ficheiro.
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import * as wasm from "./wasm-backend";
+
+/// `window.__TAURI_INTERNALS__` é o mesmo sinal que o `main.ts` usa para
+/// decidir se regista o service worker — dentro do Tauri não há nada disso a
+/// fazer, e aqui é o inverso: dentro do Tauri há sempre `invoke`.
+const eTauri = () => "__TAURI_INTERNALS__" in window;
 
 export type Eu = { nome: string; numero_seguranca: string };
 
@@ -44,11 +50,17 @@ export type Evento =
   | { tipo: "cancelado"; id: string }
   | { tipo: "falhou"; id: string; erro: string };
 
-export const identidade = () => invoke<Eu>("identidade");
-export const dispositivos = () => invoke<Vizinho[]>("dispositivos");
+export const identidade = () => (eTauri() ? invoke<Eu>("identidade") : wasm.obterIdentidade());
+
+/// Na PWA nunca há vizinhos por descoberta — sem mDNS possível no Safari, a
+/// lista fica vazia até o P5 escolher destinos por endereço ou por conhecido.
+export const dispositivos = () => (eTauri() ? invoke<Vizinho[]>("dispositivos") : wasm.listarDispositivos());
 
 /// O destino vai inteiro, e não só o nome: o endereço que já veio da lista
 /// poupa ao Rust a busca na rede antes de cada envio.
+///
+/// Só existe no Tauri: no browser um "ficheiro" não é um caminho, é um
+/// `File` do seletor — o P5 é que traz o envio a partir do iPhone.
 export const enviarFicheiro = (ficheiro: string, destino: Vizinho) =>
   invoke<void>("enviar_ficheiro", { ficheiro, destino });
 
@@ -62,7 +74,11 @@ export type Partilhado = { uri: string; nome: string };
 
 /// O que outra app partilhou para cá desde a última pergunta. Consome: a
 /// resposta só vem uma vez, porque o URI não vale fora desta sessão da app.
-export const partilhaPendente = () => invoke<Partilhado[]>("partilha_pendente");
+///
+/// Sem folha de partilha possível no browser — vazia na PWA, tal como já era
+/// vazia no desktop Tauri; não é um caminho por implementar, é sempre assim.
+export const partilhaPendente = () =>
+  eTauri() ? invoke<Partilhado[]>("partilha_pendente") : Promise.resolve([] as Partilhado[]);
 
 export const enviarPartilhados = (destino: Vizinho, ficheiros: Partilhado[]) =>
   invoke<void>("enviar_partilhados", { destino, ficheiros });
@@ -71,22 +87,23 @@ export const enviarPartilhados = (destino: Vizinho, ficheiros: Partilhado[]) =>
 /// caminho de envio certo sem mais um plugin de plataforma.
 export const eAndroid = () => /Android/i.test(navigator.userAgent);
 
-export const cancelar = (id: string) => invoke<void>("cancelar", { id });
+export const cancelar = (id: string) => (eTauri() ? invoke<void>("cancelar", { id }) : wasm.cancelar(id));
 
 /// Vai ver ao relay de casa se chegou coisa enquanto o aparelho esteve
 /// desligado. Devolve zero — sem falhar — se não houver relay configurado.
-export const buscarNoRelay = () => invoke<number>("buscar_no_relay");
+export const buscarNoRelay = () => (eTauri() ? invoke<number>("buscar_no_relay") : wasm.buscarNoRelay());
 
 /// Deixa um ficheiro no relay de casa e devolve um link, para quem não tem a
 /// app. `null` significa que o seletor do Android foi cancelado.
 ///
 /// No desktop passa-se o caminho já escolhido; no Android passa-se `null` e o
 /// seletor abre-se do lado do Rust, que é onde se sabe lidar com `content://`.
+/// Só existe no Tauri por agora — o P5 traz o equivalente para o browser.
 export const criarLigacao = (ficheiro: string | null) =>
   invoke<string | null>("criar_ligacao", { ficheiro });
 
 export const aoAcontecer = (f: (e: Evento) => void) =>
-  listen<Evento>("pombo", (m) => f(m.payload));
+  eTauri() ? listen<Evento>("pombo", (m) => f(m.payload)) : wasm.aoAcontecer(f);
 
 /// Tamanhos em unidades que uma pessoa lê sem contar zeros.
 export function tamanhoLegivel(bytes: number): string {

@@ -615,18 +615,28 @@ que Chromium esconde coisas, como o `showSaveFilePicker`).
       standalone no Safari continuam por provar no iPhone** — só aí o R7
       (TLS) e este P1 se encontram a sério. Decisão tomada aqui, sem
       perguntar: a app fica servida **só pelo Pi** (ver "Desenho" acima).
-- [ ] **P2 — A `ui/` corre sem Tauri.** `api.ts` ganha duas implementações
-      por trás de uma interface comum (`PomboBackend`, sugestão da Review1 —
-      `obterIdentidade`, `listarDispositivos`, `enviar`, `buscarCaixaRelay`,
-      `cancelar`) — deteta `window.__TAURI_INTERNALS__` e escolhe entre
-      `TauriBackend` e `WasmBackend`. O lado browser precisa de bindings wasm
-      novos (a estender o `core/`, no padrão do `pagina/`): gerar e persistir
-      uma `Identity` (bytes já dão para `localStorage`; `secret_bytes()` já
-      existe no `core/`). **Por confirmar no iPhone real:** se
-      `localStorage` sobrevive à instalação como app no ecrã principal ou se
-      compensa `IndexedDB` — a Review1 sugere que sim, mas isto só se dá por
-      resolvido depois de testado, não por o ter lido. Sem identidade, nada
-      do resto tem quem o assine.
+- [x] **P2 — A `ui/` corre sem Tauri (identidade).** `api.ts` deteta
+      `window.__TAURI_INTERNALS__` e passa a chamar `invoke`/`listen` ou o
+      novo `wasm-backend.ts`, função a função — sem uma classe `PomboBackend`
+      formal: `enviarFicheiro`/`criarLigacao` têm assinaturas que só fazem
+      sentido no Tauri (caminho de ficheiro vs. `File` do browser), por isso
+      só as funções com a mesma forma nos dois lados (`identidade`,
+      `dispositivos`, `cancelar`, `buscarNoRelay`, `aoAcontecer`) ganharam
+      ramo — abstrair as outras à força seria a mesma interface a fingir que
+      dois desenhos diferentes são um só. `pagina/` ganhou `IdentidadeWasm`
+      (`gerar`/`deSegredo`/`numeroSeguranca`/`impressaoCurta`), bindings finos
+      sobre o `Identity` que já compilava para wasm32; a persistência em si
+      (ida e volta ao `localStorage`) fica em TypeScript — não há
+      `web-sys` novo, é a mesma API que qualquer página usa. **Provado em
+      Chromium/loopback:** a app carrega sem Tauri, gera uma identidade nova
+      na primeira visita, mostra o número de segurança real no separador
+      Definições, e mantém a mesma identidade a recarregar a página (bytes
+      de `localStorage` idênticos antes/depois). **Por confirmar no
+      iPhone real:** se `localStorage` sobrevive à instalação como app no
+      ecrã principal — só aí se sabe se compensa `IndexedDB`, a Review1
+      sugere que sim mas isso só se decide depois de testado. Mostrar a
+      impressão digital (`impressaoCurta()`) em destaque na interface fica
+      para o P5, que é quando ela passa a ser precisa (`--autorizados`).
 - [ ] **P3 — Receber pelo relay ao abrir a app.** Equivalente ao
       `buscarNoRelay()` do Android, em wasm+`fetch()`: consulta `/caixa`,
       decifra e verifica com o `core/`. **A gravação não pode ser só "cai
