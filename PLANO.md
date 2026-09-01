@@ -1097,6 +1097,21 @@ arrancar já; as outras três dependem de uma decisão ou conta do André. Ver
       Tailscale instalado. Bloqueado no token do André (ver "Antes do S9").
       Entra depois ou junto do Q3 — nunca antes, para não abrir a porta sem
       o limitador de débito de pé.
+
+      **Estado a 02/09/2026:** o encaminhamento de porta (TCP 53319, router
+      NOS → Pi) já está criado e ativo — o Q4 chegou antes do DuckDNS
+      propriamente dito, porque o `--autorizados` (que já era pré-requisito
+      escrito desde a análise "Antes do S8") passou de teórico a urgente
+      assim que a porta abriu. Feito antes de continuar: `--autorizados` a
+      sério no Pi (`~/.local/share/pombo-relay/autorizados`), com as
+      impressões atuais de A10 (CLI e app) e do iPhone; testado a sério — um
+      depósito real do A10 passou. **A tablet Android (OnePlus Pad 2) ficou
+      de fora** — a build instalada é antiga demais para mostrar a própria
+      impressão digital; falta atualizá-la antes de a poder autorizar.
+      **Falta ainda:** o domínio DuckDNS em si e o TLS — até lá, o relay está
+      alcançável de fora só por HTTP simples (a impressão digital e a
+      assinatura de cada pedido viajam em claro; o conteúdo dos ficheiros
+      continua cifrado ponta-a-ponta, isso não muda).
 - [ ] **Q5 — Push FCM (Android), o resto do R6.** Estende `relay/src/push.rs`
       para enviar também para o Firebase Cloud Messaging, ao lado do Web
       Push já feito para iOS. Bloqueado na conta Firebase e credenciais de
