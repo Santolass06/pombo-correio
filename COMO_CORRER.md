@@ -188,6 +188,28 @@ ordem dos dois primeiros da lista importa, e só por causa do S8.
 Os depósitos duram 7 dias e são limpos de hora a hora. Um ficheiro entregue é
 apagado do relay assim que está em disco do outro lado.
 
+### Binários musl estáticos (S9 Q1)
+
+Para instalar numa máquina sem a `glibc` certa (distros minimalistas,
+containers) — `pombo-relay` sem dependência dinâmica nenhuma:
+
+```sh
+cargo install cross --locked   # uma vez; usa Docker por trás
+rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+
+cross build --release --target x86_64-unknown-linux-musl  -p pombo-correio-relay
+cross build --release --target aarch64-unknown-linux-musl -p pombo-correio-relay
+```
+
+Os binários ficam em `target/<alvo>/release/pombo-relay`. O `Cross.toml` na
+raiz fixa as imagens `:edge` — as `:0.2.5` (a tag por omissão do `cross`
+0.2.5) têm uma `glibc` velha demais para o `rustc` atual e falham a compilar
+o `libc`/`zeroize_derive` com erros crípticos de versão. **Provado real**: o
+binário `aarch64` corre no Pi 5 (Debian/glibc, sem `musl` instalada) e o
+`x86_64` corre dentro de um `alpine` (sem `glibc` nenhuma) — os dois
+respondem a `/saude`, `ldd` confirma "não é um executável dinâmico" nos
+dois.
+
 ## Link sem instalação (R5)
 
 Para quem não tem a app — o browser decifra sozinho, porque a chave vai depois

@@ -333,6 +333,14 @@ parte para não entrar disfarçado de screen sharing.
   já usa `getrandom = "0.4.3"` com a feature `wasm_js` (não `js`, que é da
   0.2), e o build para wasm32 já compila sem isto. Verificado antes de
   aceitar, não só copiado.
+- **Review2** (`audit/Review2.md`, 01/09/2026): auditoria do S8 completo
+  (VAPID/RFC 8292, camada wasm, dual backend, resiliência iOS, design
+  responsivo) — sem achados críticos nem médios, três de severidade baixa/
+  informativa (F-08 a F-10). Nenhum é um bug: são trabalho a agendar.
+  F-10 (segredos em `localStorage`) só pedia documentação — feito, ver
+  "Riscos". F-08 (retoma de descarga na PWA) e F-09 (limite de débito, já
+  agendado desde a Review0) e as quatro sugestões da secção 7 formam o S9
+  abaixo.
 
 ---
 
@@ -346,6 +354,7 @@ parte para não entrar disfarçado de screen sharing.
 - [x] **S6 — Android**
 - [ ] **S7 — Relay e link sem instalação**
 - [x] **S8 — PWA iOS** (as seis fases construídas; P1/P2/P5/P3/P6 provados no iPhone real; P4 provado contra o Chrome/FCM a sério, falta confirmar a entrega da Apple)
+- [ ] **S9 — Distribuição e exposição pública** (a partir da Review2: musl, DDNS+débito, FCM Android, retoma de descarga na PWA)
 
 ### S1 — Primitivas do núcleo ✅
 
@@ -512,8 +521,10 @@ menos o último. É esta conta que mantém o relay ignorante.
       pelo relay em `--pagina`. Validado em Chromium, loopback e LAN entre os
       dois nós. Ver `BACKLOG.md` para o desenho completo e o que ainda não
       estava provado nesta fase (Safari, `showSaveFilePicker`, fora da LAN).
-- [ ] **R6 — push.** FCM no Android, Web Push no iOS. Precisa de contas e chaves
-      de serviço — decisão do utilizador, não técnica. Ver "Antes do S8".
+- [ ] **R6 — push.** Web Push no iOS **feito** (P4 do S8, `relay/src/vapid.rs`
+      + `push.rs` — VAPID/RFC 8292, provado a sério contra o FCM do Chrome,
+      falta só a confirmação da Apple). **Falta FCM no Android** — precisa da
+      conta e chaves de serviço Firebase do André. Ver "Antes do S9".
 - [x] **R7 — TLS, nos dois nós.** ✅ Confirmado a sério em 01/09/2026:
       `curl https://raspberrypi.tail455bb7.ts.net/saude` e
       `curl https://andresantos-m11bb.tail455bb7.ts.net/saude` → 200 nos dois,
@@ -927,6 +938,65 @@ iPhone para o P4 — pedir permissão de notificações em Definições, esperar
 por um depósito, confirmar que a notificação chega e que tocar nela abre a
 app — o único passo que só a Apple pode fechar.
 
+### S9 — Distribuição e exposição pública
+
+Nasce da Review2 (secção 7) mais o que já ficava por fechar do S7: FCM no
+Android (metade do R6, a outra metade — Web Push iOS — já fechou no S8) e os
+binários musl que nunca chegaram a arrancar. Nenhuma das cinco fases é um
+bug — a Review2 não encontrou nenhum achado crítico nem médio no S8; isto é
+trabalho novo, não reparação.
+
+**Duas fases não têm bloqueador nenhum** (musl, retoma de descarga) e podem
+arrancar já; as outras três dependem de uma decisão ou conta do André. Ver
+"Antes do S9".
+
+- [x] **Q1 — Binários musl estáticos (amd64 + arm64).** Feito com `cross`
+      (docker por trás) em vez de instalar toolchains cruzados à mão — o
+      `apt` só tem `musl-tools` para `x86_64`, nada para `aarch64-musl`. As
+      imagens `:0.2.5` por omissão do `cross` têm `glibc` velha demais para
+      o `rustc` atual (falha a compilar `libc`/`zeroize_derive`); fixadas as
+      `:edge` num `Cross.toml` novo na raiz. **Provado real, não só em
+      loopback**: o binário `x86_64` corre dentro de um `alpine` (zero
+      `glibc`) e responde a `/saude`; o `aarch64` foi copiado a sério para o
+      Pi 5 (Debian, sem `musl` instalada) e correu lá, também a responder a
+      `/saude` — `ldd` confirma "não é um executável dinâmico" nos dois.
+      Comandos em `COMO_CORRER.md`.
+- [ ] **Q2 — Retoma de descarga na PWA (Review2 F-08).** O relay já serve
+      `Range` em `GET /deposito/{id}/blocos` (R1) — falta o lado do
+      `wasm-backend.ts` pedir com `Range: bytes=N-` quando uma descida
+      quebra a meio, em vez de recomeçar do zero. Duas partes, timing
+      envolvido (a ligação cai a meio de um `fetch()` em curso) → regra 8
+      quando esta fase arrancar a sério: o que é que cada lado observa se a
+      rede cair no byte exato de fronteira de um bloco selado, e o que
+      acontece se o depósito expirar (limpeza de hora a hora do R1) entre a
+      quebra e a retoma.
+- [ ] **Q3 — Limitador de débito (Review0 F-02 / Review2 F-09).**
+      `tower_governor` sobre o `axum` do relay, nas rotas públicas não
+      autenticadas (`/saude`, `/vapid`, `GET /d/{id}`). Testável já em
+      loopback, sem esperar pelo Q4 — mas só ganha sentido a sério quando o
+      relay for alcançável de fora da tailnet.
+- [ ] **Q4 — DDNS pública (DuckDNS).** Expor o relay a quem não tem
+      Tailscale instalado. Bloqueado no token do André (ver "Antes do S9").
+      Entra depois ou junto do Q3 — nunca antes, para não abrir a porta sem
+      o limitador de débito de pé.
+- [ ] **Q5 — Push FCM (Android), o resto do R6.** Estende `relay/src/push.rs`
+      para enviar também para o Firebase Cloud Messaging, ao lado do Web
+      Push já feito para iOS. Bloqueado na conta Firebase e credenciais de
+      serviço do André (ver "Antes do S9"); a forma do código deve poder
+      partilhar o `Subscricoes`/o disparo em `subir()` já existentes,
+      só a acrescentar um segundo transporte.
+
+### Antes do S9
+
+| Item | Bloqueia o S9? | De quem é a próxima ação | Ação concreta |
+|---|---|---|---|
+| Binários musl | Não | Eu | `rustup target add` + build, sem depender de ninguém |
+| Retoma de descarga na PWA | Não | Eu | Regra 8 primeiro, depois código |
+| Limitador de débito | Não | Eu | Testável em loopback já |
+| DDNS (DuckDNS) | Sim, para o Q4 | André | Criar a conta em duckdns.org, dar-me o token e o subdomínio |
+| Push — Firebase (Android) | Sim, para o Q5 | André | Criar o projeto Firebase, gerar a conta de serviço, dar-mos |
+| Confirmação do P4 no iPhone (dívida do S8, não do S9) | Não | André | Definições → Ativar notificações, esperar por um depósito |
+
 ---
 
 ## Verificação
@@ -953,3 +1023,4 @@ app — o único passo que só a Apple pode fechar.
 | Tauri no Android é mais recente que no desktop | S6 isolado, com plugins já validados. Falha cedo e visivelmente. |
 | Upload de casa é o gargalo com ambos os lados remotos | Aceite por agora. WebRTC se doer. |
 | iOS pode despejar o armazenamento da PWA | Nada de estado crítico só no iOS; identidade recuperável por reemparelhamento. |
+| A identidade (`SigningKey`, `StaticSecret`) vive em `localStorage`, legível por qualquer script que corra na origem da PWA (Review2 F-10) | Seguro no modelo atual — a origem (`raspberrypi...ts.net`) só serve o `ui/dist` do próprio relay, sem scripts de terceiros. Fica escrito aqui para não se tornar óbvio-depois-do-facto: **nunca meter analytics, CDN de terceiros ou qualquer `<script src>` externo nessa origem.** |
