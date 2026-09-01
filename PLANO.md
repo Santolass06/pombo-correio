@@ -961,15 +961,78 @@ arrancar já; as outras três dependem de uma decisão ou conta do André. Ver
       Pi 5 (Debian, sem `musl` instalada) e correu lá, também a responder a
       `/saude` — `ldd` confirma "não é um executável dinâmico" nos dois.
       Comandos em `COMO_CORRER.md`.
-- [ ] **Q2 — Retoma de descarga na PWA (Review2 F-08).** O relay já serve
-      `Range` em `GET /deposito/{id}/blocos` (R1) — falta o lado do
-      `wasm-backend.ts` pedir com `Range: bytes=N-` quando uma descida
-      quebra a meio, em vez de recomeçar do zero. Duas partes, timing
-      envolvido (a ligação cai a meio de um `fetch()` em curso) → regra 8
-      quando esta fase arrancar a sério: o que é que cada lado observa se a
-      rede cair no byte exato de fronteira de um bloco selado, e o que
-      acontece se o depósito expirar (limpeza de hora a hora do R1) entre a
-      quebra e a retoma.
+- [x] **Q2 — Retoma de descarga na PWA (Review2 F-08).**
+
+      **Desenho (regra 8), antes de mexer:** o cliente nativo
+      (`rede/src/relay.rs::trazer`) já resolve isto — três tentativas
+      (`TENTATIVAS`), cada uma a retomar do byte da fronteira do último
+      bloco completo (`byte_do_bloco`, arredondado **para baixo**: o que o
+      relay tenha a mais é meio bloco selado que ninguém abre). A PWA fica
+      com o mesmo desenho, mas mais simples de escrever: o objeto wasm
+      `Descarga` (`d`) já guarda internamente quantos blocos decifrou —
+      **não recriar `d` entre tentativas** é suficiente para reter o
+      progresso, sem precisar de `IndexedDB` nem de nenhum estado novo. O
+      `feitos` que o código já conta para os eventos de progresso dá o
+      deslocamento: `feitos * (tamBloco + SEAL_OVERHEAD)`, o mesmo cálculo
+      do `byte_do_bloco` nativo — `tamBloco` é fixo (`m.tamanhoBloco()`,
+      só o último bloco é mais pequeno, e nunca é o que fica a meio de uma
+      retoma porque é sempre o último a pedir-se).
+
+      **O que cada lado observa:** a rede cai a meio de um `leitor.read()`
+      → a promessa nunca resolve com `done` limpo, ou rejeita — o buffer
+      parcial desse bloco é descartado (uma variável local, nunca chega a
+      `d.bloco()`), a próxima tentativa pede `Range: bytes=N-` a partir do
+      último bloco **completo**, o relay responde com esses bytes outra
+      vez (no máximo um bloco redundante, nunca dados corrompidos). Se a
+      rede cair **exatamente** na fronteira de um bloco selado, é o mesmo
+      caso: nenhum bloco parcial ficou pendurado, só a tentativa seguinte
+      continua dali. Se as três tentativas falharem, cai-se no
+      comportamento que já existe hoje: `trazer()` devolve `false`, e o
+      próximo `buscarNoRelay()` (4 s depois, no temporizador do
+      `App.svelte`) recomeça do zero com um `d` novo — para isto se tornar
+      relevante a rede tinha de estar em baixo minutos a fio, o que já era
+      verdade antes desta fase. Do lado do relay não muda nada: um `GET`
+      com `Range` não mexe no temporizador de limpeza horária (R1); se o
+      depósito expirar a meio das três tentativas (só possível se a rede
+      esteve mesmo muito tempo em baixo), a tentativa seguinte recebe 404,
+      cai no mesmo "falhou" genérico de sempre — não é um caso novo.
+
+      **Corrida encontrada a desenhar isto, não hipotética:** o
+      `setInterval` de 4 s em `App.svelte` **não espera** o
+      `buscarNoRelay()` anterior acabar. Hoje isso quase nunca importa
+      porque uma descida sem retoma é rápida; com três tentativas a
+      esticar quanto tempo um `trazer()` pode ficar em curso num Wi-Fi
+      mau, duas chamadas concorrentes ao **mesmo** `idRelay` deixam de ser
+      só teóricas — cada uma criaria o seu próprio `d`, descarregaria o
+      ficheiro a dobrar e tentaria apagar o depósito duas vezes. Corrigido
+      com um `Set<string>` module-level em `wasm-backend.ts`: `trazer()`
+      salta um `idRelay` já em curso, em vez de arrancar uma segunda
+      descida. Sem isto, esta fase tornava um bug latente e raro num bug
+      frequente.
+
+      **Pré-mortem, uma linha:** se a ligação morrer a meio de uma
+      tentativa, o browser conclui "falhou esta tentativa, tenta a
+      próxima com o que já tem" — nunca "perdi tudo, recomeça do zero" a
+      não ser que as três falhem; o relay não conclui nada, porque não
+      distingue uma descida normal de uma retomada.
+
+      **Provado a sério, contra o relay real, não um mock:** o `page.route()`
+      do Playwright não intercetou o `fetch()` em stream de `.../blocos`
+      nesta configuração (confirmado com três abordagens diferentes — ver
+      `BACKLOG.md`), por isso a queda de rede foi simulada a direito num
+      script que corre a mesma sequência do `trazerUmaVez()` (byte a byte
+      igual, correndo contra o `pombo_correio_pagina.js` a sério) dentro do
+      browser, contra um depósito real de ~2,5 blocos (2 621 440 bytes)
+      auto-endereçado. Cortada a 1ª tentativa a meio do 2º bloco: a 2ª
+      tentativa pediu exatamente `Range: bytes=1048616-` (a fronteira do 1º
+      bloco selado, `tamBloco + SEAL_OVERHEAD`), recuperou os 3 blocos, e o
+      ficheiro remontado bateu byte a byte com o original — a autenticação
+      AEAD do `d.bloco()` teria falhado sozinha se a retoma tivesse desviado
+      um único byte. O caminho feliz (sem queda nenhuma) continua provado
+      pela app a sério, sem interceção nenhuma: depósito, temporizador de
+      4 s a apanhá-lo, descarga e `DELETE` automático, como antes desta
+      fase. **Não testado ao vivo**: o `Set` `emCurso` (revisto por leitura,
+      não por uma corrida provocada a sério).
 - [ ] **Q3 — Limitador de débito (Review0 F-02 / Review2 F-09).**
       `tower_governor` sobre o `axum` do relay, nas rotas públicas não
       autenticadas (`/saude`, `/vapid`, `GET /d/{id}`). Testável já em

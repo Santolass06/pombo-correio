@@ -1661,3 +1661,85 @@ entregar-se — o push é sempre um extra, nunca uma condição.
 o `PushManager` aparece mesmo depois da instalação (iOS 16.4+), se o
 `web.push.apple.com` aceita a mesma forma de JWT que o Chrome aceitou, e se
 a notificação chega e o toque nela abre a app.
+
+---
+
+## S9 — Distribuição e exposição pública
+
+### Q1 — Binários musl: `cross` em vez de toolchains à mão
+
+O `apt` só tem `musl-tools` (dá `musl-gcc`) para `x86_64` — nada para
+`aarch64-unknown-linux-musl`. Em vez de caçar um cross-compilador GNU→musl à
+mão, `cargo install cross` (usa Docker) resolve os dois alvos com o mesmo
+comando. A armadilha: as imagens `:0.2.5` (a tag por omissão do `cross`
+0.2.5, o release atual) trazem uma `glibc` velha demais para o `rustc`
+instalado neste sistema — o `libc`/`zeroize_derive` falhavam a compilar com
+`GLIBC_2.28' not found`, um erro que não tem nada a ver com o crate que
+falhou. As imagens `:edge` (fixadas num `Cross.toml` novo na raiz) resolvem.
+Provado real: o binário `aarch64` foi copiado para o Pi 5 (Debian, sem
+`musl` nenhuma instalada) e correu lá, a responder a `/saude`; o `x86_64`
+correu dentro de um `alpine` (zero `glibc`).
+
+### Q2 — Retoma de descarga na PWA — a peripécia de a testar
+
+O desenho (regra 8, em `PLANO.md`) reaproveitou o do cliente nativo
+(`rede/src/relay.rs::trazer`): não recriar o `Descarga` wasm entre
+tentativas basta para reter o progresso, porque ele já sabe quantos blocos
+decifrou — sem precisar de `IndexedDB` nem de nada novo em disco. O código
+em si (`ui/src/lib/wasm-backend.ts`) foi direto. **Provar contra uma queda
+de rede a sério é que não foi.**
+
+**Primeira tentativa: `page.route()` do Playwright.** Interceção normal —
+deixar passar o pedido real e cortar a resposta a meio via `route.fetch()` +
+`route.fulfill()`. Não funcionou: `tentativas` ficava sempre a zero, mesmo
+com um handler trivial (`route.continue()` sozinho) e mesmo depois de
+eliminar duas explicações plausíveis (o service worker a intercetar a
+fetch antes do Playwright a ver — confirmado com `page.on('request')` a
+mostrar o pedido na mesma; ordem de registo de dois `route()` sobrepostos —
+trocada, sem efeito). `page.on('request')` via sempre o pedido a
+`.../blocos`; `page.route()`, nunca, só para esse pedido específico
+(streaming, sem `Content-Length`) — as rotas exatas (`/deposito/{id}`
+`DELETE`, `/deposito` `POST`) intercetavam sem problema nenhum. Ficou por
+explicar ao certo; suspeita-se de uma limitação do CDP `Fetch` domain com
+respostas em stream nesta combinação de Playwright/Chromium, não um bug do
+código da app.
+
+**Segunda tentativa: `window.fetch` monkey-patchado via
+`page.addInitScript()`.** Corta a resposta no próprio browser, sem depender
+de interceção nenhuma do Playwright. Chocou com um problema à parte: a
+página persistente da sessão do MCP acumula `addInitScript()` entre
+chamadas da ferramenta — sem forma de os remover — e duas tentativas
+sucessivas (a primeira com um bug de extração do URL, corrigida na segunda)
+ficaram ambas penduradas, embrulhando `window.fetch` duas vezes e rebentando
+com `Cannot read properties of undefined (reading 'match')` dentro do
+próprio arranque do wasm. A correção foi abrir uma **página nova**
+(`context.newPage()`) para cada tentativa, isolada da acumulação. Resolveu
+o crash, mas revelou outro problema: com o `fetch` embrulhado, a app nunca
+mais chamava `.../blocos` nenhuma (zero pedidos, zero download, sem erro
+nenhum na consola) — não se percebeu a causa a tempo de valer a pena insistir.
+
+**O que resolveu: testar o algoritmo a sério, não a app à volta dele.** Um
+único `page.evaluate()`, sem interceção de rede nenhuma, a correr a mesma
+sequência do `trazerUmaVez()` — byte a byte, contra o `pombo_correio_
+pagina.js` a sério — sobre um depósito real de ~2,5 blocos (2 621 440
+bytes) auto-endereçado (a mesma identidade como remetente e destinatário: o
+`Envelope` e a assinatura não exigem partes diferentes, e poupa o
+levantamento de uma segunda identidade só para o teste). A "queda de rede"
+foi o próprio script a parar de ler depois de X bytes e a lançar — o mesmo
+que `leitor.read()` devolver algo inesperado a sério. Resultado: 1ª
+tentativa cortada a meio do 2º bloco, 2ª tentativa pediu exatamente
+`Range: bytes=1048616-` (a fronteira do 1º bloco selado), os 3 blocos
+saíram certos, e o ficheiro remontado bateu byte a byte com o original — a
+cifra AEAD do `d.bloco()` teria acusado sozinha qualquer desvio de um byte
+que fosse. O caminho feliz (sem queda nenhuma) continuou provado pela app a
+sério, sem truques, em várias corridas anteriores desta sessão.
+
+**Lição:** quando a ferramenta de interceção falha silenciosamente (sem
+erro, só sem efeito), não vale a pena insistir a adivinhar porquê — replicar
+o algoritmo a testar num script direto, contra a infraestrutura real,
+prova a mesma coisa com menos incerteza sobre a própria ferramenta de
+teste. **Não testado ao vivo**: o `Set` `emCurso` que evita duas descidas
+concorrentes do mesmo depósito — revisto por leitura, não por uma corrida
+provocada a sério (para isso seria preciso atrasar deliberadamente uma
+resposta e forçar dois `buscarNoRelay()` a sobrepor-se, o que a mesma
+limitação do `page.route()` acima também impediria de fazer de forma limpa).

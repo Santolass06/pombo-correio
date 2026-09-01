@@ -385,14 +385,31 @@ async function cabecalhosAssinados(acao: string, extra: string): Promise<Headers
   };
 }
 
+/** Quantas vezes se tenta uma descida antes de desistir — mesmo número e mesma razão do cliente nativo (`rede/src/relay.rs::TENTATIVAS`). */
+const TENTATIVAS = 3;
+
 /**
- * Traz um depósito completo da caixa. Devolve `true` se o ficheiro chegou.
- *
- * `ponytail:` sem retoma — uma queda de rede a meio falha o depósito
- * inteiro; a próxima `buscarNoRelay()` tenta-o de novo do byte 0. Mesma nota
- * do P5: o relay já suporta `Range`, falta o lado do browser voltar a pedir.
+ * `idRelay` cujo `trazer()` está em curso. O temporizador de 4 s do
+ * `App.svelte` não espera o `buscarNoRelay()` anterior acabar — com retoma a
+ * alongar quanto tempo uma descida fica em curso num Wi-Fi mau, duas
+ * chamadas concorrentes ao mesmo depósito deixam de ser só teóricas (ver o
+ * desenho do Q2 no PLANO.md). Sem isto, cada uma criava o seu `Descarga`,
+ * descarregava o ficheiro a dobrar e tentava apagar o depósito duas vezes.
  */
+const emCurso = new Set<string>();
+
+/** Traz um depósito completo da caixa. Devolve `true` se o ficheiro chegou. */
 async function trazer(base: string, idRelay: string): Promise<boolean> {
+  if (emCurso.has(idRelay)) return false;
+  emCurso.add(idRelay);
+  try {
+    return await trazerUmaVez(base, idRelay);
+  } finally {
+    emCurso.delete(idRelay);
+  }
+}
+
+async function trazerUmaVez(base: string, idRelay: string): Promise<boolean> {
   const m = await carregarWasm();
   const remetente = identidadeAtual!;
 
@@ -401,6 +418,7 @@ async function trazer(base: string, idRelay: string): Promise<boolean> {
 
   const d = m.Descarga.daCaixa(remetente, e.oferta);
   const total = d.total();
+  const tamBloco = m.tamanhoBloco();
 
   if (d.tamanho() > LIMITE_MEMORIA) {
     emitir({
@@ -433,44 +451,63 @@ async function trazer(base: string, idRelay: string): Promise<boolean> {
     total,
   });
 
-  try {
-    const resposta = await fetch(`${base}/deposito/${idRelay}/blocos`);
-    if (!resposta.ok || !resposta.body) throw new Error(`o relay respondeu ${resposta.status}`);
+  // `d` e `partes` sobrevivem às tentativas de propósito — é o que retém o
+  // progresso sem precisar de guardar nada em disco/IndexedDB: `d` já sabe
+  // quantos blocos decifrou, e `feitos * (tamBloco + SEAL_OVERHEAD)` dá o
+  // byte por onde retomar, o mesmo cálculo do `byte_do_bloco` nativo.
+  const partes: Uint8Array[] = [];
+  let feitos = 0;
+  let ultimoErro = "";
 
-    const leitor = resposta.body.getReader();
-    let buffer = new Uint8Array(0);
-    const partes: Uint8Array[] = [];
+  for (let tentativa = 0; tentativa < TENTATIVAS; tentativa++) {
+    try {
+      const offset = feitos * (tamBloco + SEAL_OVERHEAD);
+      const resposta = await fetch(
+        `${base}/deposito/${idRelay}/blocos`,
+        offset > 0 ? { headers: { Range: `bytes=${offset}-` } } : undefined,
+      );
+      if (!resposta.ok || !resposta.body) throw new Error(`o relay respondeu ${resposta.status}`);
 
-    for (let feitos = 0; ; feitos++) {
-      const preciso = d.proximo_tamanho();
-      if (preciso === 0) break;
+      const leitor = resposta.body.getReader();
+      let buffer = new Uint8Array(0);
 
-      while (buffer.length < preciso) {
-        const { done, value } = await leitor.read();
-        if (done) throw new Error("a ligação ao relay caiu — continua da próxima vez");
-        const junto = new Uint8Array(buffer.length + value.length);
-        junto.set(buffer);
-        junto.set(value, buffer.length);
-        buffer = junto;
+      for (;;) {
+        const preciso = d.proximo_tamanho();
+        if (preciso === 0) break;
+
+        while (buffer.length < preciso) {
+          const { done, value } = await leitor.read();
+          if (done) throw new Error("a ligação ao relay caiu");
+          const junto = new Uint8Array(buffer.length + value.length);
+          junto.set(buffer);
+          junto.set(value, buffer.length);
+          buffer = junto;
+        }
+
+        // Só entra em `partes`/`feitos` depois de um bloco inteiro decifrado
+        // — um bloco a meio nunca fica pendurado para a tentativa seguinte,
+        // a retoma parte sempre de uma fronteira, tal como o cliente nativo.
+        partes.push(d.bloco(buffer.subarray(0, preciso)));
+        buffer = buffer.slice(preciso);
+        feitos++;
+        emitir({ tipo: "progresso", id, feitos, total, bytes: 0, bytes_por_seg: 0 });
       }
 
-      partes.push(d.bloco(buffer.subarray(0, preciso)));
-      buffer = buffer.slice(preciso);
-      emitir({ tipo: "progresso", id, feitos: feitos + 1, total, bytes: 0, bytes_por_seg: 0 });
+      descarregarBlob(new Blob(partes as BlobPart[]), d.nome());
+      emitir({ tipo: "recebido", id, caminho: d.nome() });
+
+      // Só se apaga depois de o ficheiro estar gravado — apagar antes trocaria
+      // uma falha recuperável (voltar a descarregar) por perda, mesma razão do
+      // `trazer()` nativo.
+      await fetch(`${base}/deposito/${idRelay}`, { method: "DELETE" });
+      return true;
+    } catch (erro) {
+      ultimoErro = String((erro as Error).message ?? erro);
     }
-
-    descarregarBlob(new Blob(partes as BlobPart[]), d.nome());
-    emitir({ tipo: "recebido", id, caminho: d.nome() });
-
-    // Só se apaga depois de o ficheiro estar gravado — apagar antes trocaria
-    // uma falha recuperável (voltar a descarregar) por perda, mesma razão do
-    // `trazer()` nativo.
-    await fetch(`${base}/deposito/${idRelay}`, { method: "DELETE" });
-    return true;
-  } catch (erro) {
-    emitir({ tipo: "falhou", id, erro: String((erro as Error).message ?? erro) });
-    return false;
   }
+
+  emitir({ tipo: "falhou", id, erro: ultimoErro });
+  return false;
 }
 
 /** Vai ver ao relay de casa se chegou coisa. Devolve quantos ficheiros chegaram. */
