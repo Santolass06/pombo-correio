@@ -295,6 +295,41 @@ transporte é que muda.
   a PWA não alcança — e é isto, não a partilha de ficheiros, que justificaria a
   conta Apple.
 
+### Autorização automática pelo link de pareamento
+
+Discutido em 02/09/2026, ao ligar o `--autorizados` a sério pela primeira vez
+(S9 Q4). Hoje `POST /deposito` exige a impressão digital de **quem envia**
+já estar na lista, sem distinguir "estranho da internet" de "família que o
+André já convidou por link" — cada telemóvel novo obriga a copiar a
+impressão à mão para o ficheiro e reiniciar o relay. Sustentável para os
+poucos dispositivos de hoje; não para o dia a dia com mais família.
+
+**O que não serve:** aceitar a impressão ao primeiro contacto (TOFU) não
+resolve nada aqui — o ataque que o `--autorizados` existe para travar (um
+estranho a encher o disco) *também* é "uma primeira ligação"; não há como
+distinguir os dois só pela ordem de chegada. TOFU protege contra uma chave
+que *muda* depois de já confiada (o caso do SSH), não contra deixar entrar
+quem chegar primeiro.
+
+**O que já serve, e só falta ligar:** o link de pareamento (R5/P5) já é um
+segredo de 128 bits que só o André partilha, pessoa a pessoa — só quem o
+recebeu consegue abri-lo. Isso já *é* a autorização; falta o relay tratá-la
+como tal. Direção a desenhar a sério (regra 8) quando arrancar: abrir um
+link criado pelo André, ou ser o destinatário de um depósito assinado por
+um dispositivo já autorizado, acrescenta essa nova impressão ao
+`--autorizados` sozinho, sem o André mexer em ficheiro nenhum nem reiniciar
+o serviço. **Pré-mortem, uma linha:** se dois links forem abertos ao mesmo
+tempo por pessoas diferentes, cada um só pode adicionar a *sua própria*
+impressão — nunca a de outro — senão um link vira forma de qualquer um se
+autoautorizar.
+
+Duas ideias do André para reforçar isto mais tarde, guardadas mas não
+urgentes: **expirar dispositivos sem uso há 30+ dias** (remove-os da lista
+sozinho) e um **segredo pessoal tipo PIN/número de faculdade** que torna um
+dispositivo "não suspeito" por um número de dias após ações fora do padrão.
+Ambas trazem estado novo a gerir (temporizadores, um segredo extra) — fazem
+sentido depois da autorização automática existir, não antes.
+
 ### Controlo remoto — decisão separada, marcada de propósito
 
 "Ajudar o avô" tende a virar *"clicar por ele"*, e isso é **controlo remoto**,
