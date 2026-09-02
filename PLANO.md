@@ -1317,7 +1317,7 @@ dependem dele e podiam trocar de ordem entre si sem problema.
 Três fases, nenhuma bloqueada em nada do André — todas correm com o que já
 está no repositório e nas máquinas de casa:
 
-- [ ] **T1 — Corrigir o limitador de débito atrás do `nginx` (Review3 F-11).**
+- [x] **T1 — Corrigir o limitador de débito atrás do `nginx` (Review3 F-11).**
       `PeerIpKeyExtractor` lê o IP do socket TCP; desde que o Q4 pôs um
       `nginx` a terminar TLS em `127.0.0.1:53319`, é **esse** IP que o
       extrator vê em todo o tráfego que chega por `pombo-
@@ -1342,6 +1342,25 @@ está no repositório e nas máquinas de casa:
       acontece hoje. Pode ser um `key_extractor` próprio (o `tower_governor`
       permite implementar o trait) em vez do `SmartIpKeyExtractor` de
       confiança cega — a decidir ao abrir esta fase, não aqui.
+
+      **Feito:** `IpConfiavel`, um `KeyExtractor` próprio em
+      `relay/src/servidor.rs` — só lê `X-Real-IP` (o `nginx` do Pi já o
+      define; nada a mudar aí) quando o IP do socket é mesmo `127.0.0.1`;
+      caso contrário usa o IP do socket, exatamente o que impede o furo de
+      confiança cega descrito acima. Três testes de unidade
+      (`ip_confiavel_só_le_o_cabecalho_de_quem_e_mesmo_o_nginx_local`)
+      provam os três casos sem precisar de rede: via nginx confia,
+      direto-a-fingir ignora o cabeçalho forjado, nginx sem cabeçalho
+      degrada para o IP do socket em vez de abrir uma falha nova. 60/60
+      testes do relay, `cargo clippy -p pombo-correio-relay --all-targets`
+      limpo. **Confirmado a sério no Pi, não só em unidade** (regra 3):
+      relay reconstruído e reiniciado; uma rajada de 6 pedidos a `/saude`
+      a partir do A10 (`192.168.1.17`, pelo hostname público através do
+      `nginx`) levou 429 ao 6º — e, **na mesma janela**, o próprio Pi a
+      pedir-se a si mesmo pelo mesmo hostname (`192.168.1.232`, IP
+      diferente) continuou a receber 200 três vezes seguidas. Antes desta
+      correção os dois pedidos partilhavam o mesmo balde (ambos viam
+      `127.0.0.1` do lado do relay); agora não. **T1 fechado.**
 - [ ] **T2 — Notificação local ao acordar por FCM (Review3 F-12).** O Q5
       só resolve metade do problema: o `data: {}` acorda o processo (é o
       contrato do FCM, e é por isso que continua a fazer sentido apesar do
