@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.IntentCompat
+import com.google.firebase.messaging.FirebaseMessaging
 
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -36,6 +37,15 @@ class MainActivity : TauriActivity() {
       startForegroundService(servico)
     } else {
       startService(servico)
+    }
+
+    // Q5: pede o token FCM a cada arranque, não só no `onNewToken` do
+    // `FcmService` (que só dispara quando o token muda). Assíncrono — o Rust
+    // vai espreitando o ficheiro no arranque, não há aqui nada a esperar.
+    FirebaseMessaging.getInstance().token.addOnCompleteListener { tarefa ->
+      if (tarefa.isSuccessful) {
+        tarefa.result?.let { FcmService.escreverToken(this, it) }
+      }
     }
   }
 

@@ -57,6 +57,16 @@
                 android:value="Receber ficheiros dos dispositivos de casa na rede local" />
         </service>
 
+        <!-- Q5: acorda a app por FCM quando o processo está mesmo morto (o
+             RecetorService só sobrevive em segundo plano, não a um kill). -->
+        <service
+            android:name=".FcmService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <provider
           android:name="androidx.core.content.FileProvider"
           android:authorities="${applicationId}.fileprovider"

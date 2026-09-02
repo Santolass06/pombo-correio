@@ -111,6 +111,27 @@ fn assinado(eu: &Identity, acao: &str, extra: &str) -> reqwest::header::HeaderMa
     h
 }
 
+/// Regista o token FCM deste dispositivo no relay, para acordar por push
+/// quando o processo estiver mesmo morto (Q5 — o resto do R6).
+///
+/// Melhor esforço, como o resto do que fala com o relay: um relay em baixo
+/// não impede a app de continuar a funcionar, só fica sem saber para onde
+/// mandar o próximo aviso.
+pub async fn inscrever_fcm(eu: &Identity, base: &str, token: &str) -> Result<()> {
+    let cliente = reqwest::Client::new();
+    let resposta = cliente
+        .post(format!("{base}/subscricao"))
+        .headers(assinado(eu, "subscricao", token))
+        .json(&serde_json::json!({ "tipo": "fcm", "token": token }))
+        .send()
+        .await
+        .context("não consegui falar com o relay")?;
+    if !resposta.status().is_success() {
+        bail!("o relay recusou a subscrição FCM: {}", resposta.text().await.unwrap_or_default());
+    }
+    Ok(())
+}
+
 #[derive(serde::Deserialize)]
 struct Criado {
     id: String,

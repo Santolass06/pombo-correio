@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "1080922972762",
+    "project_id": "pombo-correio-58957",
+    "storage_bucket": "pombo-correio-58957.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1080922972762:android:70b61840f8da7d56b22e63",
+        "android_client_info": {
+          "package_name": "pt.pombo.correio"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCwuYixyuU107UBmTgmk6srwBDNC9GGH7A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1080922972762:android:be2eb915564463f5b22e63",
+        "android_client_info": {
+          "package_name": "pt.pombo.correio.debug"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCwuYixyuU107UBmTgmk6srwBDNC9GGH7A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

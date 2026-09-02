@@ -16,10 +16,26 @@ pub struct Chaves {
     pub auth: String,
 }
 
+/// Duas formas de acordar um dispositivo — Web Push (PWA/iOS) ou FCM
+/// (Android nativo), no mesmo mapa `impressao → Subscricao`. Um só ficheiro,
+/// sem duplicar `guardar`/`obter`/`remover` por transporte.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Subscricao {
-    pub endpoint: String,
-    pub keys: Chaves,
+#[serde(tag = "tipo", rename_all = "snake_case")]
+pub enum Subscricao {
+    WebPush { endpoint: String, keys: Chaves },
+    Fcm { token: String },
+}
+
+impl Subscricao {
+    /// O valor que a assinatura do pedido liga à ação `"subscricao"` — sem
+    /// isto, uma assinatura apanhada a subscrever um endpoint/token serviria
+    /// para registar qualquer outro em nome da mesma pessoa.
+    pub fn extra(&self) -> &str {
+        match self {
+            Subscricao::WebPush { endpoint, .. } => endpoint,
+            Subscricao::Fcm { token } => token,
+        }
+    }
 }
 
 pub struct Subscricoes {
@@ -31,7 +47,16 @@ impl Subscricoes {
     pub fn carregar(dados: &std::path::Path) -> Result<Self> {
         let caminho = dados.join("subscricoes.json");
         let mapa = match std::fs::read(&caminho) {
-            Ok(bytes) => serde_json::from_slice(&bytes)?,
+            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+                // O formato ganhou o campo "tipo" (Q5) — um ficheiro gravado
+                // antes disso (só existia Web Push) já não faz parse. Um
+                // relay a recusar arrancar por causa de subscrições, que se
+                // regeneram sozinhas no próximo "Ativar notificações", seria
+                // pior do que perdê-las: falhava tudo o resto por causa de um
+                // extra.
+                eprintln!("aviso: subscricoes.json ilegível ({e}), a começar vazio");
+                HashMap::new()
+            }),
             Err(_) => HashMap::new(),
         };
         Ok(Self { caminho, mapa: Mutex::new(mapa) })
@@ -73,10 +98,30 @@ mod testes {
     }
 
     fn exemplo() -> Subscricao {
-        Subscricao {
+        Subscricao::WebPush {
             endpoint: "https://push.exemplo.org/abc".into(),
             keys: Chaves { p256dh: "chave".into(), auth: "segredo".into() },
         }
+    }
+
+    #[tokio::test]
+    async fn um_subscricoes_json_de_antes_do_tipo_nao_impede_o_arranque() {
+        let d = temporaria("formato-antigo");
+        // O formato de antes do Q5: sem "tipo", só o que o Web Push sempre
+        // teve. É o que já está gravado a sério no Pi.
+        std::fs::write(
+            d.join("subscricoes.json"),
+            r#"{"ab12":{"endpoint":"https://push.exemplo.org/velho","keys":{"p256dh":"x","auth":"y"}}}"#,
+        )
+        .unwrap();
+
+        let s = Subscricoes::carregar(&d).unwrap();
+        assert!(s.obter("ab12").await.is_none(), "devia começar vazio, não rebentar");
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    fn exemplo_fcm() -> Subscricao {
+        Subscricao::Fcm { token: "token-fcm-abc".into() }
     }
 
     #[tokio::test]
@@ -86,7 +131,18 @@ mod testes {
         s.guardar("ab12", exemplo()).await.unwrap();
 
         let relido = Subscricoes::carregar(&d).unwrap();
-        assert_eq!(relido.obter("ab12").await.unwrap().endpoint, exemplo().endpoint);
+        assert_eq!(relido.obter("ab12").await.unwrap().extra(), exemplo().extra());
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[tokio::test]
+    async fn guarda_e_relê_uma_subscricao_fcm() {
+        let d = temporaria("relê-fcm");
+        let s = Subscricoes::carregar(&d).unwrap();
+        s.guardar("cd34", exemplo_fcm()).await.unwrap();
+
+        let relido = Subscricoes::carregar(&d).unwrap();
+        assert!(matches!(relido.obter("cd34").await.unwrap(), Subscricao::Fcm { token } if token == "token-fcm-abc"));
         std::fs::remove_dir_all(&d).unwrap();
     }
 
@@ -103,10 +159,12 @@ mod testes {
         let d = temporaria("substitui");
         let s = Subscricoes::carregar(&d).unwrap();
         s.guardar("ab12", exemplo()).await.unwrap();
-        let mut nova = exemplo();
-        nova.endpoint = "https://push.exemplo.org/outro".into();
+        let nova = Subscricao::WebPush {
+            endpoint: "https://push.exemplo.org/outro".into(),
+            keys: Chaves { p256dh: "chave".into(), auth: "segredo".into() },
+        };
         s.guardar("ab12", nova.clone()).await.unwrap();
-        assert_eq!(s.obter("ab12").await.unwrap().endpoint, nova.endpoint);
+        assert_eq!(s.obter("ab12").await.unwrap().extra(), nova.extra());
         std::fs::remove_dir_all(&d).unwrap();
     }
 }

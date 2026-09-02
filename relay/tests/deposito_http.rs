@@ -595,7 +595,7 @@ mod push {
         let impressao = impressao_de(&eu);
         let (endpoint, capturado) = servico_de_push_falso().await;
 
-        let sub = serde_json::json!({"endpoint": endpoint, "keys": {"p256dh": "x", "auth": "y"}});
+        let sub = serde_json::json!({"tipo": "web_push", "endpoint": endpoint, "keys": {"p256dh": "x", "auth": "y"}});
         let r = reqwest::Client::new()
             .post(format!("{base}/subscricao"))
             .headers(assinar(&eu, "subscricao", &endpoint))
@@ -655,7 +655,7 @@ mod push {
     #[tokio::test]
     async fn subscrever_sem_assinatura_nao_da() {
         let (base, _d) = relay("push-sem-assinatura").await;
-        let sub = serde_json::json!({"endpoint": "https://exemplo.org/x", "keys": {"p256dh": "x", "auth": "y"}});
+        let sub = serde_json::json!({"tipo": "web_push", "endpoint": "https://exemplo.org/x", "keys": {"p256dh": "x", "auth": "y"}});
         let r = reqwest::Client::new().post(format!("{base}/subscricao")).json(&sub).send().await.unwrap();
         assert_eq!(r.status(), reqwest::StatusCode::UNAUTHORIZED);
     }
@@ -667,5 +667,22 @@ mod push {
         assert!(r.status().is_success());
         let corpo: serde_json::Value = r.json().await.unwrap();
         assert!(corpo["chave"].as_str().unwrap().len() > 40);
+    }
+
+    #[tokio::test]
+    async fn uma_subscricao_fcm_regista_se_pelo_token_nao_pelo_endpoint() {
+        let (base, _d) = relay("push-fcm-subscricao").await;
+        let eu = Identity::generate("android nativo");
+        let token = "token-fcm-de-teste";
+
+        let sub = serde_json::json!({"tipo": "fcm", "token": token});
+        let r = reqwest::Client::new()
+            .post(format!("{base}/subscricao"))
+            .headers(assinar(&eu, "subscricao", token))
+            .json(&sub)
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success(), "subscrição FCM falhou: {}", r.status());
     }
 }

@@ -24,6 +24,7 @@ use tower_http::cors::{Any, CorsLayer};
 use crate::{
     autenticado::{self, Autorizados},
     deposito::{Deposito, VALIDADE},
+    fcm::Fcm,
     push,
     subscricoes::{Subscricao, Subscricoes},
     vapid::Vapid,
@@ -46,6 +47,9 @@ struct Estado {
     /// A identidade do relay perante os serviços de push (P4). Gerada uma
     /// vez, vive em `--dados` — nunca no repositório.
     vapid: Vapid,
+    /// A conta de serviço Firebase (Q5) — `None` até o André a configurar,
+    /// e o relay continua a funcionar na mesma para todo o resto.
+    fcm: Option<Fcm>,
     subscricoes: Subscricoes,
     /// Um só cliente HTTP, reutilizado — não um novo por push (o `reqwest`
     /// junta ligações num pool; recriá-lo a cada envio perdia isso).
@@ -148,7 +152,9 @@ async fn subir(
     if bytes >= ficha.tamanho {
         let e = e.clone();
         let para = ficha.para.clone();
-        tokio::spawn(async move { push::notificar(&e.cliente_push, &e.vapid, &e.subscricoes, &para).await });
+        tokio::spawn(async move {
+            push::notificar(&e.cliente_push, &e.vapid, e.fcm.as_ref(), &e.subscricoes, &para).await
+        });
     }
 
     Ok(Json(Subiu { bytes }))
@@ -286,15 +292,15 @@ async fn vapid_publica(State(e): State<Arc<Estado>>) -> Json<ChaveVapid> {
 
 /// Regista (ou substitui) a subscrição de push de quem pede.
 ///
-/// Assinado como tudo o resto — a `extra` liga a assinatura ao `endpoint`
-/// concreto, não só à ação, senão uma assinatura apanhada a subscrever
-/// serviria para registar qualquer outro endpoint em nome da mesma pessoa.
+/// Assinado como tudo o resto — a `extra` liga a assinatura ao
+/// endpoint/token concreto, não só à ação, senão uma assinatura apanhada a
+/// subscrever serviria para registar qualquer outro em nome da mesma pessoa.
 async fn subscrever(
     State(e): State<Arc<Estado>>,
     cabecalhos: HeaderMap,
     Json(sub): Json<Subscricao>,
 ) -> Result<StatusCode, Erro> {
-    let prova = autenticado::verificar(&cabecalhos, "subscricao", &sub.endpoint)?;
+    let prova = autenticado::verificar(&cabecalhos, "subscricao", sub.extra())?;
     if !e.autorizados.deixa(&prova.impressao) {
         return Err(mau(StatusCode::FORBIDDEN, "este relay não é teu"));
     }
@@ -478,9 +484,15 @@ fn montar(
     autorizados: Autorizados,
     pagina: Option<std::path::PathBuf>,
     app: Option<std::path::PathBuf>,
+    firebase_conta_servico: Option<std::path::PathBuf>,
 ) -> Result<Arc<Estado>> {
+    // Uma credencial mal formada não pode impedir o relay de arrancar por
+    // causa de um extra — falha alto e claro no arranque (`?`), não em
+    // silêncio a meio do primeiro push.
+    let fcm = firebase_conta_servico.map(|p| Fcm::carregar(&p)).transpose()?;
     Ok(Arc::new(Estado {
         vapid: Vapid::carregar_ou_gerar(&raiz)?,
+        fcm,
         subscricoes: Subscricoes::carregar(&raiz)?,
         cliente_push: reqwest::Client::new(),
         deposito: Deposito::novo(raiz)?,
@@ -491,14 +503,16 @@ fn montar(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn servir(
     raiz: std::path::PathBuf,
     porta: u16,
     autorizados: Autorizados,
     pagina: Option<std::path::PathBuf>,
     app: Option<std::path::PathBuf>,
+    firebase_conta_servico: Option<std::path::PathBuf>,
 ) -> Result<()> {
-    let estado = montar(raiz, autorizados, pagina, app)?;
+    let estado = montar(raiz, autorizados, pagina, app, firebase_conta_servico)?;
 
     // A limpeza corre à parte e não bloqueia nada. De hora a hora chega: a
     // validade é de dias, e o que importa é que aconteça sem ninguém se lembrar.
@@ -551,7 +565,7 @@ pub async fn servir_em_porta_livre_com_pagina_e_app(
     pagina: Option<std::path::PathBuf>,
     app: Option<std::path::PathBuf>,
 ) -> Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
-    let estado = montar(raiz, autorizados, pagina, app)?;
+    let estado = montar(raiz, autorizados, pagina, app, None)?;
 
     let escuta = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
     let endereco = escuta.local_addr()?;

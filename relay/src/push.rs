@@ -1,7 +1,8 @@
-//! Avisa um dispositivo, por Web Push, de que há um depósito à espera.
+//! Avisa um dispositivo de que há um depósito à espera — Web Push (PWA/iOS)
+//! ou FCM (Android nativo, `fcm.rs`), conforme a subscrição guardada.
 //!
 //! **Sem carga.** O relay não cifra nada (RFC 8291 fica de fora de
-//! propósito) nem diz o que chegou — só acorda o service worker, que decide
+//! propósito) nem diz o que chegou — só acorda quem recebe, que decide
 //! sozinho o que mostrar. Mais simples, e o relay continua a não saber nada
 //! sobre o conteúdo dos depósitos.
 //!
@@ -12,18 +13,41 @@
 
 use axum::http::header;
 
-use crate::{subscricoes::Subscricoes, vapid::Vapid};
+use crate::{
+    fcm::{self, Fcm},
+    subscricoes::{Subscricao, Subscricoes},
+    vapid::Vapid,
+};
 
 /// Tenta avisar `impressao`. Nunca propaga erro — quem chama não tem nada de
 /// jeito a fazer com uma falha de entrega de push.
 pub async fn notificar(
     cliente: &reqwest::Client,
     vapid: &Vapid,
+    fcm: Option<&Fcm>,
     subscricoes: &Subscricoes,
     impressao: &str,
 ) {
-    let Some(sub) = subscricoes.obter(impressao).await else { return };
-    let Ok(endpoint) = reqwest::Url::parse(&sub.endpoint) else { return };
+    match subscricoes.obter(impressao).await {
+        Some(Subscricao::WebPush { endpoint, .. }) => {
+            notificar_web_push(cliente, vapid, subscricoes, impressao, &endpoint).await
+        }
+        Some(Subscricao::Fcm { token }) => notificar_fcm(cliente, fcm, subscricoes, impressao, &token).await,
+        None => {}
+    }
+}
+
+async fn notificar_fcm(cliente: &reqwest::Client, fcm: Option<&Fcm>, subscricoes: &Subscricoes, impressao: &str, token: &str) {
+    // Sem `--firebase-conta-servico` configurado: melhor esforço, tal como um
+    // serviço de push em baixo — a subscrição fica guardada na mesma.
+    let Some(fcm) = fcm else { return };
+    if matches!(fcm.enviar(cliente, token).await, fcm::Resultado::Morto) {
+        let _ = subscricoes.remover(impressao).await;
+    }
+}
+
+async fn notificar_web_push(cliente: &reqwest::Client, vapid: &Vapid, subscricoes: &Subscricoes, impressao: &str, endpoint: &str) {
+    let Ok(endpoint) = reqwest::Url::parse(endpoint) else { return };
     let audiencia = endpoint.origin().ascii_serialization();
 
     let resposta = cliente
@@ -87,11 +111,11 @@ mod testes {
         let (base, capturado) = servico_de_push_falso().await;
         let endpoint = format!("{base}/entrega");
         subscricoes
-            .guardar("ab12", Subscricao { endpoint, keys: Chaves { p256dh: "x".into(), auth: "y".into() } })
+            .guardar("ab12", Subscricao::WebPush { endpoint, keys: Chaves { p256dh: "x".into(), auth: "y".into() } })
             .await
             .unwrap();
 
-        notificar(&reqwest::Client::new(), &vapid, &subscricoes, "ab12").await;
+        notificar(&reqwest::Client::new(), &vapid, None, &subscricoes, "ab12").await;
 
         let capturas = capturado.0.lock().unwrap();
         assert_eq!(capturas.len(), 1);
@@ -117,7 +141,7 @@ mod testes {
         let vapid = Vapid::carregar_ou_gerar(&d).unwrap();
         let subscricoes = Subscricoes::carregar(&d).unwrap();
         // Não rebenta, e não há o que verificar além de não ter atirado.
-        notificar(&reqwest::Client::new(), &vapid, &subscricoes, "nao-existe").await;
+        notificar(&reqwest::Client::new(), &vapid, None, &subscricoes, "nao-existe").await;
         std::fs::remove_dir_all(&d).unwrap();
     }
 
@@ -137,7 +161,7 @@ mod testes {
         subscricoes
             .guardar(
                 "ab12",
-                Subscricao {
+                Subscricao::WebPush {
                     endpoint: format!("http://{endereco}/entrega"),
                     keys: Chaves { p256dh: "x".into(), auth: "y".into() },
                 },
@@ -145,8 +169,22 @@ mod testes {
             .await
             .unwrap();
 
-        notificar(&reqwest::Client::new(), &vapid, &subscricoes, "ab12").await;
+        notificar(&reqwest::Client::new(), &vapid, None, &subscricoes, "ab12").await;
         assert!(subscricoes.obter("ab12").await.is_none());
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[tokio::test]
+    async fn uma_subscricao_fcm_sem_credencial_configurada_nao_rebenta() {
+        let d = temporaria("fcm-sem-credencial");
+        let vapid = Vapid::carregar_ou_gerar(&d).unwrap();
+        let subscricoes = Subscricoes::carregar(&d).unwrap();
+        subscricoes.guardar("ab12", Subscricao::Fcm { token: "token-qualquer".into() }).await.unwrap();
+
+        // `fcm: None` é o estado normal antes de o André configurar a
+        // credencial — melhor esforço, a subscrição fica guardada na mesma.
+        notificar(&reqwest::Client::new(), &vapid, None, &subscricoes, "ab12").await;
+        assert!(subscricoes.obter("ab12").await.is_some());
         std::fs::remove_dir_all(&d).unwrap();
     }
 }

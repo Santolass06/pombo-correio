@@ -37,6 +37,15 @@ struct Cli {
     /// identidades diferentes (`localStorage` é por origem).
     #[arg(long)]
     app: Option<std::path::PathBuf>,
+
+    /// Conta de serviço Firebase (`.json`, Definições do projeto → Contas de
+    /// serviço → Gerar nova chave privada), para acordar Android nativo por
+    /// FCM (Q5).
+    ///
+    /// Sem ela, subscrições FCM guardam-se na mesma mas nunca se entregam —
+    /// melhor esforço, como um serviço de push em baixo.
+    #[arg(long)]
+    firebase_conta_servico: Option<std::path::PathBuf>,
 }
 
 #[tokio::main]
@@ -51,5 +60,13 @@ async fn main() -> Result<()> {
         }
     };
 
-    pombo_correio_relay::servidor::servir(cli.dados, cli.porta, autorizados, cli.pagina, cli.app).await
+    pombo_correio_relay::servidor::servir(
+        cli.dados,
+        cli.porta,
+        autorizados,
+        cli.pagina,
+        cli.app,
+        cli.firebase_conta_servico,
+    )
+    .await
 }

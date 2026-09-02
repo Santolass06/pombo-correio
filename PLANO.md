@@ -1158,6 +1158,105 @@ arrancar já; as outras três dependem de uma decisão ou conta do André. Ver
       partilhar o `Subscricoes`/o disparo em `subir()` já existentes,
       só a acrescentar um segundo transporte.
 
+      **Desenho (regra 1), a 02/09/2026 — porque é que isto ainda faz falta
+      com o `RecetorService` já a manter a app viva em segundo plano:** o
+      foreground service sobrevive à app em segundo plano, não ao processo
+      morto (fechada de vez, ou depois de reiniciar o telemóvel). Só nesse
+      caso é que um depósito no relay não tem ninguém vivo a reparar — o
+      mesmo caso que o P4 resolve para o iPhone. FCM é o mecanismo do Android
+      para acordar isso mesmo sem o processo estar vivo.
+
+      **Duas partes, o que cada uma observa:**
+      - *Cliente (Kotlin + Rust).* No arranque, `MainActivity.onCreate` pede
+        o token FCM ao SDK da Firebase e escreve-o em
+        `<dataDir>/fcm-token` — mesmo padrão do `nome-dispositivo` e da
+        `partilha-pendente`, já lidos de ficheiro pelo Rust por não haver
+        outra ponte antes do `setup()`. Um `FcmService` (novo,
+        `FirebaseMessagingService`) reescreve o ficheiro sempre que o token
+        rodar (`onNewToken` — a Google pode trocá-lo a qualquer momento,
+        raro mas acontece). O Rust, no `setup()`, lê o ficheiro se existir e
+        regista-o em cada relay configurado — **sempre**, não só quando
+        muda: reenviar o mesmo token não tem custo (`Subscricoes::guardar`
+        já substitui pelo mais recente) e evita guardar estado de "já
+        registei este" que pudesse dessincronizar do que o relay tem.
+      - *Relay.* Guarda o token como mais uma `Subscricao` (agora um enum:
+        `WebPush{endpoint,keys}` ou `Fcm{token}` — o mesmo mapa
+        `impressao → Subscricao`, sem duplicar o ficheiro nem o código de
+        `guardar`/`obter`/`remover`). Ao completar um depósito (`subir()`,
+        inalterado — dispara para quem quer que seja o transporte), troca
+        no `notificar()` conforme a variante.
+
+      **O transporte FCM em si:** sem SDK novo em Rust — HTTP v1 é só dois
+      pedidos. Assina um JWT RS256 com a chave privada da conta de serviço
+      (`iss`=`client_email`, `scope`=`firebase.messaging`,
+      `aud`=`https://oauth2.googleapis.com/token`), troca-o por um
+      *access token* OAuth2 (`POST /token`), e usa esse token (Bearer) para
+      `POST https://fcm.googleapis.com/v1/projects/{project_id}/messages:send`.
+      Sem cache do *access token* — um JWT novo por envio, tal como o VAPID
+      já faz por pedido; um depósito não é frequente o suficiente para a
+      chamada extra pesar. **Sem carga aqui também** (mesma escolha do P4):
+      mensagem de dados vazia, só acorda a app — o conteúdo continua por
+      perguntar ao relay (`buscar_no_relay`, já existe).
+
+      **Falhas, o que cada lado conclui:**
+      - Sem `--firebase-conta-servico` configurado no relay (André não
+        gerou a credencial ainda): `Fcm` fica `None` no `Estado`, uma
+        subscrição FCM guarda-se na mesma mas `notificar()` não tem para
+        onde enviar — melhor esforço, tal como um serviço de push em baixo.
+      - Token FCM morto (`UNREGISTERED`/`NOT_FOUND` na resposta da API):
+        apaga-se a subscrição, mesmo tratamento do 404/410 do Web Push.
+      - Falha de rede a caminho da Google, ou da troca OAuth2: engolida,
+        nunca atrasa nem falha o depósito que a desencadeou — o `subir()`
+        não pode depender de uma API de terceiros estar de pé.
+      - App reinstalada/dados apagados: token novo, sobrescreve o antigo no
+        relay da próxima vez que o Rust arrancar — sem lixo acumulado
+        porque o mapa é por impressão digital, não por token.
+
+      **Pré-mortem:** se o pedido a `messages:send` morrer a meio (rede
+      cortada), o relay não sabe se chegou — mas o pior caso é o mesmo do
+      Web Push já em produção: um aviso perdido, não uma duplicação nem um
+      dado corrompido, porque não há estado nenhum a atualizar depois do
+      envio. Aceitável pela mesma razão que já foi aceite no P4.
+
+      **Nova dependência:** `jsonwebtoken` (assinatura RS256) — não há
+      forma de fazer isto com o que já está no `Cargo.toml`; a alternativa
+      seria montar RSA-SHA256 à mão com `rsa`+`sha2`, mais código para o
+      mesmo resultado. Feature `rust_crypto` (não `aws_lc_rs`) — a mesma
+      família pura-Rust já usada no `vapid.rs` (`p256`), sem trazer um
+      backend C novo para o mesmo resultado.
+
+      **Estado a 02/09/2026 — servidor feito e provado, cliente Android
+      escrito mas ainda por provar a sério:**
+      - Servidor (`relay/src/{fcm,subscricoes,push}.rs`): 5 testes novos
+        (JWT RS256 auto-verificado contra a própria chave pública de teste,
+        subscrição FCM registada pelo `/subscricao`, melhor esforço sem
+        credencial configurada), todos os 58 testes do relay a passar,
+        `cargo clippy -p pombo-correio-relay --all-targets` limpo.
+      - **Achado a testar, antes de sequer pensar em pôr isto no Pi:** o
+        `Subscricao` passou a exigir um campo `"tipo"` (`WebPush`/`Fcm`) —
+        mas o Pi já tem um `subscricoes.json` real, gravado no formato
+        antigo (a subscrição do iPhone, do P4). Sem correção, o relay
+        recusava arrancar (`serde_json::from_slice` a falhar dentro do
+        `?` de `Subscricoes::carregar`). Corrigido: um ficheiro ilegível
+        (formato antigo ou corrompido) começa vazio com um aviso no
+        `stderr`, em vez de derrubar o arranque — a subscrição perdida
+        regenera-se sozinha no próximo "Ativar notificações". Teste novo
+        (`um_subscricoes_json_de_antes_do_tipo_nao_impede_o_arranque`)
+        prova isto com o JSON antigo a sério, não um caso inventado.
+      - Cliente Android (`FcmService.kt`, `MainActivity.kt`, Gradle +
+        `google-services.json`, Rust em `ui/src-tauri/src/lib.rs` a
+        espreitar `fcm-token` e registar via `rede::relay::inscrever_fcm`):
+        escrito, `cargo check`/`clippy -p pombo-correio-app` (desktop)
+        limpos — mas isso só verifica o resto do `lib.rs`, não o ramo
+        `#[cfg(target_os = "android")]` em si, e a build Android a sério
+        (`tauri android build --target aarch64 --apk --debug`) não chegou
+        a completar: memória da máquina sob pressão real por uma build
+        Gradle **de outro projeto** (`Musify`) a correr ao mesmo tempo,
+        não um bug — sete tentativas, todas mortas antes de produzir
+        output. **Por confirmar num dispositivo real** (regra 3: nada
+        disto está provado fora de `cargo check`) assim que a máquina
+        tiver memória livre para a build.
+
 ### Antes do S9
 
 | Item | Bloqueia o S9? | De quem é a próxima ação | Ação concreta |
@@ -1166,7 +1265,7 @@ arrancar já; as outras três dependem de uma decisão ou conta do André. Ver
 | Retoma de descarga na PWA | Não | Eu | Regra 8 primeiro, depois código |
 | Limitador de débito | Não | Eu | Testável em loopback já |
 | DDNS (DuckDNS) | Feito | — | — |
-| Push — Firebase (Android) | Sim, para o Q5 | André | Criar o projeto Firebase, gerar a conta de serviço, dar-mos |
+| Push — Firebase (Android) | Feito (credenciais dadas) | — | Falta só provar a build Android a sério, sem bloqueio nenhum do André |
 | Confirmação do P4 no iPhone (dívida do S8, não do S9) | Não | André | Definições → Ativar notificações, esperar por um depósito |
 
 ---

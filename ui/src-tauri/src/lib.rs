@@ -732,6 +732,37 @@ pub fn run() {
                 }
             });
 
+            // Q5: regista o token FCM nos relays de casa a cada arranque —
+            // sempre, não só quando muda, para não guardar estado nenhum de
+            // "já registei este" que pudesse dessincronizar do que o relay
+            // tem. A MainActivity (Kotlin) escreve o ficheiro de forma
+            // assíncrona (o SDK do Firebase não devolve o token na hora), por
+            // isso espreita-se por alguns segundos em vez de assumir que já
+            // lá está.
+            #[cfg(target_os = "android")]
+            {
+                let eu_fcm = copiar(&eu);
+                let dados_fcm = dados.clone();
+                tauri::async_runtime::spawn(async move {
+                    let caminho = dados_fcm.join("fcm-token");
+                    let token = 'espera: {
+                        for _ in 0..10 {
+                            if let Ok(t) = std::fs::read_to_string(&caminho)
+                                && !t.trim().is_empty()
+                            {
+                                break 'espera Some(t.trim().to_string());
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        }
+                        None
+                    };
+                    let Some(token) = token else { return };
+                    for base in relay::configurados(&dados_fcm) {
+                        let _ = relay::inscrever_fcm(&eu_fcm, &base, &token).await;
+                    }
+                });
+            }
+
             app.manage(Estado {
                 eu,
                 cancelaveis,

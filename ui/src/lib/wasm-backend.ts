@@ -564,12 +564,15 @@ export async function ativarPush(): Promise<ResultadoPush> {
     applicationServerKey: base64UrlParaBytes(chave) as BufferSource,
   });
   const json = subscricao.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } };
+  // "tipo" distingue do Q5 (FCM, Android nativo) no mesmo mapa do relay —
+  // ver `relay/src/subscricoes.rs`.
+  const corpo = { tipo: "web_push", ...json };
 
   await obterIdentidade();
   await fetch(`${base}/subscricao`, {
     method: "POST",
     headers: { ...(await cabecalhosAssinados("subscricao", json.endpoint)), "content-type": "application/json" },
-    body: JSON.stringify(json),
+    body: JSON.stringify(corpo),
   });
 
   return "ativado";

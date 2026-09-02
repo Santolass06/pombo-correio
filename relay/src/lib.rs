@@ -8,6 +8,7 @@
 
 pub mod autenticado;
 pub mod deposito;
+pub mod fcm;
 pub mod push;
 pub mod servidor;
 pub mod subscricoes;
