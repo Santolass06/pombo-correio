@@ -66,6 +66,15 @@ fn identidade(estado: tauri::State<'_, Estado>) -> Eu {
     }
 }
 
+/// A impressão curta (16 hex) que o `--autorizados` do relay espera — antes
+/// só saía na PWA (`impressaoDigital()` do `wasm-backend.ts`); nativo nunca
+/// tinha onde a mostrar, o que obrigava a ir a picotar o ficheiro de
+/// identidade à mão para autorizar um dispositivo Android/desktop novo.
+#[tauri::command]
+fn impressao_digital(estado: tauri::State<'_, Estado>) -> String {
+    descoberta::impressao_curta(&estado.eu.public())
+}
+
 /// Procura na rede local. Demora alguns segundos, por isso sai da thread da
 /// interface — senão a janela congelava enquanto procura.
 #[tauri::command]
@@ -732,6 +741,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             identidade,
+            impressao_digital,
             dispositivos,
             enviar_ficheiro,
             enviar_android,

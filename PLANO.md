@@ -1105,9 +1105,29 @@ arrancar já; as outras três dependem de uma decisão ou conta do André. Ver
       assim que a porta abriu. Feito antes de continuar: `--autorizados` a
       sério no Pi (`~/.local/share/pombo-relay/autorizados`), com as
       impressões atuais de A10 (CLI e app) e do iPhone; testado a sério — um
-      depósito real do A10 passou. **A tablet Android (OnePlus Pad 2) ficou
-      de fora** — a build instalada é antiga demais para mostrar a própria
-      impressão digital; falta atualizá-la antes de a poder autorizar.
+      depósito real do A10 passou.
+
+      **Bug real encontrado a autorizar a tablet Android, não hipotético:**
+      a app não tinha onde mostrar a própria impressão digital — nem numa
+      build nova nem numa antiga. `impressaoDigital()` (`api.ts`) sempre
+      devolveu `null` no Tauri de propósito, com um comentário a dizer
+      "desktop/Android ainda não precisam de a mostrar" — verdade em S8,
+      quando só a PWA precisava de se autorizar sozinha; deixou de o ser
+      assim que o `--autorizados` se tornou obrigatório para toda a gente
+      (S9 Q4). Corrigido com um comando Tauri novo,
+      `impressao_digital` (`src-tauri/src/lib.rs`, reaproveita
+      `descoberta::impressao_curta` que já existia para o `dispositivos`
+      se filtrar a si próprio), ligado em `api.ts`. O cartão "Impressão
+      digital" em Definições passou a aparecer em todas as plataformas — só
+      teve de se separar do cartão "Notificações" (P4), que continua a só
+      fazer sentido na PWA (`{#if impressao && !eTauri()}`), senão o
+      Android ganhava um botão de push que não faz nada. Confirmado real:
+      apk assinado (`zipalign`+`apksigner`, chave de debug) instalado a
+      sério na OnePlus Pad 2 (`adb`), a impressão digital apareceu no ecrã,
+      o André leu-a e acrescentou-se ao `--autorizados`. **Todos os quatro
+      dispositivos de casa autorizados** (A10 CLI, A10 app, iPhone,
+      OnePlus Pad 2).
+
       **Falta ainda:** o domínio DuckDNS em si e o TLS — até lá, o relay está
       alcançável de fora só por HTTP simples (a impressão digital e a
       assinatura de cada pedido viajam em claro; o conteúdo dos ficheiros

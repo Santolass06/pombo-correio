@@ -1773,3 +1773,59 @@ ou errada. Isolar a MENOR reprodução possível (um teste sozinho, sem os
 outros 50 a correr) foi o que distinguiu "estado a vazar entre testes" de
 "o extrator está mal configurado" — duas causas com o mesmo sintoma
 agregado, mas comportamentos diferentes em isolamento.
+
+### Autorizar os quatro dispositivos a sério — a build Android que recusava morrer
+
+Ao ligar o `--autorizados` a sério (Q4), faltava autorizar a tablet Android
+(OnePlus Pad 2). A app instalada era uma build de debug de 12/08, de antes
+do S9 — mas mesmo depois de atualizada, **nenhuma build mostrava a
+impressão digital**: `impressaoDigital()` (`api.ts`) sempre devolveu `null`
+no Tauri, com um comentário explícito a dizer que desktop/Android não
+precisavam disso — verdade quando só a PWA (S8) precisava de se
+autorizar sozinha, falso agora que o `--autorizados` é obrigatório para
+toda a gente. A suposição inicial ("build antiga, basta atualizar") estava
+errada; só se percebeu ao instalar a build nova e continuar sem nada em
+Definições.
+
+**A build Android em si foi uma via-sacra à parte, sem ligação nenhuma ao
+bug de cima:** três tentativas seguidas de `npx tauri android build`
+(universal, as quatro ABIs) morreram sem erro nenhum — `[killed]`, sem
+OOM no `dmesg`, sem processo a sobreviver — a primeira em modo
+`run_in_background: true` explícito, a segunda em primeiro plano com
+`timeout: 580000`, a terceira outra vez em `run_in_background`. As três
+morreram por volta dos 10-15 minutos, independentemente do método. Nunca
+se percebeu a causa raiz (não é a primeira vez nesta sessão: o
+`cargo clippy --workspace` e um `cargo test --workspace` tiveram o mesmo
+destino mais cedo). O que resolveu foi reduzir o âmbito, não insistir no
+método: `--target aarch64 --apk` (só a arquitetura real da tablet,
+confirmada por `adb shell getprop ro.product.cpu.abi`, e só APK, sem AAB)
+cortou a build de 4 alvos Rust + Gradle universal para 1 alvo + Gradle
+mais pequeno — coube dentro da janela e completou em minutos.
+
+**APK sem assinatura, à espera:** `tauri android build` produz um
+`app-universal-release-unsigned.apk` — não instala sem assinatura, mesmo
+para uso pessoal. `zipalign` + `apksigner` do `build-tools`, com a
+`~/.android/debug.keystore` que já existia (a mesma que assinava a build
+de debug), resolveu — não é para a Play Store, só para a família instalar
+a partir daqui.
+
+**Duas apps a coexistir, e porquê:** a build de release usa o
+`applicationId` `pt.pombo.correio` (sem o sufixo `.debug` que o Gradle
+acrescenta às builds de debug automaticamente) — por isso instalar por
+cima da antiga não a substitui, fica uma segunda app. Corrigido a
+desinstalar as duas (`adb uninstall`) antes de instalar a definitiva.
+
+**A verificação também teve de mudar de plano:** nem `run-as` (a build de
+release não é depurável) nem `screencap` (não captura a camada da WebView,
+armadilha já conhecida do S6) deixaram ler a impressão por aqui. Pedida ao
+André a olhar para o ecrã a sério — não há atalho nenhum para isto sem
+apps de debug ou DevTools do WebView ligados de propósito.
+
+**A correção do bug em si:** um comando Tauri novo,
+`impressao_digital` (`src-tauri/src/lib.rs`), que reaproveita
+`descoberta::impressao_curta` (já existia, usada por `dispositivos` para
+se filtrar da própria descoberta) — sem duplicar lógica nenhuma. O cartão
+"Notificações" (P4, só faz sentido na PWA) estava aninhado dentro do mesmo
+`{#if impressao}` que agora passou a ativar em todas as plataformas;
+separado em `{#if impressao && !eTauri()}` para o Android não ganhar um
+botão de push morto.

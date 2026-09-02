@@ -520,7 +520,9 @@
           </p>
           <div class="numero-seguranca">{impressao}</div>
         </div>
+      {/if}
 
+      {#if impressao && !eTauri()}
         <div class="card elev-sm">
           <div class="card-title">Notificações</div>
           <p class="text-muted" style="margin:var(--space-1) 0">

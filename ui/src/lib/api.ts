@@ -109,11 +109,11 @@ export const criarLigacao = (ficheiro: string | null) =>
 export const aoAcontecer = (f: (e: Evento) => void) =>
   eTauri() ? listen<Evento>("pombo", (m) => f(m.payload)) : wasm.aoAcontecer(f);
 
-/// A impressão digital de 16 dígitos hexadecimais desta identidade, ou
-/// `null` no Tauri (não há comando equivalente — o desktop/Android ainda
-/// não precisam de a mostrar). É a que entra em `--autorizados`; sem ela lá,
-/// o primeiro depósito da PWA leva 403.
-export const impressaoDigital = () => (eTauri() ? Promise.resolve(null) : wasm.impressaoDigital());
+/// A impressão digital de 16 dígitos hexadecimais desta identidade — a que
+/// entra em `--autorizados`. Sem ela lá, o primeiro depósito leva 403,
+/// tanto na PWA como no desktop/Android (S9: `--autorizados` tornou-se
+/// obrigatório assim que o relay ficou acessível de fora).
+export const impressaoDigital = () => (eTauri() ? invoke<string>("impressao_digital") : wasm.impressaoDigital());
 
 /// Envia para um dispositivo de casa já conhecido — aprendido ao abrir um
 /// link criado nesse dispositivo (ver `PLANO.md`, desenho do P5). Só existe
