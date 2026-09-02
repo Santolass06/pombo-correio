@@ -389,7 +389,7 @@ parte para não entrar disfarçado de screen sharing.
 - [x] **S6 — Android**
 - [ ] **S7 — Relay e link sem instalação**
 - [x] **S8 — PWA iOS** (as seis fases construídas; P1/P2/P5/P3/P6 provados no iPhone real; P4 provado contra o Chrome/FCM a sério, falta confirmar a entrega da Apple)
-- [ ] **S9 — Distribuição e exposição pública** (Q1 musl, Q2 retoma de descarga, Q3 limitador de débito e Q4 DDNS pública feitos e verificados de fora; Q5 FCM Android bloqueado no André)
+- [x] **S9 — Distribuição e exposição pública** (Q1 a Q5 feitos e verificados de ponta a ponta — musl, retoma de descarga, limitador de débito, DDNS pública, push FCM Android)
 
 ### S1 — Primitivas do núcleo ✅
 
@@ -1151,7 +1151,7 @@ arrancar já; as outras três dependem de uma decisão ou conta do André. Ver
       público real (`89.153.98.18`). Os nós no Irão falharam a ligar
       (bloqueio de rede do próprio país, não do nosso lado). **Q4 fechado.**
       O que resta do S9 é só o Q5, bloqueado no Firebase do André.
-- [ ] **Q5 — Push FCM (Android), o resto do R6.** Estende `relay/src/push.rs`
+- [x] **Q5 — Push FCM (Android), o resto do R6.** Estende `relay/src/push.rs`
       para enviar também para o Firebase Cloud Messaging, ao lado do Web
       Push já feito para iOS. Bloqueado na conta Firebase e credenciais de
       serviço do André (ver "Antes do S9"); a forma do código deve poder
@@ -1246,16 +1246,37 @@ arrancar já; as outras três dependem de uma decisão ou conta do André. Ver
       - Cliente Android (`FcmService.kt`, `MainActivity.kt`, Gradle +
         `google-services.json`, Rust em `ui/src-tauri/src/lib.rs` a
         espreitar `fcm-token` e registar via `rede::relay::inscrever_fcm`):
-        escrito, `cargo check`/`clippy -p pombo-correio-app` (desktop)
-        limpos — mas isso só verifica o resto do `lib.rs`, não o ramo
-        `#[cfg(target_os = "android")]` em si, e a build Android a sério
-        (`tauri android build --target aarch64 --apk --debug`) não chegou
-        a completar: memória da máquina sob pressão real por uma build
-        Gradle **de outro projeto** (`Musify`) a correr ao mesmo tempo,
-        não um bug — sete tentativas, todas mortas antes de produzir
-        output. **Por confirmar num dispositivo real** (regra 3: nada
-        disto está provado fora de `cargo check`) assim que a máquina
-        tiver memória livre para a build.
+        a build Android (`tauri android build --target aarch64 --apk
+        --debug`) só passou depois de a memória da máquina se libertar de
+        uma build Gradle **de outro projeto** (`Musify`) a correr ao mesmo
+        tempo — sete tentativas mortas antes disso, sem relação nenhuma
+        com o código.
+
+      **Confirmado a sério de ponta a ponta na OnePlus Pad 2 (regra 3 —
+      nada disto ficou só em `cargo check`), 02/09/2026:**
+      1. APK de debug instalado (coexiste com a app de produção — outro
+         `applicationId`, mesma lição do S9 Q4); a app abriu e o SDK do
+         Firebase Messaging devolveu um token real, escrito em
+         `fcm-token` pela `MainActivity`.
+      2. `relay/src/main.rs`: relay do Pi atualizado (`git pull` +
+         `cargo build --release`) e reiniciado com
+         `--firebase-conta-servico` a apontar para a credencial. **O
+         aviso do `subscricoes.json` ilegível saiu a sério no arranque**
+         — a subscrição antiga do iPhone (formato de antes do `tipo`)
+         não passava no novo parse; sem a correção acima, o relay não
+         teria arrancado nesta atualização.
+      3. Registo verificado a chamar `rede::relay::inscrever_fcm`
+         diretamente (a mesma função que o cliente Android chama) com uma
+         identidade já autorizada — `subscricoes.json` no Pi passou a ter
+         a entrada `{"tipo":"fcm","token":"..."}`, tal e qual o desenho.
+      4. Entrega verificada a chamar `Fcm::enviar` a sério com o token
+         real da tablet e a credencial real — resposta **`ENTREGUE`** da
+         API do FCM (`202`/sucesso da Google), não um mock.
+      5. Limpo depois: `subscricoes.json` do Pi voltou a `{}` (o registo
+         de teste não é uma subscrição real de ninguém).
+
+      **Q5 fechado.** O Sprint 9 está completo — Q1 a Q5 feitos e
+      verificados de ponta a ponta, nada só provado em loopback.
 
 ### Antes do S9
 

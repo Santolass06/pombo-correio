@@ -1892,3 +1892,63 @@ interpretar mal um teste feito do lado errado da rede outra vez.
 
 Com isto, **Q4 fechado**. O que resta do S9 é só o Q5, bloqueado no
 projeto Firebase do André.
+
+### Q5 — FCM: a build morta sete vezes que não era o código, e a prova a sério
+
+O André tratou do Firebase pelo Gemini do próprio Firebase Console, que
+respondeu "está feito" duas vezes sem ter feito nada — o `google-services.json`
+só existia depois de se confirmar por ecrã ("Não há apps no seu projeto")
+e as duas apps Android serem registadas à mão. Vale a lição: uma resposta
+de "feito" de outro assistente, sem uma verificação independente, não é
+prova de nada — a mesma regra 3 que já se aplica aos nossos próprios testes.
+
+**Desenho (resumido, o completo está em PLANO.md):** `relay/src/fcm.rs`
+troca um JWT RS256 (assinado com a chave privada da conta de serviço) por
+um *access token* OAuth2, e usa-o para `POST .../messages:send` (FCM HTTP
+v1). Sem cache do token — um JWT novo por envio, mesma escolha do VAPID.
+`Subscricao` (`subscricoes.rs`) passou de struct a enum (`WebPush`/`Fcm`),
+com um campo `"tipo"` novo a distinguir os dois no mesmo mapa.
+
+**O bug que só apareceu a testar contra dados reais, não inventados:** o
+`"tipo"` obrigatório partia a leitura de um `subscricoes.json` gravado
+antes disso — e o Pi já tinha um a sério, a subscrição do iPhone do P4.
+`Subscricoes::carregar` propagava o erro de parse com `?`, o que teria
+feito o relay **recusar arrancar** na próxima atualização. Corrigido
+antes de sequer pensar em fazer deploy: um ficheiro ilegível (formato
+antigo, ou corrompido) começa vazio com um aviso no `stderr`, a
+subscrição perdida regenera-se sozinha no próximo "Ativar notificações".
+Confirmado que a correção era mesmo necessária, não uma cautela a mais:
+ao atualizar o relay do Pi a sério, **o aviso saiu no arranque**, exatamente
+como previsto — sem a correção, teria sido uma queda de produção causada
+por uma migração de formato.
+
+**Sete builds Android mortas, zero delas por causa do código.** `cargo
+check --target aarch64-linux-android` e depois `tauri android build`
+morreram sete vezes seguidas, sempre sem produzir output nenhum antes do
+kill — o padrão parecia o mesmo mistério já documentado no `CLAUDE.md`
+para `cargo test --workspace`. Desta vez teve explicação: `ps aux`
+mostrou dois daemons Gradle/Kotlin de uma build de **outro projeto**
+(`Musify`) a correr em paralelo na mesma máquina, a ocupar ~3GB, com a
+swap quase cheia. Nada a ver com o código — confirmado ao parar dois
+daemons Gradle idle do próprio `pombo-correio` que também sobravam
+(`gradlew --stop` não os apanhou, tiveram de se matar os PIDs
+diretamente), e ao ver a memória libertar-se sozinha quando a build do
+Musify acabou. Lição a levar para a próxima vez que uma build "morrer
+sem razão" nesta máquina: `ps aux --sort=-%mem` primeiro, antes de
+assumir que é o mesmo mistério de sempre — desta vez tinha nome e PID.
+
+**A prova de ponta a ponta, não só `cargo check` (regra 3):**
+1. APK de debug instalado na OnePlus Pad 2 — coexiste com a app de
+   produção (`applicationId` diferente, já conhecido do S9 Q4).
+2. O SDK do Firebase Messaging devolveu um token real; `MainActivity`
+   escreveu-o em `fcm-token`, exatamente como desenhado.
+3. `rede::relay::inscrever_fcm` chamado a sério (a mesma função que o
+   cliente Android usa) contra o relay do Pi já atualizado — a
+   subscrição ficou gravada com a forma nova (`{"tipo":"fcm","token":…}`).
+4. `Fcm::enviar` chamado a sério com o token real da tablet e a
+   credencial real (não um mock nem um serviço de push falso, ao
+   contrário dos testes automáticos) — resposta **`ENTREGUE`**, sucesso
+   genuíno da API da Google.
+5. Limpo depois: a entrada de teste apagada do `subscricoes.json` do Pi.
+
+Com isto, **Q5 fechado — Sprint 9 completo.**
