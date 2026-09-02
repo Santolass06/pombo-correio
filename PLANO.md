@@ -389,7 +389,7 @@ parte para não entrar disfarçado de screen sharing.
 - [x] **S6 — Android**
 - [ ] **S7 — Relay e link sem instalação**
 - [x] **S8 — PWA iOS** (as seis fases construídas; P1/P2/P5/P3/P6 provados no iPhone real; P4 provado contra o Chrome/FCM a sério, falta confirmar a entrega da Apple)
-- [ ] **S9 — Distribuição e exposição pública** (Q1 musl, Q2 retoma de descarga e Q3 limitador de débito feitos e em produção nos dois nós; Q4 DDNS e Q5 FCM Android bloqueados no André)
+- [ ] **S9 — Distribuição e exposição pública** (Q1 musl, Q2 retoma de descarga, Q3 limitador de débito e Q4 DDNS pública feitos e verificados de fora; Q5 FCM Android bloqueado no André)
 
 ### S1 — Primitivas do núcleo ✅
 
@@ -1093,7 +1093,7 @@ arrancar já; as outras três dependem de uma decisão ou conta do André. Ver
       `a_mesma_rajada_nao_atinge_uma_rota_autenticada`, este último a provar
       que martelar `/saude` não arrasta `/caixa` com ele). `cargo clippy -p
       pombo-correio-relay --all-targets`: zero avisos.
-- [ ] **Q4 — DDNS pública (DuckDNS).** Expor o relay a quem não tem
+- [x] **Q4 — DDNS pública (DuckDNS).** Expor o relay a quem não tem
       Tailscale instalado. Bloqueado no token do André (ver "Antes do S9").
       Entra depois ou junto do Q3 — nunca antes, para não abrir a porta sem
       o limitador de débito de pé.
@@ -1128,10 +1128,29 @@ arrancar já; as outras três dependem de uma decisão ou conta do André. Ver
       dispositivos de casa autorizados** (A10 CLI, A10 app, iPhone,
       OnePlus Pad 2).
 
-      **Falta ainda:** o domínio DuckDNS em si e o TLS — até lá, o relay está
-      alcançável de fora só por HTTP simples (a impressão digital e a
-      assinatura de cada pedido viajam em claro; o conteúdo dos ficheiros
-      continua cifrado ponta-a-ponta, isso não muda).
+      **Fechado a 02/09/2026:** domínio `pombo-correio.duckdns.org` (token do
+      André), IP mantido atual por um `duckdns-update.timer` no Pi (5 em 5
+      min, `curl` ao endpoint de update do DuckDNS). TLS a sério emitido por
+      `acme.sh --issue --dns dns_duckdns` (desafio DNS-01, sem abrir mais
+      nenhuma porta para isso) e instalado num `nginx` novo no Pi, que
+      termina TLS e reencaminha para o relay em `127.0.0.1:53319` — a mesma
+      ideia do "TLS pelo Tailscale" do R7 (nunca código de TLS nosso), só que
+      aqui é a ferramenta equivalente para um domínio público em vez da
+      tailnet. Ficou a faltar encaminhar a porta 443 no router para o Pi
+      (igual ao que já se tinha feito para a 53319); o André criou as duas
+      regras. `nginx` teve de ficar a ouvir em `192.168.1.232:443` e não em
+      `0.0.0.0:443` — o `tailscaled` já tinha a wildcard-equivalente ocupada
+      na sua própria interface, e um bind específico conflita com um bind
+      universal na mesma porta.
+
+      **Verificado de fora a sério, não só em loopback** (regra 3): local no
+      Pi deu 200 contra o hostname real; de fora, `check-host.net` (TCP
+      connect a `pombo-correio.duckdns.org:443` e depois um pedido HTTPS
+      completo a `/saude`) confirmou de nós na Áustria, Portugal e Ucrânia —
+      ligação aceite e `200 OK` com o certificado a validar contra o IP
+      público real (`89.153.98.18`). Os nós no Irão falharam a ligar
+      (bloqueio de rede do próprio país, não do nosso lado). **Q4 fechado.**
+      O que resta do S9 é só o Q5, bloqueado no Firebase do André.
 - [ ] **Q5 — Push FCM (Android), o resto do R6.** Estende `relay/src/push.rs`
       para enviar também para o Firebase Cloud Messaging, ao lado do Web
       Push já feito para iOS. Bloqueado na conta Firebase e credenciais de
@@ -1146,7 +1165,7 @@ arrancar já; as outras três dependem de uma decisão ou conta do André. Ver
 | Binários musl | Não | Eu | `rustup target add` + build, sem depender de ninguém |
 | Retoma de descarga na PWA | Não | Eu | Regra 8 primeiro, depois código |
 | Limitador de débito | Não | Eu | Testável em loopback já |
-| DDNS (DuckDNS) | Sim, para o Q4 | André | Criar a conta em duckdns.org, dar-me o token e o subdomínio |
+| DDNS (DuckDNS) | Feito | — | — |
 | Push — Firebase (Android) | Sim, para o Q5 | André | Criar o projeto Firebase, gerar a conta de serviço, dar-mos |
 | Confirmação do P4 no iPhone (dívida do S8, não do S9) | Não | André | Definições → Ativar notificações, esperar por um depósito |
 

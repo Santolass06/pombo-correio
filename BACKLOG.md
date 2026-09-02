@@ -1829,3 +1829,66 @@ se filtrar da própria descoberta) — sem duplicar lógica nenhuma. O cartão
 `{#if impressao}` que agora passou a ativar em todas as plataformas;
 separado em `{#if impressao && !eTauri()}` para o Android não ganhar um
 botão de push morto.
+
+### Q4, o resto — DuckDNS, TLS público, e o bind que colidiu com o Tailscale
+
+Com os quatro dispositivos autorizados, faltava só o domínio e o TLS a
+sério — até aí o relay estava alcançável de fora só por HTTP simples.
+
+**Por que não um certificado por porta 80 (HTTP-01)?** Abria mais uma porta
+no router só para a validação, e o relay já não fala TLS por decisão de
+arquitetura de propósito (ver R7: "seria código nosso, ficheiros de
+certificado em disco e um temporizador de renovação, para fazer pior o
+que a plataforma já faz"). A mesma regra vale aqui: em vez de o relay
+aprender TLS, pôs-se `nginx` à frente dele, só a terminar TLS — o
+equivalente ao `tailscale serve` do R7, mas para um domínio público em
+vez da tailnet. E o desafio DNS-01 (`acme.sh --issue --dns dns_duckdns`)
+nem porta nenhuma precisa: fala com a API do DuckDNS, não com o router.
+
+**O bind que devia ter sido óbvio e não foi.** `nginx` a ouvir em
+`0.0.0.0:443` recusava arrancar — `bind() to 0.0.0.0:443 failed (98:
+Address already in use)` — mas `ss -tlnp` só mostrava o `tailscaled`
+preso a `100.83.194.82:443`, um IP bem específico, não a wildcard. A
+suspeita óbvia (outro processo já na wildcard) estava errada; a real é
+que um bind wildcard *inclui* qualquer bind específico já feito na mesma
+porta — não há dois donos possíveis para a 443 ao mesmo tempo, mesmo que
+um deles só peça um IP. Resolvido a ouvir em `192.168.1.232:443` (o IP de
+LAN do Pi) em vez da wildcard — o Pi só tem essa rota de entrada mesmo
+(a interface do Tailscale fica com a sua).
+
+**O IP público mantido atual sem mexer no relay:** `duckdns-update.timer`
++ `.service` no Pi, de 5 em 5 minutos, um `curl` simples ao endpoint de
+update do DuckDNS (`ip=` vazio deixa o próprio DuckDNS ler o IP de quem
+liga). Precisou de um `EnvironmentFile=` com o caminho absoluto ao
+ficheiro do token — `%h` não expande num unit de sistema sem `User=`
+explícito, falhou silencioso ("No such file or directory") até se
+perceber isso.
+
+**A verificação que quase saiu errada por engano de teste, não de infra.**
+Um primeiro `curl --resolve` usou o IP diretamente na URL em vez do
+hostname — `https://192.168.1.232:443/...` com `--resolve` só a mapear
+o quê para o quê, sem hostname nenhum para o SNI validar contra — deu
+`SSL: no alternative certificate subject name matches target ipv4
+address`, que parecia um cerificado mal emitido e não era. Corrigido a
+pôr o hostname a sério na URL (`https://pombo-correio.duckdns.org/saude`)
+e o `--resolve` só a redirecionar essa resolução para o IP do Pi — validou
+limpo.
+
+**A prova de fora a sério (regra 3 — loopback não prova nada distribuído):**
+mesma armadilha do R7, resolvida da mesma maneira — em vez de confiar no
+teste de loopback/LAN, usou-se `check-host.net` (serviço público de
+verificação de rede, várias sondas em países diferentes) para um TCP
+connect à porta 443 do IP público e depois um pedido HTTPS completo a
+`/saude`. Nós na Áustria e Portugal ligaram-se em <0.3s; a Ucrânia fez o
+pedido HTTPS completo e recebeu `200 OK` com o certificado a validar
+contra o IP público real. Os nós no Irão falharam a ligar-se — bloqueio
+de rede do próprio país, nada a ver com o nosso lado. Testar direto do
+A10 (mesma LAN do Pi) deu timeout nos dois casos — não é o router a
+falhar a regra, é hairpin NAT por resolver (comum em routers de
+consumidor: um dispositivo da LAN não consegue bater à porta do seu
+próprio IP público através do router). Não bloqueia nada — quem acede de
+fora de casa não passa por esse caminho — mas fica registado para não se
+interpretar mal um teste feito do lado errado da rede outra vez.
+
+Com isto, **Q4 fechado**. O que resta do S9 é só o Q5, bloqueado no
+projeto Firebase do André.
