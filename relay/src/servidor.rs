@@ -4,13 +4,13 @@
 //! nada, não verifica nada, não sabe o que leva. É o que faz de ser a única peça
 //! exposta à internet — comprometê-la não expõe ficheiro nenhum.
 
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, net::IpAddr, sync::Arc};
 
 use anyhow::Result;
 use axum::{
     Json, Router,
     body::Body,
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -18,7 +18,10 @@ use axum::{
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
-use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor};
+use tower_governor::{
+    GovernorLayer, errors::GovernorError, governor::GovernorConfigBuilder,
+    key_extractor::KeyExtractor,
+};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
@@ -427,20 +430,60 @@ fn cors() -> CorsLayer {
     CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any)
 }
 
+/// O IP a confiar para o limitador de débito — o do `nginx`, quando é mesmo
+/// o `nginx` que está a ligar; o do socket, sempre que não é (Review3 F-11).
+///
+/// O `PeerIpKeyExtractor` de origem lê só o IP do TCP — bom enquanto o
+/// cliente liga direto, mas desde o Q4 o `nginx` do Pi termina TLS em
+/// `pombo-correio.duckdns.org:443` e reencaminha para `127.0.0.1:53319`: o
+/// IP do TCP passou a ser sempre o do `nginx`, e todo o tráfego público
+/// caía no mesmo balde de rajada. O `SmartIpKeyExtractor` de fábrica
+/// resolve isso, mas confia sempre em `X-Real-IP`/`X-Forwarded-For` — e a
+/// 53319 continua **também** encaminhada a direito pelo router, sem
+/// `nginx` nenhum pelo meio; confiar sempre no cabeçalho deixava forjá-lo
+/// ali e fugir ao limite de graça, o próprio aviso da documentação do
+/// `tower_governor` para este extrator. Por isso: só se lê `X-Real-IP`
+/// (o `nginx` do Pi já o define, `proxy_set_header X-Real-IP $remote_addr`
+/// — nada a mudar aí) quando quem liga é mesmo o `127.0.0.1` do `nginx`
+/// local; a porta direta continua a usar o IP do socket, como sempre usou.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct IpConfiavel;
+
+impl KeyExtractor for IpConfiavel {
+    type Key = IpAddr;
+
+    fn extract<T>(&self, req: &axum::http::Request<T>) -> Result<Self::Key, GovernorError> {
+        let peer = req
+            .extensions()
+            .get::<ConnectInfo<std::net::SocketAddr>>()
+            .map(|c| c.0.ip())
+            .ok_or(GovernorError::UnableToExtractKey)?;
+
+        if peer.is_loopback()
+            && let Some(ip) = req
+                .headers()
+                .get("x-real-ip")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.trim().parse::<IpAddr>().ok())
+        {
+            return Ok(ip);
+        }
+        Ok(peer)
+    }
+}
+
 /// Limite de débito por IP — só nas rotas públicas sem autenticação nenhuma
 /// (`/saude`, `/vapid`, `GET /d/{id}`): as outras já exigem uma assinatura
 /// Ed25519 válida, que custa uma identidade gerada, não um pedido HTTP
-/// (Review0 F-02 / Review2 F-09). Chave por IP do TCP, não por
-/// `X-Forwarded-For` — não há proxy nenhum entre o cliente e o relay, nem
-/// aqui nem depois do Q4 (DDNS aponta direto para esta porta).
+/// (Review0 F-02 / Review2 F-09).
 ///
 /// `ponytail:` 5 pedidos de rajada, 1/s a reencher — números de partida,
-/// nunca medidos contra tráfego a sério. Afinar quando o Q4 puser o relay
-/// mesmo alcançável de fora da tailnet.
+/// nunca medidos contra tráfego a sério. Afinar se o Q4 mostrar tráfego
+/// público a sério.
 fn rotas_publicas() -> Router<Arc<Estado>> {
     let limite = Arc::new(
         GovernorConfigBuilder::default()
-            .key_extractor(PeerIpKeyExtractor)
+            .key_extractor(IpConfiavel)
             .per_second(1)
             .burst_size(5)
             .finish()
@@ -587,6 +630,46 @@ mod testes {
         let mut h = HeaderMap::new();
         h.insert(header::RANGE, v.parse().unwrap());
         h
+    }
+
+    #[test]
+    fn ip_confiavel_só_le_o_cabecalho_de_quem_e_mesmo_o_nginx_local() {
+        use std::net::{Ipv4Addr, SocketAddr};
+
+        let pedido = |peer: SocketAddr, cabecalho: Option<&str>| {
+            let mut b = axum::http::Request::builder().extension(ConnectInfo(peer));
+            if let Some(v) = cabecalho {
+                b = b.header("x-real-ip", v);
+            }
+            b.body(()).unwrap()
+        };
+
+        // O nginx local (127.0.0.1) diz quem é: confia-se no cabeçalho.
+        let via_nginx =
+            pedido(SocketAddr::from((Ipv4Addr::LOCALHOST, 12345)), Some("203.0.113.7"));
+        assert_eq!(
+            IpConfiavel.extract(&via_nginx).unwrap(),
+            IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7))
+        );
+
+        // Alguém a bater direto na 53319 (não é o nginx) finge o cabeçalho —
+        // ignorado, usa-se o IP real do socket. É o furo que o
+        // `SmartIpKeyExtractor` de fábrica não fecha (Review3 F-11).
+        let direto_a_fingir =
+            pedido(SocketAddr::from((Ipv4Addr::new(198, 51, 100, 9), 4444)), Some("1.2.3.4"));
+        assert_eq!(
+            IpConfiavel.extract(&direto_a_fingir).unwrap(),
+            IpAddr::V4(Ipv4Addr::new(198, 51, 100, 9))
+        );
+
+        // O nginx local sem o cabeçalho (não devia acontecer, mas se
+        // acontecer): cai para o IP do socket — degrada para o
+        // comportamento antigo, não abre uma falha nova.
+        let nginx_sem_cabecalho = pedido(SocketAddr::from((Ipv4Addr::LOCALHOST, 12345)), None);
+        assert_eq!(
+            IpConfiavel.extract(&nginx_sem_cabecalho).unwrap(),
+            IpAddr::V4(Ipv4Addr::LOCALHOST)
+        );
     }
 
     #[test]
