@@ -376,6 +376,20 @@ parte para não entrar disfarçado de screen sharing.
   "Riscos". F-08 (retoma de descarga na PWA) e F-09 (limite de débito, já
   agendado desde a Review0) e as quatro sugestões da secção 7 formam o S9
   abaixo.
+- **Review3** (`audit/Review3.md`, 02/09/2026): auditoria do S9 completo —
+  "aprovado com recomendações". Quatro achados, nenhum criptográfico. **F-11**
+  (média/alta) é o único com peso real: o `PeerIpKeyExtractor` do Q3 já não
+  vê o IP de quem pede — o `nginx` do Q4 fala com o relay por
+  `127.0.0.1:53319`, por isso todo o tráfego público de `pombo-
+  correio.duckdns.org` cai no **mesmo balde** de 5 pedidos de rajada. Verificado
+  contra o código, não só a palavra da auditoria: o comentário em
+  `rotas_publicas()` ainda diz "não há proxy nenhum... nem depois do Q4",
+  frase escrita antes do `nginx` existir e nunca revista. F-12 (mesma
+  verificação: `FcmService.onMessageReceived` está mesmo vazio) esvazia o
+  Q5 na prática — sem notificação nenhuma, ninguém sabe que chegou nada até
+  abrir a app por iniciativa própria, o cenário exato que o Q5 existia para
+  cobrir. F-13 (retoma de upload na PWA) e F-14 (autorização manual) são
+  trabalho a agendar, não bugs. Os três primeiros formam o S10 abaixo.
 
 ---
 
@@ -390,6 +404,7 @@ parte para não entrar disfarçado de screen sharing.
 - [ ] **S7 — Relay e link sem instalação**
 - [x] **S8 — PWA iOS** (as seis fases construídas; P1/P2/P5/P3/P6 provados no iPhone real; P4 provado contra o Chrome/FCM a sério, falta confirmar a entrega da Apple)
 - [x] **S9 — Distribuição e exposição pública** (Q1 a Q5 feitos e verificados de ponta a ponta — musl, retoma de descarga, limitador de débito, DDNS pública, push FCM Android)
+- [ ] **S10 — Fechar o que a Review3 encontrou** (T1 corrige um limitador de débito que já não limita nada a sério; T2 e T3 tornam o Q4/Q5 úteis a sério, não só entregues)
 
 ### S1 — Primitivas do núcleo ✅
 
@@ -1288,6 +1303,82 @@ arrancar já; as outras três dependem de uma decisão ou conta do André. Ver
 | DDNS (DuckDNS) | Feito | — | — |
 | Push — Firebase (Android) | Feito (credenciais dadas) | — | Falta só provar a build Android a sério, sem bloqueio nenhum do André |
 | Confirmação do P4 no iPhone (dívida do S8, não do S9) | Não | André | Definições → Ativar notificações, esperar por um depósito |
+
+### S10 — Fechar o que a Review3 encontrou
+
+Nasce inteira da `audit/Review3.md` (02/09/2026), a auditoria do S9 completo.
+Sem achado crítico nem criptográfico — mas **F-11 é um bug de produção a
+sério, já em exploração possível hoje**, não uma sugestão para mais tarde:
+o relay está exposto ao público em `pombo-correio.duckdns.org` com o
+limitador de débito do Q3 a não fazer nada do que devia. Por isso T1 vem
+primeiro, sozinho, à frente de tudo o resto — as outras duas fases não
+dependem dele e podiam trocar de ordem entre si sem problema.
+
+Três fases, nenhuma bloqueada em nada do André — todas correm com o que já
+está no repositório e nas máquinas de casa:
+
+- [ ] **T1 — Corrigir o limitador de débito atrás do `nginx` (Review3 F-11).**
+      `PeerIpKeyExtractor` lê o IP do socket TCP; desde que o Q4 pôs um
+      `nginx` a terminar TLS em `127.0.0.1:53319`, é **esse** IP que o
+      extrator vê em todo o tráfego que chega por `pombo-
+      correio.duckdns.org:443` — um só visitante (ou scanner) a martelar
+      `/saude` 6 vezes derruba a rajada de 5 para **todos os visitantes
+      públicos**, não só para si. O comentário em `rotas_publicas()`
+      (`relay/src/servidor.rs:434`) ainda diz "não há proxy nenhum... nem
+      depois do Q4" — verdade quando foi escrito (antes do `nginx` existir),
+      falso agora; ninguém voltou lá depois do Q4 fechar.
+
+      **Nota para o desenho (regra 8, a fazer a sério quando isto arrancar):**
+      a correção óbvia da Review3 — trocar para `SmartIpKeyExtractor` e pôr o
+      `nginx` a mandar `X-Forwarded-For` — tem um furo se for aplicada ao
+      pé da letra: a porta 53319 continua **também** encaminhada a direito
+      pelo router (Q4, antes do `nginx` existir), sem passar por proxy
+      nenhum. Se o extrator confiar cegamente num `X-Forwarded-For` vindo de
+      qualquer IP, alguém a bater direto na 53319 forja esse cabeçalho a
+      cada pedido e sai do limitador de graça — pior do que o que já
+      temos, não melhor. A correção tem de distinguir as duas entradas:
+      confiar no cabeçalho só quando o IP do socket é mesmo o `127.0.0.1` do
+      `nginx`; caso contrário (a 53319 direta), usar o IP do socket como já
+      acontece hoje. Pode ser um `key_extractor` próprio (o `tower_governor`
+      permite implementar o trait) em vez do `SmartIpKeyExtractor` de
+      confiança cega — a decidir ao abrir esta fase, não aqui.
+- [ ] **T2 — Notificação local ao acordar por FCM (Review3 F-12).** O Q5
+      só resolve metade do problema: o `data: {}` acorda o processo (é o
+      contrato do FCM, e é por isso que continua a fazer sentido apesar do
+      `RecetorService`), mas `FcmService.onMessageReceived` está vazio —
+      ninguém vê nada na barra de notificações, e sem `MainActivity` a
+      correr não há ninguém a chamar `buscarNoRelay()`. Implementar a
+      notificação local ali mesmo (o mesmo padrão de canal que o
+      `RecetorService` já usa para o foreground service, `pombo_rececao`,
+      mas um canal novo e **não silencioso** — `IMPORTANCE_LOW` é para o
+      aviso permanente "pronto a receber", não para "chegou algo") com um
+      `PendingIntent` que abre a `MainActivity`. O texto não pode dizer o
+      que chegou — o payload continua vazio de propósito (zero conhecimento
+      do relay sobre o conteúdo, decisão do Q5) — mesma frase genérica que
+      o P4 já usa do lado da PWA, "Chegou um ficheiro novo".
+- [ ] **T3 — Autorização automática pelo link de pareamento (Review3
+      F-14).** O desenho já existe, escrito em "Ideias por implementar" →
+      "Autorização automática pelo link de pareamento" — esta fase é
+      promovê-lo de ideia a trabalho, não desenhá-lo de novo. Resta, ao
+      abrir esta fase a sério: `Autorizados` hoje é uma lista lida uma
+      vez no arranque (`autenticado.rs`); passar a aceitar adições em
+      execução pede mutabilidade interior (`Mutex` sobre o `HashSet`) e
+      persistir a adição de volta ao ficheiro em disco — sem isso, um
+      reinício do `pombo-relay` esquece quem foi autorizado a meio, e o
+      dispositivo volta a levar 403. A forma mais simples: acrescentar uma
+      linha ao mesmo `autorizados` que o André já edita à mão hoje, com um
+      comentário a dizer que foi automática e quando — o ficheiro continua
+      a ser a fonte de verdade, só passa a ter dois escritores em vez de
+      um.
+
+**Deliberadamente fora do S10** — vistas as duas sugestões da Review3 que
+sobram (F-13, retoma de upload na PWA; exploração de WebRTC/hole-punching):
+nenhuma delas resolve uma dor que exista hoje. F-13 é simetria bonita, não
+um bug — a subida byte-exata continua a funcionar, só sem retoma; entra se
+um upload grande a sério começar a falhar em rede móvel. WebRTC já estava
+marcado como "adiado até o relay doer" desde a arquitetura original — nada
+no S9 mudou isso. Ficam nas "Ideias por implementar" / no `BACKLOG.md`, não
+aqui, para o S10 não crescer para além do que a Review3 pediu a sério.
 
 ---
 
