@@ -1361,7 +1361,7 @@ está no repositório e nas máquinas de casa:
       diferente) continuou a receber 200 três vezes seguidas. Antes desta
       correção os dois pedidos partilhavam o mesmo balde (ambos viam
       `127.0.0.1` do lado do relay); agora não. **T1 fechado.**
-- [ ] **T2 — Notificação local ao acordar por FCM (Review3 F-12).** O Q5
+- [x] **T2 — Notificação local ao acordar por FCM (Review3 F-12).** O Q5
       só resolve metade do problema: o `data: {}` acorda o processo (é o
       contrato do FCM, e é por isso que continua a fazer sentido apesar do
       `RecetorService`), mas `FcmService.onMessageReceived` está vazio —
@@ -1375,6 +1375,45 @@ está no repositório e nas máquinas de casa:
       que chegou — o payload continua vazio de propósito (zero conhecimento
       do relay sobre o conteúdo, decisão do Q5) — mesma frase genérica que
       o P4 já usa do lado da PWA, "Chegou um ficheiro novo".
+
+      **Feito:** notificação real no canal `pombo_push`
+      (`IMPORTANCE_HIGH`), `PendingIntent` para a `MainActivity`.
+      `MainActivity` ganhou o pedido em runtime de `POST_NOTIFICATIONS`
+      (Android 13+) — já estava no manifesto mas nunca era pedido, por
+      isso nunca ficava concedido, achado a testar no dispositivo, não
+      hipotético.
+
+      **Duas causas encontradas a testar a sério, nenhuma hipotética.** A
+      primeira tentativa (processo morto por `adb shell am force-stop`)
+      não mostrou nada. Diagnosticado por `logcat`: a Google tentava
+      mesmo entregar (`broadcast intent callback: result=CANCELLED
+      forIntent { act=com.google.android.c2dm... }`), mas `force-stop`
+      marca o pacote como "parado" — um estado que bloqueia **qualquer**
+      broadcast, incluindo o do FCM, até o utilizador reabrir a app à
+      mão; não tem que ver com o Q5, é um artefacto do método de teste.
+      Corrigido o teste (matar o processo a sério — Recentes, arrastar o
+      cartão para fora — em vez de forçar parar), apareceu uma segunda
+      causa, esta real: `Fcm::enviar` não marcava a mensagem como
+      prioritária. Sem `"android":{"priority":"high"}` a Google entrega
+      "quando lhe convier" a um processo em segundo plano — pode adiar,
+      o oposto do "acorda agora" que a mensagem de dados existe para
+      fazer. Corrigido em `fcm.rs`.
+
+      **Confirmado a sério no tablet, não só em `cargo check`** (regra 3):
+      processo morto pelo gesto real (Recentes, cartão arrastado para
+      fora, confirmado morto por `dumpsys`); relay do Pi reconstruído e
+      reiniciado com a correção; `Fcm::enviar` chamado a sério com o
+      token real da tablet e a credencial real. A notificação apareceu
+      ("Pombo-Correio — Chegou um ficheiro novo — Agora mesmo"), o canal
+      `pombo_push` foi criado sozinho, e o **processo voltou a arrancar
+      sozinho** por causa da entrega — exatamente o que o F-12 pedia.
+      **Por confirmar:** tocar na notificação abre a `MainActivity` — a
+      ligação USB à tablet caiu a meio da verificação (o `lsusb` deixou
+      de ver o aparelho, nada a ver com o código) antes de chegar a esse
+      passo. É `PendingIntent.getActivity` com `FLAG_ACTIVITY_NEW_TASK`,
+      API padrão sem lógica nova nossa — risco baixo, mas fica escrito
+      como não confirmado em vez de dado como certo. **T2 fechado** quanto
+      ao que foi mesmo provado.
 - [ ] **T3 — Autorização automática pelo link de pareamento (Review3
       F-14).** O desenho já existe, escrito em "Ideias por implementar" →
       "Autorização automática pelo link de pareamento" — esta fase é
