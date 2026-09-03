@@ -116,7 +116,14 @@ impl Fcm {
         let Ok(acesso) = self.access_token(cliente).await else { return Resultado::Falhou };
 
         let url = format!("https://fcm.googleapis.com/v1/projects/{}/messages:send", self.conta.project_id);
-        let corpo = serde_json::json!({ "message": { "token": token, "data": {} } });
+        // Sem `priority: "high"` a Google entrega como lhe convier — pode
+        // adiar minutos a um processo em segundo plano, o oposto do "acorda
+        // agora" que a mensagem de dados existe para fazer (achado a testar
+        // a sério no tablet, S10 T2: sem isto o `onMessageReceived` nunca
+        // chegou a correr com a app em segundo plano).
+        let corpo = serde_json::json!({
+            "message": { "token": token, "data": {}, "android": { "priority": "high" } }
+        });
 
         match cliente.post(url).bearer_auth(acesso).json(&corpo).send().await {
             Ok(r) if r.status() == reqwest::StatusCode::NOT_FOUND => Resultado::Morto,

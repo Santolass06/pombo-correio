@@ -1,14 +1,23 @@
 package pt.pombo.correio
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import com.google.firebase.messaging.FirebaseMessaging
 
 class MainActivity : TauriActivity() {
+  // Registado como propriedade, antes do onCreate correr — é o que a API de
+  // Activity Result exige (falha se for chamado depois de a atividade ficar
+  // STARTED).
+  private val pedirNotificacoes = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+
   override fun onCreate(savedInstanceState: Bundle?) {
     // Antes do super.onCreate (que arranca o Rust), para o ficheiro já lá estar
     // quando a interface montar e o for pedir.
@@ -37,6 +46,17 @@ class MainActivity : TauriActivity() {
       startForegroundService(servico)
     } else {
       startService(servico)
+    }
+
+    // Sem isto, a notificação do `FcmService` (Review3 F-12) nunca aparece
+    // no Android 13+ — o `POST_NOTIFICATIONS` do manifesto só declara a
+    // permissão, não a concede; sem pedido em runtime fica sempre negada.
+    // Nada a fazer se recusar: a app continua a funcionar, só sem aviso.
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+      ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+        PackageManager.PERMISSION_GRANTED
+    ) {
+      pedirNotificacoes.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     // Q5: pede o token FCM a cada arranque, não só no `onNewToken` do
