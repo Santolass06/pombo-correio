@@ -1525,7 +1525,45 @@ está no repositório e nas máquinas de casa:
       autorizada, o próprio Chromium enviou um ficheiro real através da
       interface ("Enviar ficheiro" → seletor do sistema) para quem criou o
       link — `POST /deposito` teria dado 403 sem o convite; a `Ficha` do
-      depósito criado confirma `"de":"3b6db6b307e6dce5"`. **T3 fechado.**
+      depósito criado confirma `"de":"3b6db6b307e6dce5"`.
+
+      **Achado a rever a primeira versão, antes de fechar — não hipotético,
+      um furo a sério:** nada consumia o convite. O mesmo `id` de link
+      autorizava qualquer número de identidades novas, não só a primeira —
+      e um link é feito precisamente para ser reencaminhado ("quem tiver
+      este endereço abre o ficheiro", diz a própria interface). Um único
+      link WhatsApp-partilhado teria autorizado um número sem limite de
+      dispositivos no relay público, sem limite de débito nenhum a
+      travar (`/convite` não está em `rotas_publicas()`) — a mesma forma
+      do F-11 que o T1 corrigiu: uma superfície de escrita exposta com uma
+      certeza desatualizada por trás ("o segredo do link só chega a quem
+      o André mandou" deixou de ser verdade assim que se pensou nisso a
+      sério). Corrigido com `Deposito::consumir_convite` — apaga o `de` da
+      ficha depois de autorizar, a próxima tentativa cai no mesmo 403 de
+      "sem criador registado" que já existia para links anteriores ao T3.
+      Duas outras correções na mesma revisão: `/convite` passou a exigir
+      `ficha.para == CAIXA_LIGACAO` (só links contam — sem isto, o
+      destinatário de um depósito normal, aprendido por `/caixa` sem
+      assinatura nenhuma, autorizava-se sozinho por reciprocidade, a
+      funcionalidade que o desenho original decidiu explicitamente não
+      construir); e `Autorizados::autorizar` passou a escrever no disco
+      **antes** de confirmar em memória, com reversão se a escrita falhar
+      — a ordem inversa deixava uma autorização válida só em RAM até o
+      relay reiniciar, e depois 403 sem explicação nenhuma.
+
+      **Reverificado a sério depois da correção, o mesmo tipo de prova:**
+      duas identidades diferentes (uma a seguir à outra, `localStorage`
+      limpo entre as duas para simular um segundo aparelho) tentaram o
+      mesmíssimo link. A primeira autorizou-se e enviou um ficheiro real.
+      A segunda **falhou visivelmente na própria interface** — não só um
+      403 de rede: "Error: o relay recusou o depósito: este relay não é
+      teu" — e a ficha do link em disco confirma `"de":""`, o convite
+      gasto. Mais dois testes de integração (`o_mesmo_link_nao_convida_
+      duas_identidades_diferentes`,
+      `um_deposito_normal_nao_serve_de_convite_so_por_ter_um_remetente_
+      autorizado`), 69/69 no relay, `cargo clippy -p pombo-correio-relay
+      -p pombo-correio-rede -p pombo-correio-core -p pombo-correio
+      --all-targets` limpo. **T3 fechado.**
 
 **Deliberadamente fora do S10** — vistas as duas sugestões da Review3 que
 sobram (F-13, retoma de upload na PWA; exploração de WebRTC/hole-punching):

@@ -15,7 +15,7 @@ use pombo_correio_core::{
     chunk::Manifest,
     crypto::{Envelope, SEAL_OVERHEAD, TransferKey, open_manifest, seal_manifest},
     identity::{Identity, PublicIdentity},
-    protocolo::mensagem_assinada,
+    protocolo::{CAIXA_LIGACAO, mensagem_assinada},
 };
 use tokio::io::AsyncSeekExt;
 
@@ -153,12 +153,9 @@ struct EstadoDeposito {
 /// problema não é uma falha passageira.
 const TENTATIVAS: u32 = 3;
 
-/// A palavra que ocupa o lugar da impressão digital num depósito por link.
-///
-/// A caixa compara por igualdade exata contra impressões de 16 dígitos
-/// hexadecimais, e esta palavra não é uma — por isso um depósito por link nunca
-/// aparece na caixa de ninguém, sem o relay precisar de saber que existem links.
-const CAIXA_LIGACAO: &str = "ligacao";
+// `CAIXA_LIGACAO`: a palavra que ocupa o lugar da impressão digital num
+// depósito por link — em `core::protocolo` desde o S10 T3, que passou a
+// precisar dela também para distinguir um link de um depósito normal.
 
 /// Deixa um ficheiro no relay, à espera de quem o vai buscar.
 #[allow(clippy::too_many_arguments)]

@@ -319,16 +319,32 @@ struct Convite {
     id: String,
 }
 
-/// Autoriza quem pede, se souber o `id` de um depósito criado por alguém já
-/// autorizado (S10 T3, Review3 F-14) — normalmente um link de pareamento
-/// (`criarLigacao`/`criarLigacaoWeb`): abri-lo já ensina a identidade de quem
-/// o criou (P5); se essa pessoa já é de casa, quem abre merece a mesma
-/// confiança, sem o André copiar impressões à mão.
+/// Autoriza quem pede, se souber o `id` de um **link** criado por alguém já
+/// autorizado (S10 T3, Review3 F-14) — abri-lo já ensina a identidade de
+/// quem o criou (P5); se essa pessoa já é de casa, quem abre merece a
+/// mesma confiança, sem o André copiar impressões à mão.
 ///
 /// Assinado com `extra=id`, não só a ação — sem isso, uma assinatura apanhada
 /// a convidar-se para um `id` serviria para se convidar por outro qualquer.
 /// A prova é sempre da **própria** impressão de quem assina: não há como
 /// pedir a autorização de outra pessoa por este caminho.
+///
+/// **Só serve para links** (`ficha.para == CAIXA_LIGACAO`), não para
+/// qualquer depósito: sem esta condição, quem recebesse um depósito normal
+/// (o `id` aprende-se por `/caixa`, sem precisar de assinatura nenhuma)
+/// autorizava-se sozinho só por ter sido o destinatário de alguém de casa —
+/// a reciprocidade que o desenho original (PLANO.md) decidiu **não**
+/// construir, por falta de um mecanismo de prova pensado para esse caso.
+///
+/// **Um convite serve uma vez.** Achado a rever isto, não hipotético: um
+/// link é feito para ser reencaminhado (é a frase que a própria interface
+/// mostra — "quem tiver este endereço abre o ficheiro"), por isso o
+/// segredo de 128 bits sozinho não limita quantas identidades novas se
+/// autorizam com o mesmo `id`; sem consumir o convite, um único link
+/// WhatsApp-partilhado autorizava um número sem limite de dispositivos no
+/// relay público. `consumir_convite` apaga o `de` da ficha a seguir a
+/// autorizar — a próxima tentativa cai no mesmo 403 de "sem criador
+/// registado" que já existia para links anteriores ao T3.
 async fn convidar(
     State(e): State<Arc<Estado>>,
     cabecalhos: HeaderMap,
@@ -343,13 +359,20 @@ async fn convidar(
     }
 
     let ficha = e.deposito.ficha(&corpo.id).await.map_err(|x| mau(StatusCode::NOT_FOUND, x))?;
-    if ficha.de.is_empty() || !e.autorizados.deixa(&ficha.de) {
+    if ficha.para != pombo_correio_core::protocolo::CAIXA_LIGACAO
+        || ficha.de.is_empty()
+        || !e.autorizados.deixa(&ficha.de)
+    {
         return Err(mau(StatusCode::FORBIDDEN, "este link não serve de convite"));
     }
 
     e.autorizados
         .autorizar(&prova.impressao)
         .map_err(|x| mau(StatusCode::INTERNAL_SERVER_ERROR, x))?;
+    // Melhor esforço: se isto falhar, o pior caso é o link continuar a
+    // valer como convite — não vale a pena desfazer a autorização já
+    // concedida por causa disso.
+    let _ = e.deposito.consumir_convite(&corpo.id).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

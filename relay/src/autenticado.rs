@@ -151,11 +151,22 @@ impl Autorizados {
                 return Ok(()); // já lá estava — nada a escrever de novo
             }
         }
+
         use std::io::Write;
-        writeln!(
-            std::fs::OpenOptions::new().append(true).create(true).open(caminho)?,
-            "{impressao} # autorizado automaticamente por convite"
-        )
+        let escrita = (|| -> std::io::Result<()> {
+            writeln!(
+                std::fs::OpenOptions::new().append(true).create(true).open(caminho)?,
+                "{impressao} # autorizado automaticamente por convite"
+            )
+        })();
+
+        // Sem isto, uma escrita falhada (disco cheio) deixava a autorização
+        // só em memória — válida até o relay reiniciar, e depois 403 sem
+        // explicação nenhuma, porque o ficheiro nunca a teve.
+        if escrita.is_err() {
+            lista.write().unwrap().remove(&impressao);
+        }
+        escrita
     }
 }
 

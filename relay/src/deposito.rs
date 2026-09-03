@@ -135,6 +135,23 @@ impl Deposito {
         Ok(serde_json::from_slice(&bruto)?)
     }
 
+    /// Apaga o `de` da ficha depois de o convite ser resgatado (S10 T3).
+    ///
+    /// Sem isto, o mesmo `id` de link autorizava qualquer número de
+    /// identidades novas, não só a primeira a chegar — um link é feito
+    /// para ser reencaminhado (é a frase que a própria interface mostra:
+    /// "Quem tiver este endereço abre o ficheiro"), por isso o segredo de
+    /// 128 bits sozinho não limita quantas vezes serve de convite; só
+    /// consumir o `de` limita. Falhar aqui (disco cheio, `id` apagado
+    /// entretanto) não desfaz a autorização já concedida — o pior caso é
+    /// o mesmo link continuar a valer como convite, não a app parar.
+    pub async fn consumir_convite(&self, id: &str) -> Result<()> {
+        let mut ficha = self.ficha(id).await?;
+        ficha.de.clear();
+        tokio::fs::write(self.ficha_em(id), serde_json::to_vec(&ficha)?).await?;
+        Ok(())
+    }
+
     /// Quantos bytes selados já cá estão.
     pub async fn bytes(&self, id: &str) -> u64 {
         tokio::fs::metadata(self.blocos_em(id)).await.map(|m| m.len()).unwrap_or(0)

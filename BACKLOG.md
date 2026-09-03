@@ -2050,6 +2050,35 @@ um ficheiro real pela interface para quem criou o link — `POST /deposito`
 teria dado 403 sem o convite; a `Ficha` do depósito criado confirma o `de`
 certo.
 
+**O furo que a primeira versão tinha, apanhado antes de fechar a fase, não
+depois:** nada consumia o convite. O mesmo `id` de link autorizava
+qualquer número de identidades diferentes, não só a primeira — e um link
+existe precisamente para ser reencaminhado, a própria interface diz isso
+("quem tiver este endereço abre o ficheiro"). Sem limitador de débito em
+`/convite` (não está em `rotas_publicas()`), o custo de tentar é gerar um
+par Ed25519, microssegundos. A frase que justificava a segurança do
+desenho ("o segredo do link só chega a quem o André mandou") confundia
+*ler* com *escrever*: o link foi desenhado para a leitura ser livre a
+quem o receber — nunca foi pensado como um limite de quantas vezes serve
+de prova de convite, porque essa pergunta só apareceu quando o convite
+passou a *autorizar escrita no relay público*. É a mesma forma do F-11
+que o T1 corrigiu nesta sprint: uma superfície de escrita exposta,
+com uma certeza escrita antes de a superfície existir e nunca revista
+depois. Corrigido com `Deposito::consumir_convite` (apaga o `de` da
+ficha depois de autorizar) mais duas correções menores apanhadas na
+mesma revisão: `/convite` restrito a links (`ficha.para ==
+CAIXA_LIGACAO`, movida para `core::protocolo` para os dois lados
+concordarem) — sem isto, o destinatário de um depósito normal
+autorizava-se por reciprocidade, a funcionalidade que o desenho original
+decidira não construir; e `Autorizados::autorizar` a escrever em disco
+antes de confirmar em memória, com reversão se a escrita falhar.
+
+Reverificado com o mesmo tipo de prova, não com testes de unidade
+sozinhos: duas identidades diferentes a tentar o mesmo link, uma a
+seguir à outra. A segunda falhou **visivelmente na interface** ("Error:
+o relay recusou o depósito: este relay não é teu"), não só num código de
+estado que só quem olhasse para a rede veria.
+
 ### O resumo
 
 Nenhum dos três achados era criptográfico, mas dois (T1, T2) eram bugs de

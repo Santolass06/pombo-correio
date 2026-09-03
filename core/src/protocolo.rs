@@ -52,6 +52,15 @@ pub fn mensagem_assinada(acao: &str, impressao: &str, extra: &str, instante: u64
     format!("pombo-{acao}-v1|{impressao}|{extra}|{instante}")
 }
 
+/// O `para` que marca um depósito como link sem instalação, em vez de
+/// endereçado a uma impressão digital concreta (S7 R5).
+///
+/// Vivia só em `rede::relay` (quem cria); o relay (S10 T3, `POST /convite`)
+/// passou a precisar de o comparar também, para distinguir um link de um
+/// depósito normal — outra cópia de uma constante que os dois lados têm de
+/// concordar, pela mesma razão do `mensagem_assinada` acima.
+pub const CAIXA_LIGACAO: &str = "ligacao";
+
 /// O `serde` não trata arrays de 64 por omissão; passa por Vec na fronteira.
 mod sig {
     use serde::{Deserialize, Deserializer, Serializer};

@@ -435,7 +435,7 @@ mod convite {
         let (base, _d) = relay_com_lista("convite-ok", &de_casa).await;
 
         // O link é só mais um depósito, criado por quem já é de casa.
-        let id = criar_como(&de_casa, &base, "CAIXA_LIGACAO", 10, "{}").await.unwrap();
+        let id = criar_como(&de_casa, &base, "ligacao", 10, "{}").await.unwrap();
 
         let novo = Identity::generate("telemóvel novo");
         // Antes do convite, o dispositivo novo ainda não consegue depositar.
@@ -449,6 +449,43 @@ mod convite {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn o_mesmo_link_nao_convida_duas_identidades_diferentes() {
+        // Achado a rever a sério (não hipotético): um link é feito para
+        // ser reencaminhado ("quem tiver este endereço abre o ficheiro"),
+        // por isso sem consumir o convite, um único link WhatsApp-
+        // -partilhado autorizava um número sem limite de dispositivos.
+        let de_casa = Identity::generate("de casa");
+        let (base, _d) = relay_com_lista("convite-uma-so-vez", &de_casa).await;
+        let id = criar_como(&de_casa, &base, "ligacao", 10, "{}").await.unwrap();
+
+        let primeiro = Identity::generate("primeiro telemóvel novo");
+        assert_eq!(convidar_como(&primeiro, &base, &id).await, reqwest::StatusCode::NO_CONTENT);
+        assert!(criar_como(&primeiro, &base, "abc", 10, "{}").await.is_some());
+
+        // Uma segunda identidade, diferente, a tentar o mesmíssimo `id`:
+        // o convite já foi gasto, não serve de convite outra vez.
+        let segundo = Identity::generate("segundo telemóvel, não devia entrar");
+        assert_eq!(convidar_como(&segundo, &base, &id).await, reqwest::StatusCode::FORBIDDEN);
+        assert!(criar_como(&segundo, &base, "abc", 10, "{}").await.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn um_deposito_normal_nao_serve_de_convite_so_por_ter_um_remetente_autorizado() {
+        // `/convite` só serve para links (`para == "ligacao"`). Sem esta
+        // condição, quem recebesse um depósito normal — o `id` aprende-se
+        // por `/caixa`, sem precisar de assinatura nenhuma — autorizava-se
+        // sozinho só por ter sido o destinatário de alguém de casa: a
+        // reciprocidade que o desenho (PLANO.md) decidiu não construir.
+        let de_casa = Identity::generate("de casa");
+        let (base, _d) = relay_com_lista("convite-nao-e-link", &de_casa).await;
+        let destinatario = Identity::generate("quem recebeu, não devia autorizar-se");
+        let id = criar_como(&de_casa, &base, &impressao_de(&destinatario), 10, "{}").await.unwrap();
+
+        assert_eq!(convidar_como(&destinatario, &base, &id).await, reqwest::StatusCode::FORBIDDEN);
+        assert!(criar_como(&destinatario, &base, "abc", 10, "{}").await.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn um_link_sem_criador_registado_nao_serve_de_convite() {
         // Não há forma de criar um depósito sem já estar autorizado — mas um
         // depósito gravado antes do T3 (sem `de`) tem de se comportar da
@@ -456,10 +493,10 @@ mod convite {
         let de_casa = Identity::generate("de casa");
         let (base, dir) = relay_com_lista("convite-velho", &de_casa).await;
 
-        let id = criar_como(&de_casa, &base, "CAIXA_LIGACAO", 10, "{}").await.unwrap();
+        let id = criar_como(&de_casa, &base, "ligacao", 10, "{}").await.unwrap();
         // Reescreve a ficha em disco como se fosse de antes do T3 (sem "de").
         let ficha = dir.0.join(format!("{id}.json"));
-        std::fs::write(&ficha, r#"{"para":"CAIXA_LIGACAO","tamanho":10,"criado":0,"oferta":"{}"}"#).unwrap();
+        std::fs::write(&ficha, r#"{"para":"ligacao","tamanho":10,"criado":0,"oferta":"{}"}"#).unwrap();
 
         let novo = Identity::generate("telemóvel novo");
         assert_eq!(convidar_como(&novo, &base, &id).await, reqwest::StatusCode::FORBIDDEN);
@@ -480,7 +517,7 @@ mod convite {
     async fn convite_sem_assinatura_nao_da() {
         let de_casa = Identity::generate("de casa");
         let (base, _d) = relay_com_lista("convite-nu", &de_casa).await;
-        let id = criar_como(&de_casa, &base, "CAIXA_LIGACAO", 10, "{}").await.unwrap();
+        let id = criar_como(&de_casa, &base, "ligacao", 10, "{}").await.unwrap();
 
         let r = reqwest::Client::new()
             .post(format!("{base}/convite"))
