@@ -1952,3 +1952,108 @@ assumir que é o mesmo mistério de sempre — desta vez tinha nome e PID.
 5. Limpo depois: a entrada de teste apagada do `subscricoes.json` do Pi.
 
 Com isto, **Q5 fechado — Sprint 9 completo.**
+
+## S10 — Fechar o que a Review3 encontrou
+
+Nasce inteiro da `audit/Review3.md` (02/09/2026), a auditoria externa ao S9
+completo — "aprovado com recomendações", sem achado criptográfico, mas com
+um bug de produção a sério (F-11) que já estava exposto ao público quando a
+auditoria o encontrou.
+
+### T1 — O limitador de débito que já não limitava nada
+
+O comentário no código dizia "não há proxy nenhum entre o cliente e o
+relay, nem aqui nem depois do Q4" — verdade quando foi escrito, no Q3,
+**antes** do Q4 pôr um `nginx` a terminar TLS e a reencaminhar para
+`127.0.0.1:53319`. Ninguém voltou a essa frase depois do Q4 fechar, e o
+`PeerIpKeyExtractor` passou a ver `127.0.0.1` em todo o tráfego público —
+um só balde de 5 pedidos de rajada para toda a gente que batesse em
+`pombo-correio.duckdns.org`. A auditoria apanhou-o a ler o código, não a
+explorar o relay a sério — mas o furo já lá estava, real, à espera de um
+scanner qualquer.
+
+A correção óbvia (`SmartIpKeyExtractor`, confiar em `X-Real-IP`) tinha o
+seu próprio furo: a porta 53319 continua **também** encaminhada a direito
+pelo router, sem passar pelo `nginx` — um extrator que confiasse sempre no
+cabeçalho deixava forjá-lo ali e fugir ao limite de graça. A própria
+documentação do `tower_governor` avisa disto no `SmartIpKeyExtractor` (lido
+o código-fonte da crate antes de escrever a correção, não só a assinatura).
+Resolvido com um `KeyExtractor` próprio: só confia no cabeçalho quando o
+IP do socket é mesmo o `127.0.0.1` do `nginx` local.
+
+**Verificado a sério no Pi, não só em unidade:** uma rajada de 6 pedidos a
+`/saude` a partir do A10 (pelo hostname público, através do `nginx`) levou
+429 ao 6º; **na mesma janela**, o próprio Pi a pedir-se a si mesmo pelo
+mesmo hostname (IP diferente do socket) continuou a receber 200. Antes da
+correção os dois caíam no mesmo balde.
+
+### T2 — A notificação que nunca chegava, e duas causas atrás dela
+
+O `FcmService.onMessageReceived` estava vazio, com um comentário a dizer
+que o sistema tratava do resto sozinho. Não trata: o Android acorda o
+processo para entregar a mensagem, mas **não** arranca a `MainActivity`
+nem o `RecetorService` — só entrega-a ali, e um método vazio deixa o
+processo morrer logo a seguir, sem rasto. O Q5 inteiro ficava sem servir o
+caso para que existia.
+
+A primeira tentativa de prova (matar o processo com `adb shell am
+force-stop`) não mostrou nada, e a causa aparente estava errada: o
+`logcat` revelou que a Google tentava mesmo entregar
+(`result=CANCELLED`), mas `force-stop` marca o pacote como "parado" — um
+estado que bloqueia **qualquer** broadcast até o utilizador reabrir a app
+à mão, nada a ver com o Q5 nem com esta correção. Só depois de matar o
+processo do jeito certo (Recentes, arrastar o cartão para fora — a forma
+como isto acontece a sério) é que apareceu a causa verdadeira: `Fcm::enviar`
+não marcava a mensagem como prioritária. Sem `"android":{"priority":"high"}`
+a Google entrega "quando lhe convier" a um processo em segundo plano —
+podia adiar minutos, o oposto de "acorda agora". Lição a repetir: quando um
+teste "não mostra nada", o primeiro suspeito é o próprio método de teste,
+não o código.
+
+**Confirmado a sério no tablet:** processo morto pelo gesto real,
+confirmado morto por `dumpsys`; `Fcm::enviar` chamado a sério com o token e
+a credencial reais; a notificação apareceu ("Chegou um ficheiro novo"), o
+canal `pombo_push` foi criado sozinho, e o **processo voltou a arrancar
+sozinho** por causa da entrega. Por confirmar apenas: tocar na notificação
+abre a `MainActivity` — a tablet perdeu a ligação USB a meio da
+verificação (o `lsusb` deixou de a ver, nada a ver com o código); é
+`PendingIntent.getActivity` padrão, sem lógica nova, por isso ficou escrito
+como não confirmado em vez de assumido.
+
+### T3 — O convite que o link já trazia, só faltava alguém o ler
+
+A ideia já estava escrita desde o Q4 ("Autorização automática pelo link de
+pareamento", em "Ideias por implementar"), mas só ao abrir a fase a sério
+(regra 8) é que apareceu a peça que faltava: o relay nunca guardava quem
+criava um depósito, só para quem era (`Ficha.para`). Sem isso, não havia
+como um link "provar" que tinha sido criado por alguém de casa. `Ficha`
+ganhou `de`, e uma rota nova (`POST /convite`) autoriza quem pede se o
+criador do link apontado já estiver autorizado — verificado **no momento
+do pedido**, não em quando o link foi criado, para uma revogação continuar
+a valer.
+
+Decisão consciente de âmbito: só o caminho do link (PWA), não o da
+tablet/desktop (que se emparelham por QR/número de segurança, sem link
+nenhum envolvido — precisava de um mecanismo de prova diferente, sem
+desenho nenhum ainda escrito). Ficou como ideia nova, à parte.
+
+**A prova mais forte desta fase, e a mais trabalhosa de montar:** não bastava
+o `POST /convite` devolver 204. Com Playwright a sério (não simulado):
+`pombo-relay` real com um `--autorizados` de uma só impressão; `pombo
+ligacao` nativo (identidade já autorizada) a criar um link a sério; esse
+link aberto num Chromium a sério, que aprendeu o criador e o `id` do
+convite; navegar para `/` no mesmo browser gerou uma identidade nova e
+resgatou o convite sozinho — o `autorizados.txt` em disco ganhou a linha
+nova sem o André tocar em nada. E, para provar que a autorização
+**funciona** a sério e não só responde 204: a mesma identidade nova enviou
+um ficheiro real pela interface para quem criou o link — `POST /deposito`
+teria dado 403 sem o convite; a `Ficha` do depósito criado confirma o `de`
+certo.
+
+### O resumo
+
+Nenhum dos três achados era criptográfico, mas dois (T1, T2) eram bugs de
+produção a sério — um já explorável, o outro a esvaziar silenciosamente o
+Q5 inteiro. **S10 fechado** — Sprint 9 e 10 completos, com a Review3
+totalmente endereçada (F-13 e o WebRTC ficaram de fora por decisão, sem
+dor nenhuma hoje que os justifique).
