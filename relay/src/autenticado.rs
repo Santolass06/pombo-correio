@@ -94,33 +94,68 @@ pub fn verificar(
 /// coisa a ver connosco: gerar um par novo custa microssegundos. Sem esta lista,
 /// qualquer um na internet enchia o disco de casa. Um ficheiro de texto com uma
 /// impressão digital por linha chega e sobra; é pequeno, muda quando entra um
-/// aparelho novo, e copia-se para os dois nós à mão.
+/// aparelho novo, e copia-se para os dois nós à mão — ou, desde o S10 T3, sozinho
+/// por convite (`POST /convite`).
+///
+/// `RwLock`, não `tokio::sync::Mutex`: `deixa()` é chamado de código síncrono
+/// nos dois handlers que já existiam, e passar isso a `async` só por causa de
+/// `autorizar()` — uma escrita rara, só no convite — espalhava `.await` sem
+/// necessidade nenhuma.
 #[derive(Default)]
-pub struct Autorizados(Option<std::collections::HashSet<String>>);
+pub struct Autorizados {
+    lista: Option<std::sync::RwLock<std::collections::HashSet<String>>>,
+    /// Onde persistir uma adição automática. `None` em modo aberto (nada a
+    /// escrever, tudo já é permitido) — nunca `None` quando `lista` é `Some`.
+    caminho: Option<std::path::PathBuf>,
+}
 
 impl Autorizados {
     /// Sem ficheiro, aceita-se qualquer identidade válida. É o que serve para
     /// correr na rede de casa, onde ninguém de fora chega.
     pub fn abertos() -> Self {
-        Self(None)
+        Self { lista: None, caminho: None }
     }
 
     pub fn do_ficheiro(caminho: &std::path::Path) -> anyhow::Result<Self> {
         let texto = std::fs::read_to_string(caminho)?;
-        Ok(Self(Some(
-            texto
-                .lines()
-                .map(|l| l.split('#').next().unwrap_or("").trim().to_lowercase())
-                .filter(|l| !l.is_empty())
-                .collect(),
-        )))
+        let lista = texto
+            .lines()
+            .map(|l| l.split('#').next().unwrap_or("").trim().to_lowercase())
+            .filter(|l| !l.is_empty())
+            .collect();
+        Ok(Self {
+            lista: Some(std::sync::RwLock::new(lista)),
+            caminho: Some(caminho.to_path_buf()),
+        })
     }
 
     pub fn deixa(&self, impressao: &str) -> bool {
-        match &self.0 {
-            Some(lista) => lista.contains(&impressao.to_lowercase()),
+        match &self.lista {
+            Some(lista) => lista.read().unwrap().contains(&impressao.to_lowercase()),
             None => true,
         }
+    }
+
+    /// Acrescenta `impressao` à lista, em memória e no ficheiro em disco — sem
+    /// a segunda parte, um reinício do relay esquecia quem foi autorizado a
+    /// meio (S10 T3), e o dispositivo voltava a levar 403 do nada. Em modo
+    /// aberto não há nada a fazer: tudo já é permitido.
+    pub fn autorizar(&self, impressao: &str) -> std::io::Result<()> {
+        let (Some(lista), Some(caminho)) = (&self.lista, &self.caminho) else {
+            return Ok(());
+        };
+        let impressao = impressao.to_lowercase();
+        {
+            let mut lista = lista.write().unwrap();
+            if !lista.insert(impressao.clone()) {
+                return Ok(()); // já lá estava — nada a escrever de novo
+            }
+        }
+        use std::io::Write;
+        writeln!(
+            std::fs::OpenOptions::new().append(true).create(true).open(caminho)?,
+            "{impressao} # autorizado automaticamente por convite"
+        )
     }
 }
 
@@ -216,5 +251,43 @@ mod testes {
         assert!(!a.deixa("0000000000000000"));
         assert!(Autorizados::abertos().deixa("0000000000000000"));
         std::fs::remove_file(&d).unwrap();
+    }
+
+    #[test]
+    fn autorizar_entra_em_memoria_e_sobrevive_a_reler_o_ficheiro() {
+        // Sem a escrita a sério em disco, um reinício do relay esquecia quem
+        // foi autorizado a meio (S10 T3) — o próprio motivo de existir do
+        // método, não só o efeito em memória.
+        let d = std::env::temp_dir().join(format!("pombo-aut-autorizar-{}", std::process::id()));
+        std::fs::write(&d, "ab12cd34ef567890 # tablet\n").unwrap();
+        let a = Autorizados::do_ficheiro(&d).unwrap();
+        assert!(!a.deixa("1111111111111111"));
+
+        a.autorizar("1111111111111111").unwrap();
+        assert!(a.deixa("1111111111111111"));
+
+        let relido = Autorizados::do_ficheiro(&d).unwrap();
+        assert!(relido.deixa("1111111111111111"));
+        assert!(relido.deixa("ab12cd34ef567890"), "não pode ter apagado quem já lá estava");
+        std::fs::remove_file(&d).unwrap();
+    }
+
+    #[test]
+    fn autorizar_duas_vezes_nao_duplica_a_linha() {
+        let d = std::env::temp_dir().join(format!("pombo-aut-dup-{}", std::process::id()));
+        std::fs::write(&d, "").unwrap();
+        let a = Autorizados::do_ficheiro(&d).unwrap();
+        a.autorizar("2222222222222222").unwrap();
+        a.autorizar("2222222222222222").unwrap();
+        let texto = std::fs::read_to_string(&d).unwrap();
+        assert_eq!(texto.matches("2222222222222222").count(), 1);
+        std::fs::remove_file(&d).unwrap();
+    }
+
+    #[test]
+    fn autorizar_em_modo_aberto_nao_escreve_nada() {
+        // Sem ficheiro, tudo já é permitido — não há onde persistir, e não
+        // faz falta.
+        Autorizados::abertos().autorizar("qualquer").unwrap();
     }
 }

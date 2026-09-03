@@ -404,7 +404,7 @@ parte para não entrar disfarçado de screen sharing.
 - [ ] **S7 — Relay e link sem instalação**
 - [x] **S8 — PWA iOS** (as seis fases construídas; P1/P2/P5/P3/P6 provados no iPhone real; P4 provado contra o Chrome/FCM a sério, falta confirmar a entrega da Apple)
 - [x] **S9 — Distribuição e exposição pública** (Q1 a Q5 feitos e verificados de ponta a ponta — musl, retoma de descarga, limitador de débito, DDNS pública, push FCM Android)
-- [ ] **S10 — Fechar o que a Review3 encontrou** (T1 corrige um limitador de débito que já não limita nada a sério; T2 e T3 tornam o Q4/Q5 úteis a sério, não só entregues)
+- [x] **S10 — Fechar o que a Review3 encontrou** (T1, T2 e T3 feitos e verificados de ponta a ponta — limitador de débito corrigido, notificação FCM a acordar a app, autorização automática por link de pareamento)
 
 ### S1 — Primitivas do núcleo ✅
 
@@ -1414,20 +1414,118 @@ está no repositório e nas máquinas de casa:
       API padrão sem lógica nova nossa — risco baixo, mas fica escrito
       como não confirmado em vez de dado como certo. **T2 fechado** quanto
       ao que foi mesmo provado.
-- [ ] **T3 — Autorização automática pelo link de pareamento (Review3
-      F-14).** O desenho já existe, escrito em "Ideias por implementar" →
-      "Autorização automática pelo link de pareamento" — esta fase é
-      promovê-lo de ideia a trabalho, não desenhá-lo de novo. Resta, ao
-      abrir esta fase a sério: `Autorizados` hoje é uma lista lida uma
-      vez no arranque (`autenticado.rs`); passar a aceitar adições em
-      execução pede mutabilidade interior (`Mutex` sobre o `HashSet`) e
-      persistir a adição de volta ao ficheiro em disco — sem isso, um
-      reinício do `pombo-relay` esquece quem foi autorizado a meio, e o
-      dispositivo volta a levar 403. A forma mais simples: acrescentar uma
-      linha ao mesmo `autorizados` que o André já edita à mão hoje, com um
-      comentário a dizer que foi automática e quando — o ficheiro continua
-      a ser a fonte de verdade, só passa a ter dois escritores em vez de
-      um.
+- [x] **T3 — Autorização automática pelo link de pareamento (Review3
+      F-14).** A ideia já estava escrita em "Ideias por implementar" →
+      "Autorização automática pelo link de pareamento" — mas só ao abrir
+      esta fase a sério (regra 8) é que o desenho ficou completo o
+      suficiente para codificar.
+
+      **Só o caminho do link, não o da tablet/desktop — por decisão, não
+      por esquecimento.** A dor descrita na ideia ("cada telemóvel novo
+      obriga a copiar a impressão à mão") também aconteceu no S9 Q4 para
+      a OnePlus Pad 2, mas por um caminho diferente (emparelhamento QR/
+      número de segurança, sem link nenhum envolvido) — resolver os dois
+      de vez pedia um segundo mecanismo de prova, sem desenho nenhum
+      ainda escrito para esse. Fica como ideia nova, à parte, não
+      construída aqui.
+
+      **Quem sabe hoje o quê, verificado no código, não assumido:**
+      `POST /deposito` (criar um depósito — inclui criar um link, que é só
+      um depósito com `para=CAIXA_LIGACAO`) já exige `--autorizados`;
+      `GET /caixa` e `GET /deposito/{id}` **não exigem** — só confirmam
+      que quem pergunta é dono da chave que diz ser. Ou seja: um
+      dispositivo novo já consegue *receber* sem estar autorizado (é como
+      isto sempre funcionou); só fica bloqueado quando tenta *enviar* pela
+      primeira vez. É exatamente aí, e só aí, que a autorização automática
+      faz falta.
+
+      **O que falta ligar, concretamente:** o relay hoje não sabe quem
+      criou um depósito — `Ficha` só guarda `para`. Sem isso, não há como
+      distinguir "este link foi criado por alguém de casa" de "este link
+      foi criado por outro estranho" (se algum dia um estranho conseguisse
+      criar um, o que hoje já não acontece por `--autorizados`, mas o
+      relay não teria como o provar depois). `Ficha` ganha `de: String`
+      (`#[serde(default)]` — a mesma lição do Q5, mas aqui nem é preciso: um
+      depósito expira em 7 dias, por isso não há um `subscricoes.json` de
+      longa vida a proteger, só a janela de trânsito de uma correção), a
+      preencher com `prova.impressao` em `criar()`.
+
+      **O convite em si:** rota nova, `POST /convite`, corpo `{"id"}`,
+      assinada (`acao="convite"`, `extra=id` — sem isso, uma assinatura
+      apanhada a convidar-se a si próprio serviria para convidar em nome
+      de outro `id`). Quem já está autorizado recebe 204 sem fazer nada —
+      o cliente chama isto sempre que abre um link, sem saber de antemão
+      se já está autorizado, por isso tem de ser inofensivo repetir.
+      Senão: vai buscar a `Ficha` do `id`; se `de` estiver vazio (link
+      anterior ao T3, ou de outro tipo de depósito) ou `de` não estiver
+      em `--autorizados` **neste preciso momento** (não em quando o link
+      foi criado — um convite feito por alguém entretanto removido da
+      lista deixa de valer, o comportamento certo para uma lista de
+      segurança), recusa com 403. Senão, autoriza quem pediu.
+
+      **Pré-mortem, uma linha:** se dois links forem abertos ao mesmo
+      tempo por pessoas diferentes, cada uma só pode assinar um convite
+      em *seu próprio* nome (`prova.impressao` vem da própria assinatura)
+      — nunca há como pedir a autorização de outra impressão digital, por
+      isso um link nunca vira forma de autorizar terceiros.
+
+      **`Autorizados` precisa de mutabilidade e persistência.** Hoje é um
+      `HashSet` lido uma vez no arranque. Passa a `RwLock<HashSet>` (não
+      `tokio::sync::Mutex` — `deixa()` é chamado em código síncrono, dos
+      dois handlers existentes, e trocar isso para `async` só para isto
+      espalhava `.await` sem necessidade) mais o caminho do ficheiro.
+      `autorizar()` novo: insere em memória e acrescenta uma linha ao
+      mesmo `--autorizados` que o André já edita à mão, com um comentário
+      a dizer que foi automático — o ficheiro continua a ser a fonte de
+      verdade, só ganha um segundo escritor. Sem persistência, um
+      reinício do relay esquecia quem foi autorizado a meio, e o
+      dispositivo voltava a levar 403 do nada.
+
+      **Limitação conhecida, aceite:** os dois nós de casa (A10 e Pi) têm
+      cada um o seu próprio `--autorizados`, sem réplica entre eles — o
+      mesmo que já era verdade antes desta fase (Q4 exigiu acrescentar a
+      impressão da tablet aos dois à mão). A PWA só fala com a própria
+      origem de qualquer forma (P5, `ponytail`: "um único relay, sem HA
+      do lado do emissor"), por isso `POST /convite` só precisa de correr
+      aí — não é uma lacuna nova que esta fase introduz.
+
+      **Do lado do cliente:** `pagina.js`, ao aprender quem criou um link
+      (`aprenderRemetente`, já existe), passa a guardar também o `id` do
+      link junto da entrada em `pombo-conhecidos` — é o único sítio onde
+      esse `id` e a existência de um convite por resgatar se cruzam.
+      `wasm-backend.ts`, em `obterIdentidade()` (chamado uma vez por
+      arranque da app, com a identidade já pronta para assinar), percorre
+      `pombo-conhecidos` à procura de convites por resgatar e chama
+      `POST /convite` para cada um, uma vez — sucesso ou falha, o campo
+      limpa-se a seguir: se falhou porque quem convidou já não está
+      autorizado, tentar de novo nunca ia resultar; se falhou por rede,
+      o pior caso é o dispositivo continuar a pedir autorização manual,
+      exatamente o que já acontecia antes desta fase.
+
+      **Feito e testado (regra 7):** `Ficha.de`, `Autorizados::autorizar`
+      (com persistência em disco) e a rota `POST /convite` — 7 testes
+      novos no relay (67/67 a passar, `cargo clippy -p pombo-correio-relay
+      --all-targets` limpo): o caminho feliz de ponta a ponta, um link sem
+      `de` (formato anterior ao T3) a ser recusado em vez de assumido
+      como válido, repetir o convite já autorizado sem mal nenhum, e sem
+      assinatura a dar 401. `npm run check` em `ui/` (0 erros) e `npm run
+      build` confirmam o lado do cliente (`pagina.js`, `wasm-backend.ts`)
+      sem regressão de tipos.
+
+      **Confirmado a sério, processos e browser reais, não só em unidade**
+      (regra 3): `pombo-relay` a sério com um `--autorizados` de uma só
+      impressão; `pombo ligacao` nativo (identidade já autorizada) a criar
+      um link real; esse link aberto num Chromium a sério (Playwright),
+      que aprendeu o criador e o `id` do convite em `pombo-conhecidos`;
+      navegar para `/` no mesmo browser (mesma origem) gerou uma
+      identidade nova e resgatou o convite sozinho — o `autorizados.txt`
+      em disco ganhou a linha `3b6db6b307e6dce5 # autorizado
+      automaticamente por convite` sem o André tocar em nada. **E a prova
+      completa a sério, não só o 204**: com a nova identidade já
+      autorizada, o próprio Chromium enviou um ficheiro real através da
+      interface ("Enviar ficheiro" → seletor do sistema) para quem criou o
+      link — `POST /deposito` teria dado 403 sem o convite; a `Ficha` do
+      depósito criado confirma `"de":"3b6db6b307e6dce5"`. **T3 fechado.**
 
 **Deliberadamente fora do S10** — vistas as duas sugestões da Review3 que
 sobram (F-13, retoma de upload na PWA; exploração de WebRTC/hole-punching):

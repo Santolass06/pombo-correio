@@ -98,7 +98,7 @@ async fn criar(
 
     let id = e
         .deposito
-        .criar(&q.para, q.tamanho, oferta)
+        .criar(&prova.impressao, &q.para, q.tamanho, oferta)
         .await
         .map_err(|x| mau(StatusCode::BAD_REQUEST, x))?;
     Ok(Json(Criado { id }))
@@ -314,6 +314,45 @@ async fn subscrever(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(Deserialize)]
+struct Convite {
+    id: String,
+}
+
+/// Autoriza quem pede, se souber o `id` de um depósito criado por alguém já
+/// autorizado (S10 T3, Review3 F-14) — normalmente um link de pareamento
+/// (`criarLigacao`/`criarLigacaoWeb`): abri-lo já ensina a identidade de quem
+/// o criou (P5); se essa pessoa já é de casa, quem abre merece a mesma
+/// confiança, sem o André copiar impressões à mão.
+///
+/// Assinado com `extra=id`, não só a ação — sem isso, uma assinatura apanhada
+/// a convidar-se para um `id` serviria para se convidar por outro qualquer.
+/// A prova é sempre da **própria** impressão de quem assina: não há como
+/// pedir a autorização de outra pessoa por este caminho.
+async fn convidar(
+    State(e): State<Arc<Estado>>,
+    cabecalhos: HeaderMap,
+    Json(corpo): Json<Convite>,
+) -> Result<StatusCode, Erro> {
+    let prova = autenticado::verificar(&cabecalhos, "convite", &corpo.id)?;
+
+    // Já autorizado: nada a fazer, mas não é erro — o cliente chama isto
+    // sempre que abre um link, sem saber de antemão se já está autorizado.
+    if e.autorizados.deixa(&prova.impressao) {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    let ficha = e.deposito.ficha(&corpo.id).await.map_err(|x| mau(StatusCode::NOT_FOUND, x))?;
+    if ficha.de.is_empty() || !e.autorizados.deixa(&ficha.de) {
+        return Err(mau(StatusCode::FORBIDDEN, "este link não serve de convite"));
+    }
+
+    e.autorizados
+        .autorizar(&prova.impressao)
+        .map_err(|x| mau(StatusCode::INTERNAL_SERVER_ERROR, x))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Recusa tudo o que não seja um nome de ficheiro nosso.
 ///
 /// Vem do URL e vai virar caminho em disco. Em vez de tentar limpar o que chega,
@@ -512,6 +551,7 @@ fn rotas(estado: Arc<Estado>) -> Router {
         .route("/deposito/{id}/blocos", get(descer))
         .route("/caixa", get(caixa))
         .route("/subscricao", post(subscrever))
+        .route("/convite", post(convidar))
         // O link sem instalação: o que a página precisa de carregar (o `/d/{id}`
         // em si já vai em `rotas_publicas`, com o limitador).
         .route("/pagina/{*caminho}", get(recurso_da_pagina))

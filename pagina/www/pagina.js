@@ -229,6 +229,12 @@ async function principal() {
  * primeiro dispositivo de casa a que pode depositar de volta, sem mDNS e
  * sem uma segunda cerimónia de confiança: só abrir um link já existente.
  *
+ * Guarda também o `id` deste depósito/link (S10 T3) — é a prova que a PWA,
+ * quando arrancar pela primeira vez nesta mesma origem, vai apresentar ao
+ * relay em `POST /convite` para se autorizar sozinha, sem o André copiar
+ * impressões à mão. Esta página não tem identidade própria (não gera nem
+ * assina nada) — só guarda o `id`; quem o resgata é o `wasm-backend.ts`.
+ *
  * Mesma chave e formato que `ui/src/lib/wasm-backend.ts` usa — os dois lados
  * não partilham módulo (são dois bundles servidos à parte), só o contrato.
  * Falhar aqui nunca impede a descarga: é só menos um dispositivo lembrado.
@@ -241,6 +247,7 @@ function aprenderRemetente(d) {
       nome: remetente.label,
       verifying: hex(remetente.verifying),
       encrypting: hex(remetente.encrypting),
+      convite: id,
     };
     localStorage.setItem('pombo-conhecidos', JSON.stringify(lista));
   } catch {

@@ -17,6 +17,14 @@ use serde::{Deserialize, Serialize};
 /// Ficha de um depósito: tudo o que o relay sabe, que é pouco de propósito.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ficha {
+    /// Impressão digital de quem criou o depósito — vazia nos depósitos
+    /// gravados antes do S10 T3 (`#[serde(default)]`; um depósito expira em
+    /// `VALIDADE`, por isso não há aqui uma janela de retrocompatibilidade de
+    /// longa vida a proteger, só o trânsito de uma correção). Serve só para a
+    /// autorização automática por convite (`POST /convite`): quem criou o
+    /// depósito tem de já estar autorizado para o link "valer" como convite.
+    #[serde(default)]
+    pub de: String,
     /// Impressão digital de quem vai buscar. Pública — é o que a rede local já
     /// anuncia — e serve só para a caixa. Não autentica nada.
     pub para: String,
@@ -102,13 +110,14 @@ impl Deposito {
     }
 
     /// Abre espaço para um depósito novo e devolve o seu identificador.
-    pub async fn criar(&self, para: &str, tamanho: u64, oferta: String) -> Result<String> {
+    pub async fn criar(&self, de: &str, para: &str, tamanho: u64, oferta: String) -> Result<String> {
         if tamanho == 0 || tamanho > TAMANHO_MAX {
             bail!("tamanho fora do que este relay aceita");
         }
 
         let id = novo_id();
         let ficha = Ficha {
+            de: de.to_string(),
             para: para.to_string(),
             tamanho,
             criado: agora(),
@@ -253,8 +262,8 @@ mod testes {
         // O identificador é aleatório, não a raiz de Merkle: o mesmo ficheiro
         // para duas pessoas tem de dar dois depósitos.
         let d = Deposito::novo(temporaria("distintos")).unwrap();
-        let a = d.criar("aaa", 10, "{}".into()).await.unwrap();
-        let b = d.criar("bbb", 10, "{}".into()).await.unwrap();
+        let a = d.criar("quem", "aaa", 10, "{}".into()).await.unwrap();
+        let b = d.criar("quem", "bbb", 10, "{}".into()).await.unwrap();
         assert_ne!(a, b);
     }
 
@@ -267,7 +276,7 @@ mod testes {
         use tokio::io::AsyncWriteExt;
 
         let d = Deposito::novo(temporaria("truncar")).unwrap();
-        let id = d.criar("aaa", 100, "{}".into()).await.unwrap();
+        let id = d.criar("quem", "aaa", 100, "{}".into()).await.unwrap();
 
         let mut f = d.abrir_para_subir(&id, 0).await.unwrap();
         f.write_all(&[1u8; 60]).await.unwrap();
@@ -290,15 +299,15 @@ mod testes {
     async fn retomar_a_frente_e_recusado() {
         // Deixaria um buraco no meio que nada preencheria depois.
         let d = Deposito::novo(temporaria("buraco")).unwrap();
-        let id = d.criar("aaa", 100, "{}".into()).await.unwrap();
+        let id = d.criar("quem", "aaa", 100, "{}".into()).await.unwrap();
         assert!(d.abrir_para_subir(&id, 10).await.is_err());
     }
 
     #[tokio::test]
     async fn a_caixa_so_mostra_o_que_e_para_a_pessoa() {
         let d = Deposito::novo(temporaria("caixa")).unwrap();
-        let meu = d.criar("euu", 10, "{}".into()).await.unwrap();
-        let _outro = d.criar("elee", 10, "{}".into()).await.unwrap();
+        let meu = d.criar("quem", "euu", 10, "{}".into()).await.unwrap();
+        let _outro = d.criar("quem", "elee", 10, "{}".into()).await.unwrap();
 
         assert_eq!(d.caixa_de("euu").await.unwrap(), vec![meu]);
         assert!(d.caixa_de("ninguem").await.unwrap().is_empty());
@@ -309,7 +318,7 @@ mod testes {
         use tokio::io::AsyncWriteExt;
 
         let d = Deposito::novo(temporaria("validade")).unwrap();
-        let velho = d.criar("aaa", 10, "{}".into()).await.unwrap();
+        let velho = d.criar("quem", "aaa", 10, "{}".into()).await.unwrap();
         let mut f = d.abrir_para_subir(&velho, 0).await.unwrap();
         f.write_all(&[9u8; 10]).await.unwrap();
         f.flush().await.unwrap();
@@ -321,7 +330,7 @@ mod testes {
         ficha.criado = agora().saturating_sub(3600);
         tokio::fs::write(d.ficha_em(&velho), serde_json::to_vec(&ficha).unwrap()).await.unwrap();
 
-        let novo = d.criar("aaa", 10, "{}".into()).await.unwrap();
+        let novo = d.criar("quem", "aaa", 10, "{}".into()).await.unwrap();
 
         assert_eq!(d.limpar(std::time::Duration::from_secs(60)).await.unwrap(), 1);
         assert!(d.ficha(&velho).await.is_err());
@@ -333,7 +342,7 @@ mod testes {
     #[tokio::test]
     async fn tamanho_absurdo_e_recusado_a_entrada() {
         let d = Deposito::novo(temporaria("tamanho")).unwrap();
-        assert!(d.criar("aaa", 0, "{}".into()).await.is_err());
-        assert!(d.criar("aaa", TAMANHO_MAX + 1, "{}".into()).await.is_err());
+        assert!(d.criar("quem", "aaa", 0, "{}".into()).await.is_err());
+        assert!(d.criar("quem", "aaa", TAMANHO_MAX + 1, "{}".into()).await.is_err());
     }
 }

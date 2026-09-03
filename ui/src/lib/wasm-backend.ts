@@ -90,6 +90,11 @@ export async function obterIdentidade(): Promise<Eu> {
     }
   }
 
+  // Sem `await`: não faz sentido atrasar a primeira pintura da interface por
+  // uma chamada de rede que, na pior das hipóteses, deixa o dispositivo tal
+  // e qual como estava antes desta fase (a pedir autorização manual).
+  void resgatarConvites();
+
   return { nome: identidadeAtual.nome(), numero_seguranca: identidadeAtual.numeroSeguranca() };
 }
 
@@ -121,6 +126,10 @@ export interface Conhecido {
   nome: string;
   verifying: string;
   encrypting: string;
+  /** S10 T3: o `id` do depósito/link que ensinou este conhecido, por
+   * resgatar em `POST /convite` — `undefined` depois de resgatado (ou para
+   * um conhecido aprendido por reciprocidade, não por link). */
+  convite?: string;
 }
 
 function lerConhecidos(): Record<string, Conhecido> {
@@ -140,6 +149,45 @@ export function aprenderConhecido(c: Conhecido): void {
   } catch {
     // Sem `localStorage`, este dispositivo simplesmente não fica lembrado —
     // o próximo link tem de se abrir outra vez.
+  }
+}
+
+/**
+ * Resgata convites pendentes (S10 T3): para cada conhecido aprendido por um
+ * link ainda não resgatado, pede ao relay para se autorizar a si próprio
+ * com o `id` desse link como prova. Chamado uma vez por arranque, depois de
+ * a identidade estar pronta para assinar — nunca bloqueia nada à volta:
+ * falhar aqui só significa continuar sem autorização automática, o mesmo
+ * estado de antes desta fase.
+ *
+ * Sucesso ou falha, o campo `convite` limpa-se a seguir e não se tenta de
+ * novo: se falhou porque quem convidou já não está autorizado, repetir
+ * nunca ia resultar; se falhou por rede, o pior caso é precisar da
+ * autorização manual de sempre.
+ */
+async function resgatarConvites(): Promise<void> {
+  const lista = lerConhecidos();
+  const pendentes = Object.values(lista).filter((c) => c.convite);
+  if (pendentes.length === 0) return;
+
+  const base = relayDeCasa();
+  for (const c of pendentes) {
+    try {
+      await fetch(`${base}/convite`, {
+        method: "POST",
+        headers: { ...(await cabecalhosAssinados("convite", c.convite!)), "content-type": "application/json" },
+        body: JSON.stringify({ id: c.convite }),
+      });
+    } catch {
+      // Falha de rede: fica por resgatar até ao próximo arranque, ver acima.
+      continue;
+    }
+    delete c.convite;
+  }
+  try {
+    localStorage.setItem(CHAVE_CONHECIDOS, JSON.stringify(lista));
+  } catch {
+    // Sem `localStorage`, o próximo arranque tenta outra vez — inofensivo.
   }
 }
 

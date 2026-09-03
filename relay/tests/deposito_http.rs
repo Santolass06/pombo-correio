@@ -402,6 +402,96 @@ async fn de_fora_de_casa_nao_se_deposita() {
     assert!(criar_como(&estranho, &base, "abc123", 10, "{}").await.is_none());
 }
 
+/// S10 T3 (Review3 F-14): autorização automática por convite — abrir um link
+/// criado por alguém já de casa autoriza sozinho quem o abriu.
+mod convite {
+    use super::*;
+
+    async fn relay_com_lista(nome: &str, de_casa: &Identity) -> (String, Temp) {
+        let dir = Temp::nova(nome);
+        let lista = dir.0.join("autorizados.txt");
+        std::fs::write(&lista, format!("{}\n", impressao_de(de_casa))).unwrap();
+        let (endereco, _) =
+            pombo_correio_relay::servidor::servir_em_porta_livre(dir.0.clone(), Autorizados::do_ficheiro(&lista).unwrap())
+                .await
+                .unwrap();
+        (format!("http://{endereco}"), dir)
+    }
+
+    async fn convidar_como(eu: &Identity, base: &str, id: &str) -> reqwest::StatusCode {
+        reqwest::Client::new()
+            .post(format!("{base}/convite"))
+            .headers(assinar(eu, "convite", id))
+            .json(&serde_json::json!({ "id": id }))
+            .send()
+            .await
+            .unwrap()
+            .status()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn abrir_um_link_de_quem_e_de_casa_autoriza_a_sério() {
+        let de_casa = Identity::generate("de casa");
+        let (base, _d) = relay_com_lista("convite-ok", &de_casa).await;
+
+        // O link é só mais um depósito, criado por quem já é de casa.
+        let id = criar_como(&de_casa, &base, "CAIXA_LIGACAO", 10, "{}").await.unwrap();
+
+        let novo = Identity::generate("telemóvel novo");
+        // Antes do convite, o dispositivo novo ainda não consegue depositar.
+        assert!(criar_como(&novo, &base, "abc", 10, "{}").await.is_none());
+
+        assert_eq!(convidar_como(&novo, &base, &id).await, reqwest::StatusCode::NO_CONTENT);
+
+        // Depois do convite, já consegue — é a prova a sério, não só "o
+        // endpoint respondeu 204".
+        assert!(criar_como(&novo, &base, "abc", 10, "{}").await.is_some());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn um_link_sem_criador_registado_nao_serve_de_convite() {
+        // Não há forma de criar um depósito sem já estar autorizado — mas um
+        // depósito gravado antes do T3 (sem `de`) tem de se comportar da
+        // mesma forma: recusar, nunca assumir que serve de convite.
+        let de_casa = Identity::generate("de casa");
+        let (base, dir) = relay_com_lista("convite-velho", &de_casa).await;
+
+        let id = criar_como(&de_casa, &base, "CAIXA_LIGACAO", 10, "{}").await.unwrap();
+        // Reescreve a ficha em disco como se fosse de antes do T3 (sem "de").
+        let ficha = dir.0.join(format!("{id}.json"));
+        std::fs::write(&ficha, r#"{"para":"CAIXA_LIGACAO","tamanho":10,"criado":0,"oferta":"{}"}"#).unwrap();
+
+        let novo = Identity::generate("telemóvel novo");
+        assert_eq!(convidar_como(&novo, &base, &id).await, reqwest::StatusCode::FORBIDDEN);
+        assert!(criar_como(&novo, &base, "abc", 10, "{}").await.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn quem_ja_esta_autorizado_pode_repetir_o_convite_sem_mal() {
+        // O cliente chama isto sempre que abre um link, sem saber de
+        // antemão se já está autorizado — tem de ser inofensivo repetir,
+        // mesmo com um `id` que não existe.
+        let de_casa = Identity::generate("de casa");
+        let (base, _d) = relay_com_lista("convite-repetido", &de_casa).await;
+        assert_eq!(convidar_como(&de_casa, &base, "0000000000000000000000000000000").await, reqwest::StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn convite_sem_assinatura_nao_da() {
+        let de_casa = Identity::generate("de casa");
+        let (base, _d) = relay_com_lista("convite-nu", &de_casa).await;
+        let id = criar_como(&de_casa, &base, "CAIXA_LIGACAO", 10, "{}").await.unwrap();
+
+        let r = reqwest::Client::new()
+            .post(format!("{base}/convite"))
+            .json(&serde_json::json!({ "id": id }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), reqwest::StatusCode::UNAUTHORIZED);
+    }
+}
+
 /// A página do link: o relay serve ficheiros de uma pasta, e essa pasta é a
 /// única coisa que ele serve de disco. Vale a pena testá-lo com um servidor a
 /// sério, porque o que aqui parte é o caminho vindo do URL.
