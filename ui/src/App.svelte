@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { open } from "@tauri-apps/plugin-dialog";
+  import QRCode from "qrcode-svg";
   import {
     ativarPush,
     aoAcontecer,
@@ -61,6 +62,15 @@
   let seletorFicheiro: HTMLInputElement;
 
   const emCurso = $derived(transferencias.filter((t) => t.estado === "a_correr"));
+
+  /** QR do link, para apontar a câmara nativa do telemóvel em vez de o
+      copiar à mão (S12 T2). Gerado localmente — sem pedir `CAMERA` nenhuma
+      nesta app, é o telemóvel de quem recebe que aponta a sua. */
+  const qrDaLigacao = $derived(
+    ligacao
+      ? new QRCode({ content: ligacao, padding: 1, width: 200, height: 200, join: true, xmlDeclaration: false }).svg()
+      : "",
+  );
 
   onMount(() => {
     let vivo = true;
@@ -430,6 +440,10 @@
         </div>
         <div class="card-meta text-muted" style="margin-top: var(--space-2)">
           Quem tiver este endereço abre o ficheiro. Manda-o por onde quiseres.
+        </div>
+        <div class="qr-ligacao">
+          {@html qrDaLigacao}
+          <div class="card-meta text-muted">Ou aponta a câmara do telemóvel a este código.</div>
         </div>
       {/if}
     </div>

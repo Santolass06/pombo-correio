@@ -147,7 +147,14 @@ async function descarregar(d, botao) {
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     }
 
-    botao.textContent = 'Guardado ✓';
+    // Destaque dinâmico (S11 T2, Review4 F-17): só depois da descarga
+    // concluir com sucesso — o link permanente no rodapé já cobre os
+    // casos em que a descarga falha (ficheiro grande, quota, disco cheio).
+    const destaque = document.createElement('p');
+    destaque.className = 'destaque';
+    destaque.innerHTML = 'Ficheiro guardado ✓. Queres enviar ficheiros de volta? ' +
+      '<a href="/">Abrir o Pombo-Correio</a>.';
+    botao.replaceWith(destaque);
   } catch (e) {
     await destino.desistir();
     barra.remove();

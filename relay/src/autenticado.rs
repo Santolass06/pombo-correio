@@ -152,12 +152,39 @@ impl Autorizados {
             }
         }
 
-        use std::io::Write;
+        // Uma escrita só (S11 T3, Review4 F-20, corrigido pela Review5): ler o
+        // último byte e depois emitir duas chamadas a `write` (uma para o
+        // `\n` em falta, outra para a impressão) reabriria, dentro do
+        // próprio ficheiro, a janela de corrida que o `O_APPEND` existe para
+        // fechar — o kernel só garante atomicidade a uma escrita, não a
+        // duas seguidas. Monta-se a linha completa antes, e grava-se com um
+        // só `write_all()`.
+        use std::io::{Read, Seek, SeekFrom, Write};
         let escrita = (|| -> std::io::Result<()> {
-            writeln!(
-                std::fs::OpenOptions::new().append(true).create(true).open(caminho)?,
-                "{impressao} # autorizado automaticamente por convite"
-            )
+            let precisa_nl = match std::fs::File::open(caminho) {
+                Ok(mut f) => match f.metadata()?.len() {
+                    0 => false,
+                    _ => {
+                        let mut ultimo = [0u8; 1];
+                        f.seek(SeekFrom::End(-1))?;
+                        f.read_exact(&mut ultimo)?;
+                        ultimo[0] != b'\n'
+                    }
+                },
+                Err(_) => false, // ficheiro ainda não existe — nada para o `\n` seguir
+            };
+
+            let linha = if precisa_nl {
+                format!("\n{impressao} # autorizado automaticamente por convite\n")
+            } else {
+                format!("{impressao} # autorizado automaticamente por convite\n")
+            };
+
+            std::fs::OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(caminho)?
+                .write_all(linha.as_bytes())
         })();
 
         // Sem isto, uma escrita falhada (disco cheio) deixava a autorização
@@ -292,6 +319,25 @@ mod testes {
         a.autorizar("2222222222222222").unwrap();
         let texto = std::fs::read_to_string(&d).unwrap();
         assert_eq!(texto.matches("2222222222222222").count(), 1);
+        std::fs::remove_file(&d).unwrap();
+    }
+
+    #[test]
+    fn autorizar_nao_funde_linhas_quando_o_ficheiro_nao_acaba_em_quebra_de_linha() {
+        // Um ficheiro editado à mão sem quebra final fundia a próxima
+        // impressão com a última linha existente (S11 T3, Review4 F-20).
+        let d = std::env::temp_dir().join(format!("pombo-aut-semnl-{}", std::process::id()));
+        std::fs::write(&d, "ab12cd34ef567890 # tablet").unwrap(); // sem \n final
+        let a = Autorizados::do_ficheiro(&d).unwrap();
+        a.autorizar("1111111111111111").unwrap();
+
+        let texto = std::fs::read_to_string(&d).unwrap();
+        assert!(texto.lines().any(|l| l.trim() == "ab12cd34ef567890 # tablet"));
+        assert!(texto.lines().any(|l| l.starts_with("1111111111111111")));
+
+        let relido = Autorizados::do_ficheiro(&d).unwrap();
+        assert!(relido.deixa("ab12cd34ef567890"), "a fusão de linhas perdia a impressão anterior");
+        assert!(relido.deixa("1111111111111111"));
         std::fs::remove_file(&d).unwrap();
     }
 

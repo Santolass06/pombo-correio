@@ -14,6 +14,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
+use crate::autenticado::Autorizados;
+
 /// Ficha de um depósito: tudo o que o relay sabe, que é pouco de propósito.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ficha {
@@ -51,6 +53,23 @@ pub struct Estado {
     pub completo: bool,
 }
 
+/// Resultado de `Deposito::resgatar_convite`.
+pub enum Resgate {
+    /// Já estava autorizado; nada foi tocado.
+    JaAutorizado,
+    Autorizado,
+}
+
+/// Porque é que `Deposito::resgatar_convite` recusou.
+pub enum ErroResgate {
+    /// `id` não é um depósito conhecido.
+    Invalido,
+    /// Não é um link, ou não tem `de` autorizado.
+    NaoServe,
+    /// `autorizados.autorizar()` falhou (erro de I/O); `de` fica intacto.
+    Falha(std::io::Error),
+}
+
 /// Um depósito não pode crescer sem fim: o relay corre em casa, em duas máquinas
 /// fracas, e um disco cheio derruba os dois caminhos ao mesmo tempo.
 pub const TAMANHO_MAX: u64 = 32 * 1024 * 1024 * 1024;
@@ -60,6 +79,11 @@ pub const VALIDADE: std::time::Duration = std::time::Duration::from_secs(7 * 24 
 
 pub struct Deposito {
     raiz: PathBuf,
+    /// Serializa `resgatar_convite`: um só trinco, não um mapa por `id` —
+    /// adicionar um mapa de trincos para um caminho tão pouco frequente é
+    /// estado a mais para o mesmo resultado (o mesmo raciocínio que já
+    /// afastou a cache de OAuth2 do FCM). Ver PLANO.md S11 T1.
+    trinco_convite: tokio::sync::Mutex<()>,
 }
 
 fn agora() -> u64 {
@@ -98,7 +122,7 @@ impl Deposito {
     pub fn novo(raiz: impl Into<PathBuf>) -> Result<Self> {
         let raiz = raiz.into();
         std::fs::create_dir_all(&raiz).context("não consegui criar a pasta dos depósitos")?;
-        Ok(Self { raiz })
+        Ok(Self { raiz, trinco_convite: tokio::sync::Mutex::new(()) })
     }
 
     fn ficha_em(&self, id: &str) -> PathBuf {
@@ -135,21 +159,69 @@ impl Deposito {
         Ok(serde_json::from_slice(&bruto)?)
     }
 
-    /// Apaga o `de` da ficha depois de o convite ser resgatado (S10 T3).
-    ///
-    /// Sem isto, o mesmo `id` de link autorizava qualquer número de
-    /// identidades novas, não só a primeira a chegar — um link é feito
-    /// para ser reencaminhado (é a frase que a própria interface mostra:
-    /// "Quem tiver este endereço abre o ficheiro"), por isso o segredo de
-    /// 128 bits sozinho não limita quantas vezes serve de convite; só
-    /// consumir o `de` limita. Falhar aqui (disco cheio, `id` apagado
-    /// entretanto) não desfaz a autorização já concedida — o pior caso é
-    /// o mesmo link continuar a valer como convite, não a app parar.
-    pub async fn consumir_convite(&self, id: &str) -> Result<()> {
+    async fn apagar_de(&self, id: &str) -> Result<()> {
         let mut ficha = self.ficha(id).await?;
         ficha.de.clear();
         tokio::fs::write(self.ficha_em(id), serde_json::to_vec(&ficha)?).await?;
         Ok(())
+    }
+
+    /// Resgata um convite: autoriza `impressao` se o `id` for um link válido
+    /// criado por alguém já autorizado, e consome-o para não voltar a servir
+    /// (S10 T3, Review3 F-14).
+    ///
+    /// **Transacional atrás de um trinco só** (S11 T1, Review4 F-15/F-16,
+    /// corrigido pela Review5 antes de existir código): ler a ficha, decidir,
+    /// autorizar e apagar `de` andavam a passos separados sem trinco nenhum —
+    /// dois pedidos concorrentes para o mesmo link (reencaminhado, aberto por
+    /// duas pessoas ao mesmo tempo) liam os dois o `de` preenchido antes de
+    /// qualquer um o apagar, e saíam os dois autorizados.
+    ///
+    /// **A ordem importa — "Ghost Burn" (achado da Review5 sobre este
+    /// próprio desenho):** uma primeira versão apagava `de` antes de
+    /// autorizar. Isso partia a retentativa que a PWA faz perante um erro
+    /// transitório (F-16): um 500 a meio (disco cheio) deixava o convite já
+    /// sem `de`, e a segunda tentativa levava um 403 definitivo em vez de
+    /// repetir a autorização — a retentativa tornava-se inútil exatamente no
+    /// caso para que foi desenhada. Autorizar primeiro e só apagar `de`
+    /// depois de confirmado é a única ordem em que um erro deixa o convite
+    /// intacto para haver algo a repetir.
+    pub async fn resgatar_convite(
+        &self,
+        id: &str,
+        impressao: &str,
+        autorizados: &Autorizados,
+    ) -> Result<Resgate, ErroResgate> {
+        let _trinco = self.trinco_convite.lock().await;
+
+        // Se já está autorizado (outra aba do mesmo browser correu isto
+        // primeiro, ou um pedido perdido em trânsito que já tinha sido
+        // processado), sucesso sem tocar em mais nada — cobre concorrência
+        // sem a precisar de distinguir de um ataque.
+        if autorizados.deixa(impressao) {
+            return Ok(Resgate::JaAutorizado);
+        }
+
+        let ficha = self.ficha(id).await.map_err(|_| ErroResgate::Invalido)?;
+        if ficha.para != pombo_correio_core::protocolo::CAIXA_LIGACAO
+            || ficha.de.is_empty()
+            || !autorizados.deixa(&ficha.de)
+        {
+            return Err(ErroResgate::NaoServe);
+        }
+
+        // Se isto falhar (erro de I/O), sai sem tocar em `de` — o convite
+        // continua vivo para a próxima tentativa.
+        autorizados.autorizar(impressao).map_err(ErroResgate::Falha)?;
+
+        // Só depois de autorizar ter tido sucesso é que `de` se apaga.
+        // Melhor esforço: se isto falhar, o pior caso é o link continuar a
+        // valer como convite — não vale a pena desfazer a autorização já
+        // concedida por causa disso.
+        let _ = self.apagar_de(id).await;
+
+        Ok(Resgate::Autorizado)
+        // O trinco larga-se ao sair do âmbito.
     }
 
     /// Quantos bytes selados já cá estão.

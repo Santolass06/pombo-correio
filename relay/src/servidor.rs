@@ -26,7 +26,7 @@ use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
     autenticado::{self, Autorizados},
-    deposito::{Deposito, VALIDADE},
+    deposito::{Deposito, ErroResgate, Resgate, VALIDADE},
     fcm::Fcm,
     push,
     subscricoes::{Subscricao, Subscricoes},
@@ -46,7 +46,7 @@ struct Estado {
     /// escreveriam por cima uma da outra e o ficheiro sairia com blocos de
     /// ambas — indistinguível de corrupção, e só descoberto no fim, na
     /// verificação de quem recebe.
-    a_subir: tokio::sync::Mutex<HashSet<String>>,
+    a_subir: std::sync::Mutex<HashSet<String>>,
     /// A identidade do relay perante os serviços de push (P4). Gerada uma
     /// vez, vive em `--dados` — nunca no repositório.
     vapid: Vapid,
@@ -126,6 +126,21 @@ struct Subiu {
     bytes: u64,
 }
 
+/// Larga a marca de "`id` a subir" em `Estado::a_subir` ao cair — mesmo que
+/// a razão seja o futuro do handler ser cancelado (ligação caída a meio, não
+/// um erro nem um retorno normal), casos em que só código a seguir a um
+/// `.await` nunca chega a correr.
+struct MarcaSubida<'a> {
+    conjunto: &'a std::sync::Mutex<HashSet<String>>,
+    id: String,
+}
+
+impl Drop for MarcaSubida<'_> {
+    fn drop(&mut self) {
+        self.conjunto.lock().unwrap().remove(&self.id);
+    }
+}
+
 /// Recebe os bytes selados, em fluxo. `?de=N` retoma: ver `abrir_para_subir`.
 async fn subir(
     State(e): State<Arc<Estado>>,
@@ -139,12 +154,18 @@ async fn subir(
         .await
         .map_err(|x| mau(StatusCode::NOT_FOUND, x))?;
 
-    if !e.a_subir.lock().await.insert(id.clone()) {
+    if !e.a_subir.lock().unwrap().insert(id.clone()) {
         return Err(mau(StatusCode::CONFLICT, "já há uma subida a decorrer"));
     }
-    // A partir daqui há sempre que largar a marca, aconteça o que acontecer.
+    // A marca larga-se ao `_marca` cair — inclui o caminho feliz, um erro, E
+    // a ligação cair a meio (S12 T1 trouxe retomas automáticas ao mesmo
+    // `id`, o que tornou este caso comum): o hyper cancela o futuro do
+    // handler sem correr mais nenhuma instrução depois do `.await` em que
+    // estava suspenso, por isso um `remove()` a seguir ao `escrever(...)
+    // .await` nunca corria nesse caminho e a marca ficava presa até o relay
+    // reiniciar. Um `Drop` corre sempre, mesmo aí.
+    let _marca = MarcaSubida { conjunto: &e.a_subir, id: id.clone() };
     let resultado = escrever(&e, &id, de, ficha.tamanho, corpo).await;
-    e.a_subir.lock().await.remove(&id);
 
     let bytes = resultado.map_err(|x| mau(StatusCode::BAD_REQUEST, x))?;
 
@@ -342,9 +363,11 @@ struct Convite {
 /// segredo de 128 bits sozinho não limita quantas identidades novas se
 /// autorizam com o mesmo `id`; sem consumir o convite, um único link
 /// WhatsApp-partilhado autorizava um número sem limite de dispositivos no
-/// relay público. `consumir_convite` apaga o `de` da ficha a seguir a
-/// autorizar — a próxima tentativa cai no mesmo 403 de "sem criador
-/// registado" que já existia para links anteriores ao T3.
+/// relay público.
+///
+/// A leitura, decisão, autorização e consumo do convite andam todas juntas
+/// e atrás de um trinco só, dentro de `Deposito::resgatar_convite` — S11 T1
+/// (Review4 F-15/F-16), ver PLANO.md para o porquê da ordem.
 async fn convidar(
     State(e): State<Arc<Estado>>,
     cabecalhos: HeaderMap,
@@ -352,28 +375,14 @@ async fn convidar(
 ) -> Result<StatusCode, Erro> {
     let prova = autenticado::verificar(&cabecalhos, "convite", &corpo.id)?;
 
-    // Já autorizado: nada a fazer, mas não é erro — o cliente chama isto
-    // sempre que abre um link, sem saber de antemão se já está autorizado.
-    if e.autorizados.deixa(&prova.impressao) {
-        return Ok(StatusCode::NO_CONTENT);
+    match e.deposito.resgatar_convite(&corpo.id, &prova.impressao, &e.autorizados).await {
+        Ok(Resgate::JaAutorizado | Resgate::Autorizado) => Ok(StatusCode::NO_CONTENT),
+        Err(ErroResgate::Invalido) => Err(mau(StatusCode::NOT_FOUND, "depósito desconhecido")),
+        Err(ErroResgate::NaoServe) => {
+            Err(mau(StatusCode::FORBIDDEN, "este link não serve de convite"))
+        }
+        Err(ErroResgate::Falha(x)) => Err(mau(StatusCode::INTERNAL_SERVER_ERROR, x)),
     }
-
-    let ficha = e.deposito.ficha(&corpo.id).await.map_err(|x| mau(StatusCode::NOT_FOUND, x))?;
-    if ficha.para != pombo_correio_core::protocolo::CAIXA_LIGACAO
-        || ficha.de.is_empty()
-        || !e.autorizados.deixa(&ficha.de)
-    {
-        return Err(mau(StatusCode::FORBIDDEN, "este link não serve de convite"));
-    }
-
-    e.autorizados
-        .autorizar(&prova.impressao)
-        .map_err(|x| mau(StatusCode::INTERNAL_SERVER_ERROR, x))?;
-    // Melhor esforço: se isto falhar, o pior caso é o link continuar a
-    // valer como convite — não vale a pena desfazer a autorização já
-    // concedida por causa disso.
-    let _ = e.deposito.consumir_convite(&corpo.id).await;
-    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Recusa tudo o que não seja um nome de ficheiro nosso.
@@ -534,10 +543,14 @@ impl KeyExtractor for IpConfiavel {
     }
 }
 
-/// Limite de débito por IP — só nas rotas públicas sem autenticação nenhuma
-/// (`/saude`, `/vapid`, `GET /d/{id}`): as outras já exigem uma assinatura
-/// Ed25519 válida, que custa uma identidade gerada, não um pedido HTTP
-/// (Review0 F-02 / Review2 F-09).
+/// Limite de débito por IP — nas rotas alcançáveis sem já se estar
+/// autorizado: `/saude`, `/vapid`, `GET /d/{id}` (Review0 F-02 / Review2
+/// F-09) e, desde o S11 T3 (Review4 F-19 parte 2), `POST /convite` — exige
+/// assinatura como sempre exigiu, mas uma assinatura custa só gerar um par
+/// de chaves novo, não pertencer a esta casa, por isso ficava de fora do
+/// `GovernorLayer` sem nada a impedir uma rajada de pedidos a forçar
+/// leituras de disco repetidas. As restantes rotas já exigem pertencer à
+/// lista de autorizados, o que uma rajada não compra.
 ///
 /// `ponytail:` 5 pedidos de rajada, 1/s a reencher — números de partida,
 /// nunca medidos contra tráfego a sério. Afinar se o Q4 mostrar tráfego
@@ -556,6 +569,7 @@ fn rotas_publicas() -> Router<Arc<Estado>> {
         .route("/saude", get(saude))
         .route("/vapid", get(vapid_publica))
         .route("/d/{id}", get(pagina_do_link))
+        .route("/convite", post(convidar))
         .layer(GovernorLayer::new(limite))
 }
 
@@ -574,7 +588,7 @@ fn rotas(estado: Arc<Estado>) -> Router {
         .route("/deposito/{id}/blocos", get(descer))
         .route("/caixa", get(caixa))
         .route("/subscricao", post(subscrever))
-        .route("/convite", post(convidar))
+        // `/convite` já vai em `rotas_publicas`, com o limitador (S11 T3).
         // O link sem instalação: o que a página precisa de carregar (o `/d/{id}`
         // em si já vai em `rotas_publicas`, com o limitador).
         .route("/pagina/{*caminho}", get(recurso_da_pagina))
@@ -688,6 +702,23 @@ pub async fn servir_em_porta_livre_com_pagina_e_app(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    /// `MarcaSubida` larga a marca ao cair — mesmo sem nunca ter passado por
+    /// um `remove()` explícito. É exatamente o que garante que uma ligação
+    /// caída a meio (o futuro do handler cancelado, não um erro normal) não
+    /// deixa `a_subir` presa: o `Drop` corre em ambos os casos, o `remove()`
+    /// solto a seguir a um `.await` só no caminho que termina normalmente.
+    #[test]
+    fn marca_subida_larga_ao_cair_mesmo_sem_remove_explicito() {
+        let conjunto: std::sync::Mutex<HashSet<String>> = Default::default();
+        conjunto.lock().unwrap().insert("abc".to_string());
+
+        let marca = MarcaSubida { conjunto: &conjunto, id: "abc".to_string() };
+        assert!(conjunto.lock().unwrap().contains("abc"));
+
+        drop(marca);
+        assert!(!conjunto.lock().unwrap().contains("abc"));
+    }
 
     fn cabecalho(v: &str) -> HeaderMap {
         let mut h = HeaderMap::new();

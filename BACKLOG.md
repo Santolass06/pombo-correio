@@ -2032,6 +2032,18 @@ criador do link apontado já estiver autorizado — verificado **no momento
 do pedido**, não em quando o link foi criado, para uma revogação continuar
 a valer.
 
+**Porque não TOFU, decidido antes de desenhar o resto** (a ideia original,
+discutida em 02/09/2026 ao ligar o `--autorizados` a sério pela primeira
+vez, S9 Q4): aceitar a impressão digital ao primeiro contacto não resolve
+nada aqui — o ataque que o `--autorizados` existe para travar (um estranho
+a encher o disco) *também* é "uma primeira ligação"; não há como distinguir
+os dois só pela ordem de chegada. TOFU protege contra uma chave que *muda*
+depois de já confiada (o caso do SSH), não contra deixar entrar quem
+chegar primeiro. O que já servia, e só faltava ligar: o link de
+pareamento (R5/P5) já é um segredo de 128 bits que só o André partilha,
+pessoa a pessoa — só quem o recebeu consegue abri-lo. Isso já *era* a
+autorização; faltava o relay tratá-la como tal.
+
 Decisão consciente de âmbito: só o caminho do link (PWA), não o da
 tablet/desktop (que se emparelham por QR/número de segurança, sem link
 nenhum envolvido — precisava de um mecanismo de prova diferente, sem
@@ -2086,3 +2098,248 @@ produção a sério — um já explorável, o outro a esvaziar silenciosamente o
 Q5 inteiro. **S10 fechado** — Sprint 9 e 10 completos, com a Review3
 totalmente endereçada (F-13 e o WebRTC ficaram de fora por decisão, sem
 dor nenhuma hoje que os justifique).
+
+## S11 — Fechar o que a Review4 encontrou
+
+### T1 — O convite duplo: uma corrida que o T3 do S10 não fechou
+
+O trinco (`tokio::sync::Mutex`) foi posto em `Deposito`, não em `Estado` —
+`convidar()` passou a chamar `resgatar_convite` uma vez só, sem saber nada
+de trincos. O desenho em PLANO.md previa
+`autorizado: impl Fn(&str) -> bool` como parâmetro; na implementação isso
+não chegava, porque o passo 3 (autorizar) **muta**, não só consulta —
+passou a receber `&Autorizados` diretamente. Mais direto do que inventar
+uma segunda função de callback só para a escrita; PLANO.md foi corrigido
+para refletir o código, não o outro caminho.
+
+**A Ghost Burn (achado da Review5 sobre o próprio plano, antes de existir
+código) só se prova sem mocks:** o teste `falha_a_autorizar_nao_apaga_o_
+convite_ghost_burn` torna `autorizados.txt` só de leitura a sério
+(`chmod`), não finge o erro de I/O — é o único jeito de exercitar o
+caminho de falha de `autorizar()` sem tocar na função. Confirma 500 sem
+apagar `de`, repõe a escrita, confirma que a retentativa (mesmo convite,
+mesma identidade) tem sucesso.
+
+**O teste da corrida a sério, não o de conforto:** o primeiro teste de
+concorrência escrito usava a mesma identidade duas vezes — passava com ou
+sem o trinco, porque `Autorizados::autorizar` já era idempotente por conta
+própria (achado ao pedir uma segunda opinião ao fechar a fase). O teste
+que prova o F-15 a sério — o único achado de severidade ALTA da Review4 —
+dispara duas identidades *diferentes* ao mesmo tempo (`tokio::join!`)
+contra o mesmo link e espera exatamente um sucesso, uma recusa. Sabotado o
+trinco à mão (`let _trinco = …` → `let _ = …`, que larga a guarda no mesmo
+instante em vez de a segurar até ao fim da função) para confirmar que o
+teste falha sem ele — falhou em 2 de 5 corridas, a assimetria própria de
+uma corrida — antes de repor o código a sério.
+
+F-16 (`wasm-backend.ts`) corrigido a olhar `resposta.status`: só um
+`5xx`/`429` preserva o convite para a próxima tentativa; qualquer outro
+caso (sucesso, ou uma recusa definitiva) apaga-o. Sem teste automático —
+`fetch()` real contra um relay a sério não corre nos testes de `ui/`
+(nenhum harness monta um relay dentro do Vite); a garantia aqui é a
+simetria com o relay, provada do lado do servidor.
+
+### T3 — Rate limit e write_all, sem surpresas
+
+Mover `/convite` para `rotas_publicas()` não pediu nenhuma mudança aos
+testes existentes: cada teste do módulo `convite` já corria numa instância
+isolada, porta efémera (`relay_com_lista`), e nenhum disparava mais de
+dois pedidos por instância — a preocupação da Review5 (F-19) já estava
+coberta pelo padrão de testes de sempre, só faltava confirmar que sim.
+
+O `write_all` único (F-20) trocou uma escrita que presumia `\n` já lá
+(`writeln!` direto em `append`) por uma leitura do último byte seguida de
+um só `write_all`, com a linha completa montada antes. Teste novo cobre o
+caso que faltava: um `autorizados.txt` editado à mão sem quebra de linha
+final não funde mais a impressão nova com a última linha existente.
+
+`cargo clippy --workspace --all-targets` deu zero depois das três fases.
+
+### T2 — Ciclo de vida da descoberta e da notificação
+
+CTA em `pagina/www/index.html` e `pagina.js`, dois níveis (link permanente
+no rodapé + destaque dinâmico pós-sucesso, ambos a `/`); `onResume()` novo
+em `MainActivity.kt` a cancelar a notificação `pombo_push`/id `2`.
+
+**F-17 provado a sério:** reconstruído o wasm da `pagina/`
+(`~/.cargo/bin/wasm-pack build --target web --out-dir www/wasm` —
+`wasm-pack` não estava no `PATH` desta shell, só em `~/.cargo/bin`, apesar
+de instalado). `pombo-relay` de teste (`--pagina pagina/www`, porta à
+parte da instância a sério que já corria em produção — confirmado por
+`pgrep` antes de mexer em processos, para não confundir as duas), link
+real criado com `pombo ligacao`, aberto num Chromium a sério por
+Playwright. O link permanente do rodapé aparece antes de qualquer
+descarga (o caso que mais importa — ficheiro grande, quota, disco cheio);
+depois de guardar (caminho de memória, forçado a apagar
+`window.showSaveFilePicker` porque o Chromium do Playwright não tem UI
+para o diálogo nativo — o próprio caminho do Safari/Firefox, que é o que
+importa para o S8 iOS) o botão dá lugar ao destaque dinâmico, e o
+ficheiro descarregado bate byte a byte com o original.
+
+**F-18 provado a sério, no tablet, não em teoria:** `tauri android build
+--target aarch64 --apk` (não `tauri build` — a primeira tentativa usou o
+comando errado, o de desktop, e falhou com "Target aarch64 does not
+exist"; o comando certo já estava documentado mais acima neste ficheiro,
+da via-sacra do S8). O `.apk` que sai é **sem assinatura** — sempre foi,
+mesmo comando de sempre — `zipalign` + `apksigner` do `build-tools`
+35.0.0 com o `~/.android/debug.keystore` já existente resolveu, e
+`adb install` funcionou de primeira.
+
+A parte instrutiva foi provar o F-18 sem inventar uma prova de mentira:
+`cmd notification post` do adb posta sempre sob a identidade do `shell`,
+nunca do `pt.pombo.correio` — uma notificação fabricada assim não seria
+tocada pelo `cancel(2)` do app de qualquer forma, e "passou" seria uma
+prova falsa. A app instalada em release **não é debuggable**
+(`run-as pt.pombo.correio` recusa), por isso também não há atalho para
+espreitar o identificador do dispositivo e montar um push real a sério
+sem tocar na configuração do relay de produção — considerado
+desproporcionado para uma mudança de duas linhas. O que prova a
+diferença real entre `onCreate` e `onResume` é o próprio `am start`: a
+app em primeiro plano, `KEYCODE_HOME` para segundo plano (confirmado viva
+na task, `dumpsys activity activities` com `visible=false`, não morta), e
+um segundo `am start` no mesmo componente devolveu literalmente
+**"Warning: Activity not started, its current task has been brought to
+the front"** — a garantia da própria plataforma de que só `onNewIntent`/
+`onResume` correram, nunca `onCreate` outra vez. `logcat` à volta do
+evento sem `FATAL EXCEPTION` nenhuma: o `cancel(2)` novo corre no sítio
+certo sem rebentar. O contrato do próprio `cancel()` (que uma notificação
+id=2 do canal `pombo_push` desaparece a sério da barra) não foi re-provado
+de água em pé — já saiu validado no mesmo tablet no S10 T2; o delta desta
+fase era só o timing, e foi o timing que ficou provado.
+
+Pelo caminho: a permissão de notificações (Android 13+) tem de se aceitar
+à mão no primeiro arranque — `adb shell pm grant … POST_NOTIFICATIONS`
+falhou com `SecurityException` nesta ROM (Oplus/ColorOS bloqueia o
+`GRANT_RUNTIME_PERMISSIONS` do shell); resolvido com um toque a sério no
+diálogo, coordenadas tiradas de um screencap (lembrete: as coordenadas de
+toque são as do PNG original, não as da imagem reduzida que se vê — o
+primeiro toque falhou por esquecer o fator de escala). E o ecrã tinha
+adormecido sozinho a meio — sem PIN, um `swipe` bastou para entrar; se
+tivesse PIN, a resposta certa era pedir, não tentar adivinhar.
+
+### O resumo
+
+Os seis achados da Review4 (F-15 a F-20) estão todos fechados, e o único
+de severidade ALTA (F-15, a corrida no consumo do convite) tem um teste
+que prova a corrida a sério — e que se confirmou, sabotado e revertido de
+propósito, que falha sem a correção. A Review5 apanhou uma inconsistência
+real no *desenho* do T1 antes de existir código nenhum (o Ghost Burn) —
+prova de que a disciplina de escrever o desenho primeiro (regra 8) e pedir
+uma segunda leitura compensa mesmo quando o código ainda nem começou.
+**S11 fechado** — T1, T2 e T3 todos implementados e provados a sério, não
+só em teoria: T1/T3 com testes automáticos que falham quando a correção se
+retira, T2 num browser a sério (Playwright, ficheiro byte a byte) e num
+Android a sério (tablet físico, sinal da própria plataforma de que o
+`onResume` corre no caso que interessa).
+
+## S12 — Ficheiros grandes e QR, escrito sem correr (regra 3)
+
+Pedido explícito do André: acabar o código do S12 (T1 e T2) antes de trocar
+de sistema operativo nesta máquina, **sem o testar** — ele sabe, e prefere
+ter o código pronto para retomar do que perder tempo a validar algo que vai
+voltar a mudar de ambiente já a seguir. Por isso esta entrada é mais curta
+do que as anteriores: descreve o que ficou escrito e porquê, não uma
+validação que não aconteceu.
+
+### T1 — Upload em pedaços, com retoma perguntada ao relay
+
+O `depositarEm` (`ui/src/lib/wasm-backend.ts`) selava o ficheiro inteiro
+para um único array em RAM antes de um único `PUT`. Isto é exatamente o que
+a Review3 (F-13) já tinha identificado como o caminho para o crash Jetsam
+do WebKit em ficheiros grandes — o desenho já estava escrito no `PLANO.md`
+antes desta sessão, faltava só o código.
+
+**A decisão que mereceu pensar duas vezes:** de onde vem o ponto de retoma
+depois de um `PUT` falhar a meio. A tentação óbvia era o cliente contar os
+bytes que ele próprio já tentou enviar — mas `escrever()` do lado do relay
+grava em fluxo (`f.write_all(&pedaco)` por cada pedaço que chega da
+ligação), não como uma transação atómica por pedido HTTP. Uma queda de
+ligação a meio de um `PUT` de 16 MiB pode ter deixado qualquer número de
+bytes gravados do lado do relay, e o browser não tem como saber quantos só
+pela sua própria promessa rejeitada. A escolha (e é a que o `PLANO.md` já
+pedia): perguntar a sério — `GET /deposito/{id}`, campo `bytes` — e retomar
+na fronteira de bloco completo mais próxima, nunca inventada do lado do
+cliente. Isto delega a decisão de "o que está gravado a sério" para quem
+tem a verdade (o disco do relay), em vez de a reconstruir por inferência.
+
+Isto também significa que `selarBloco` **não** precisa de ser determinístico
+entre tentativas para a retoma ser segura — nunca se reenvia um bloco que o
+relay já confirmou, só se continua a partir daí. O contrato que torna isto
+seguro já existia e está documentado em `deposito.rs::abrir_para_subir`: um
+`de` mais atrás do que o que lá está trunca o resto (o "meio bloco" que
+ninguém consegue abrir); um `de` mais à frente dá erro. Não foi preciso
+tocar em nada do lado do relay — o T1 inteiro é código de browser.
+
+Efeito colateral gratuito: cada pedaço enviado emite o mesmo `Evento`
+`progresso` que a descida já usa, identificado pelo mesmo `id` da `oferta`
+inicial — o `App.svelte` já sabe desenhar uma barra de progresso para
+qualquer evento com esse formato, então a subida ganhou uma sem tocar em
+nenhuma linha da interface.
+
+**Por provar:** um ficheiro real >1 GB, uma queda de rede a sério a meio, e
+a app aberta num Safari/WebKit de verdade — é exatamente o T3 do próprio
+S12, que continua em aberto. Verificado só por leitura, `tsc --noEmit` e
+`svelte-check` (ambos limpos) — não é a mesma coisa que correr.
+
+**Um bug a sério do lado do relay, apanhado ao rever este código antes de o
+dar por fechado — não em hardware, num pedido de segunda opinião.** O T1
+torna comum um caminho que antes era raro: repetir um `PUT` ao mesmo `id`
+pouco depois de uma ligação cair. `servidor.rs::subir` marcava esse `id`
+como "a subir" e só largava a marca numa instrução escrita a seguir a um
+`.await` — mas quando uma ligação cai a sério (não um erro normal, o
+próprio futuro do handler cancelado pelo hyper), tudo o que vem depois desse
+ponto de suspensão simplesmente nunca corre. A marca ficava presa até o
+relay reiniciar, e a retoma automática do T1 receberia sempre 409 exatamente
+no caso para que foi construída. A correção é o padrão certo para "isto tem
+de acontecer nesta saída, seja ela qual for": um `Drop` (`MarcaSubida`) em
+vez de uma instrução a seguir a um `.await` — um destrutor corre sempre,
+cancelamento incluído. Trocou-se também `a_subir` de `tokio::sync::Mutex`
+para `std::sync::Mutex` (a secção crítica nunca atravessa um `.await`, e um
+`Drop` não pode ser `async` para chamar o outro). Escreveu-se um teste
+(`marca_subida_larga_ao_cair_mesmo_sem_remove_explicito`) e confirmou-se a
+sabotar o `Drop` de propósito (posto a não fazer nada) que falha — depois
+revertido, com os 73 testes do `relay` outra vez verdes e o `clippy` do
+workspace inteiro limpo. Ao contrário do resto do S12, isto **foi** corrido
+a sério: é Rust com testes automáticos, não a parte que depende de
+hardware.
+
+### T2 — QR Code do link, com uma biblioteca e sem tocar no relay
+
+Pela ponytail: nenhuma biblioteca de geração de QR já estava instalada em
+lado nenhum do repositório (`ui/package.json` só tinha o `@tauri-apps/*`), e
+gerar um QR à mão não está ao nível de "algumas linhas". Escolhida
+`qrcode-svg` (1.1.0, **zero dependências**, só gera SVG, sem exigir
+`canvas` nativo) em vez da alternativa mais popular `qrcode` — essa arrasta
+`pngjs`/`dijkstrajs`/etc. para um caso de uso que só precisa de uma string
+SVG. Sem tipos publicados: ficheiro `qrcode-svg.d.ts` próprio, só com a
+forma de facto usada (não a API inteira do pacote).
+
+Duas opções que valeram a pena acertar à primeira, por inspeção direta do
+SVG gerado (`node -e`, fora do browser): `join: true` funde as centenas de
+quadrados do código num único `<path>` (24,7 KB em vez de 85,7 KB, mais
+barato para o DOM), e `xmlDeclaration: false` tira o `<?xml ...?>` que o
+pacote põe por omissão — faz sentido para gravar um `.svg` a sério, não
+para injetar por `{@html}` no meio de uma página HTML já existente.
+
+O QR aparece só quando há uma `ligacao` (o mesmo botão "Criar link" que já
+existia), gerado no próprio browser a partir do URL já construído — não
+pede permissão de câmara nenhuma nesta app, é o telemóvel de quem recebe
+que aponta a sua câmara nativa ao ecrã.
+
+**Por provar:** apontar a câmara de um iPhone ou Android a sério ao QR
+desenhado num ecrã, e confirmar que abre o link certo e desencadeia a
+auto-autorização (S10 T3 / S11 T1). Verificado só por `npm run build` e
+`svelte-check` limpos, e o SVG produzido inspecionado por fora do browser.
+
+### O resumo
+
+T1 e T2 do S12 estão escritos, e a parte de browser/hardware não foi testada
+— por pedido explícito, não por atalho. A excepção é o bug do lado do relay
+que o T1 expôs (a marca `a_subir` presa num cancelamento): isso é Rust,
+tinha `cargo test`/`clippy` à mão sem precisar de hardware nenhum, e por
+isso foi corrigido e provado a sério, não deixado para depois. T3 (a
+validação real, com ficheiro grande e queda de rede) continua em aberto de
+propósito: é o próprio trabalho que falta, não um passo que se saltou por
+engano. Ver `handoff.md` (fora do `git`, só nesta máquina) para onde ficam
+as chaves e configurações que a próxima sessão, noutro sistema operativo,
+vai precisar para retomar e validar isto a sério.

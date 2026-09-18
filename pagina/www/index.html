@@ -59,6 +59,13 @@ progress { width: 100%; margin-top: 16px; height: 8px; }
   margin: 20px 0 0; padding-top: 16px; border-top: 1px solid var(--divisoria);
   font-size: .8rem; opacity: .65;
 }
+.rodape + .rodape { margin-top: 8px; padding-top: 0; border-top: 0; }
+.rodape a { color: var(--acento); }
+.destaque {
+  margin-top: 16px; padding: 12px; border-radius: 10px; font-size: .9rem;
+  background: color-mix(in srgb, var(--acento) 14%, transparent);
+}
+.destaque a { color: var(--acento); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -68,6 +75,10 @@ progress { width: 100%; margin-top: 16px; height: 8px; }
   <p class="rodape">
     Este ficheiro é decifrado aqui, no teu dispositivo. A chave vai depois do
     <code>#</code> no endereço, e essa parte nunca chega ao servidor.
+  </p>
+  <p class="rodape">
+    O Pombo-Correio é livre e encriptado de ponta a ponta.
+    <a href="/">Abrir a aplicação</a>.
   </p>
 </main>
 <script type="module" src="/pagina/pagina.js"></script>

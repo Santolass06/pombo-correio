@@ -295,40 +295,16 @@ transporte é que muda.
   a PWA não alcança — e é isto, não a partilha de ficheiros, que justificaria a
   conta Apple.
 
-### Autorização automática pelo link de pareamento
+### Reforços à autorização automática por convite
 
-Discutido em 02/09/2026, ao ligar o `--autorizados` a sério pela primeira vez
-(S9 Q4). Hoje `POST /deposito` exige a impressão digital de **quem envia**
-já estar na lista, sem distinguir "estranho da internet" de "família que o
-André já convidou por link" — cada telemóvel novo obriga a copiar a
-impressão à mão para o ficheiro e reiniciar o relay. Sustentável para os
-poucos dispositivos de hoje; não para o dia a dia com mais família.
-
-**O que não serve:** aceitar a impressão ao primeiro contacto (TOFU) não
-resolve nada aqui — o ataque que o `--autorizados` existe para travar (um
-estranho a encher o disco) *também* é "uma primeira ligação"; não há como
-distinguir os dois só pela ordem de chegada. TOFU protege contra uma chave
-que *muda* depois de já confiada (o caso do SSH), não contra deixar entrar
-quem chegar primeiro.
-
-**O que já serve, e só falta ligar:** o link de pareamento (R5/P5) já é um
-segredo de 128 bits que só o André partilha, pessoa a pessoa — só quem o
-recebeu consegue abri-lo. Isso já *é* a autorização; falta o relay tratá-la
-como tal. Direção a desenhar a sério (regra 8) quando arrancar: abrir um
-link criado pelo André, ou ser o destinatário de um depósito assinado por
-um dispositivo já autorizado, acrescenta essa nova impressão ao
-`--autorizados` sozinho, sem o André mexer em ficheiro nenhum nem reiniciar
-o serviço. **Pré-mortem, uma linha:** se dois links forem abertos ao mesmo
-tempo por pessoas diferentes, cada um só pode adicionar a *sua própria*
-impressão — nunca a de outro — senão um link vira forma de qualquer um se
-autoautorizar.
-
-Duas ideias do André para reforçar isto mais tarde, guardadas mas não
-urgentes: **expirar dispositivos sem uso há 30+ dias** (remove-os da lista
-sozinho) e um **segredo pessoal tipo PIN/número de faculdade** que torna um
-dispositivo "não suspeito" por um número de dias após ações fora do padrão.
-Ambas trazem estado novo a gerir (temporizadores, um segredo extra) — fazem
-sentido depois da autorização automática existir, não antes.
+A autorização automática pelo link de pareamento em si **já está construída**
+(S10 T3, revista pela Review4 — ver S11). O que fica aqui são só dois
+reforços do André para mais tarde, guardados mas não urgentes: **expirar
+dispositivos sem uso há 30+ dias** (remove-os da lista sozinho) e um
+**segredo pessoal tipo PIN/número de faculdade** que torna um dispositivo
+"não suspeito" por um número de dias após ações fora do padrão. Ambas trazem
+estado novo a gerir (temporizadores, um segredo extra) — sem urgência
+enquanto a família continuar pequena.
 
 ### Controlo remoto — decisão separada, marcada de propósito
 
@@ -390,6 +366,35 @@ parte para não entrar disfarçado de screen sharing.
   abrir a app por iniciativa própria, o cenário exato que o Q5 existia para
   cobrir. F-13 (retoma de upload na PWA) e F-14 (autorização manual) são
   trabalho a agendar, não bugs. Os três primeiros formam o S10 abaixo.
+- **Review4** (`audit/Review4.md`, 04/09/2026): auditoria do S10 completo,
+  postura de "advogado do diabo" — "aprovado com recomendações". T1 e T2 do
+  S10 saem confirmados sem reparo; o T3 (autorização por convite) rende seis
+  achados novos (F-15 a F-20), um só de severidade ALTA. **F-15** é o único
+  com peso real: `convidar()` lê e decide sobre a `Ficha` do convite, e só
+  apaga o `de` num pedido de escrita à parte depois — sem trinco nenhum
+  entre os dois passos, dois pedidos concorrentes para o mesmo link (o
+  cenário natural de um link reencaminhado e aberto por duas pessoas ao
+  mesmo tempo) autorizam-se os dois, o mesmo furo que o T3 achou e corrigiu
+  para "ao longo do tempo" continua aberto para "ao mesmo tempo". F-16 a
+  F-20 (perda silenciosa de convites na PWA em erros HTTP não-2xx,
+  notificação FCM presa na barra, convite órfão sem CTA para a app, cache de
+  OAuth2 e limite de débito em falta em `/convite`, `autorizados.txt` sem
+  quebra de linha garantida) são achados reais mas menores. Formam o S11
+  abaixo — a cache de OAuth2 fica de fora, decisão já tomada e documentada
+  em `fcm.rs`, reafirmada por não haver tráfego novo que a justifique.
+- **Review5** (`audit/Review5.md`, 04/09/2026): revisão do *planeamento* do
+  S11 antes de arrancar (nenhum código ainda existia) — "aprovado com
+  ressalvas críticas". Achou uma inconsistência real no desenho do T1:
+  apagar `de` **antes** de `autorizar()` partia a própria retentativa que
+  o F-16 pede — um 500 a meio deixava o convite já sem `de`, por isso a
+  retentativa da PWA caía num 403 definitivo em vez de repetir a
+  autorização (o "Ghost Burn", corrigido no desenho abaixo: autorizar
+  primeiro, apagar `de` só depois de confirmado). Mais quatro ajustes ao
+  T2/T3: CTA permanente no rodapé além do pós-descarga (F-17), limpeza da
+  notificação especificamente em `onResume()` (F-18), isolamento dos
+  testes de `/convite` face ao balde partilhado (F-19), escrita única no
+  `append` do `autorizados.txt` (F-20). Incorporados abaixo antes de
+  qualquer linha de código do S11 ser escrita.
 
 ---
 
@@ -405,6 +410,8 @@ parte para não entrar disfarçado de screen sharing.
 - [x] **S8 — PWA iOS** (as seis fases construídas; P1/P2/P5/P3/P6 provados no iPhone real; P4 provado contra o Chrome/FCM a sério, falta confirmar a entrega da Apple)
 - [x] **S9 — Distribuição e exposição pública** (Q1 a Q5 feitos e verificados de ponta a ponta — musl, retoma de descarga, limitador de débito, DDNS pública, push FCM Android)
 - [x] **S10 — Fechar o que a Review3 encontrou** (T1, T2 e T3 feitos e verificados de ponta a ponta — limitador de débito corrigido, notificação FCM a acordar a app, autorização automática por link de pareamento)
+- [x] **S11 — Fechar o que a Review4 encontrou** (T1 corrige a corrida no consumo do convite e a perda silenciosa de convites na PWA; T2 fecha o ciclo de vida da descoberta e da notificação; T3 dá limite de débito a `/convite` e escrita segura ao `autorizados.txt`)
+- [ ] **S12 — Ficheiros grandes (>1 GB) e emparelhamento por QR** (T1 e T2 implementados — código escrito, typecheck e build limpos, por provar em hardware real (regra 3), ver handoff; T3, a validação com ficheiro real >1 GB e queda de rede a sério, continua em aberto)
 
 ### S1 — Primitivas do núcleo ✅
 
@@ -612,686 +619,71 @@ Já fechados nesta análise, sem código a mudar mais: o buraco dos `Conhecidos`
 
 ### S8 — PWA iOS
 
-**Levantamento de 01/09/2026, antes de arrancar:** `ui/src/lib/api.ts` — as
-12 funções que a interface usa (`identidade`, `dispositivos`,
-`enviarFicheiro`, `buscarNoRelay`, `criarLigacao`, `cancelar`, os eventos…) são
-**todas** `invoke()`/`listen()` do Tauri. Nenhuma existe fora de um WebView
-com Rust por trás — um Safari a abrir a app hoje não tem onde bater. O
-`pagina/` (R5) só resolve "abrir um link": sem identidade persistente, sem
-selar, sem subir nada. O S8 é maior do que as três balas que aqui estavam.
+Decisão de arquitetura: a app do iPhone é a **mesma interface Svelte**
+(`ui/`) a correr sem Tauri — não uma página à parte — para o design
+(`design/claude-design/`) e a lógica viverem num sítio só, partilhados por
+desktop, Android e iOS. `api.ts` ramifica por `eTauri()` só nas funções com
+a mesma forma nos dois lados; a app instalável fica servida **só pelo Pi**
+(`localStorage` é por origem), com os dois nós de casa (R4) acedidos por
+`fetch()` com CORS.
 
-**Decisão de arquitetura:** a app do iPhone é a **mesma interface Svelte**
-(`ui/`) a correr sem Tauri — não uma página à parte em JavaScript simples.
-Só assim o design (`design/claude-design/`) vive num sítio só e serve os três
-consumidores (desktop, Android, iOS) de vez, como o desenho original sempre
-previu ("ui/ ... quatro consumidores").
+- [x] **P1 — Fundação instalável.** `manifest.json`, ícones, service worker
+      mínimo, `--app <ui/dist>` no relay.
+- [x] **P2 — Identidade sem Tauri.** `wasm-backend.ts` gera e persiste a
+      identidade em `localStorage`; `pagina/` ganhou `IdentidadeWasm`.
+- [x] **P5 — Enviar do iPhone.** Sobe **só ao relay** (mixed content bloqueia
+      HTTPS→HTTP direto); o destino aprende-se ao abrir um link criado no
+      desktop.
+- [x] **P3 — Receber ao abrir a app.** `Descarga.daCaixa`, o mesmo caminho do
+      R5; até 500 MB juntam-se em memória (limite não medido no iPhone),
+      acima falha com aviso — sem proxy de streaming.
+- [x] **P6 — Design responsivo.** `design/claude-design/` aplicado a `ui/`,
+      390px a 4K, herdado de graça por desktop e Android.
+- [x] **P4 — Push (VAPID/RFC 8292).** `relay/src/vapid.rs` + `/subscricao`;
+      provado a sério contra o FCM do Chrome. **Por confirmar:** a entrega
+      real do serviço de push da Apple — só ela pode fechar isto.
 
-Fases pequenas, ao estilo do S6/S7 — cada uma a acabar em algo que corre e se
-prova **no iPhone a sério**, não só em Chromium (regra 10; o R5 já mostrou
-que Chromium esconde coisas, como o `showSaveFilePicker`).
-
-**Desenho, antes de mexer (regra 8):**
-
-- **Um único sítio serve a app.** `localStorage`/`IndexedDB` são por origem —
-  uma PWA instalada a partir do Pi e outra a partir do A10 seriam duas apps
-  com identidades diferentes. A app fica servida **só pelo Pi**
-  (`raspberrypi...ts.net`, o nó sempre ligado); o A10 continua a ser só um
-  relay. A HA dos dois nós (R4) é para onde os **depósitos** vivem, não para
-  onde a app é servida — a `WasmBackend` fala com os dois por `fetch()`.
-- **CORS entra por causa disto.** A app do Pi vai chamar `/caixa` e
-  `/deposito*` no A10. Sem `Access-Control-Allow-Origin` (mais os cabeçalhos
-  `x-pombo-*` e `Range` no preflight), a chamada ao segundo nó falha em
-  silêncio no Safari e a HA parece funcionar até o Pi cair. Entra no P2/P3/P5,
-  onde o `fetch()` é escrito.
-- **Ordem real: P1 → P2 → P5 → P3 → P4 → P6**, não a ordem de leitura da
-  lista abaixo. `chaves_para()` só resolve depois de um `conhecidos.json` ter
-  sido escrito, e isso só acontece ao **receber** uma oferta assinada — nunca
-  aconteceu vindo do iPhone. Por isso ninguém consegue depositar *para* o
-  iPhone (P3) antes de o iPhone ter enviado *de* si próprio uma vez (P5). A
-  lista de tarefas fica pela ordem lógica de leitura; a ordem de trabalho é
-  esta.
-  - **Pré-mortem, uma linha:** se o depósito P5→relay morrer a meio da
-    subida, quem envia (o iPhone) vê `Falhou` e tenta de novo — exatamente
-    como já acontece no `depositar_em` de sempre; nada disto é novo código,
-    só um chamador novo.
-- **A primeira identidade do iPhone não está em `--autorizados`.** Gerada no
-  primeiro arranque (P2), o relay recusa-lhe o primeiro depósito com 403 até
-  o André a acrescentar aos dois nós e reiniciar o `pombo-relay` — o
-  `Autorizados` só se lê uma vez, ao arrancar (`montar()`). A interface tem de
-  mostrar a impressão digital em destaque no primeiro arranque para isto ser
-  uma instrução, não um mistério.
-
-- [x] **P1 — Fundação instalável.** `manifest.json`, ícones (`apple-touch-icon`
-      180×180 gerado sem canal alfa, confirmado a bytes — verificado com
-      `PIL.getextrema()`, não só de olho), meta tags do Safari
-      (`apple-mobile-web-app-capable` + a versão sem `apple-` que o Chrome
-      pede, `black-translucent`, `viewport-fit=cover`), service worker
-      mínimo (rede-primeiro-cai-para-cache, sem pré-carregar nomes de
-      ficheiro do build). `relay/` ganhou `--app <ui/dist>`: rota
-      `fallback()` do axum, que só dispara depois de todas as rotas
-      exatas — sem colisão possível com `/saude`, `/deposito*`, `/caixa`,
-      `/d/{id}`. **Provado em Chromium/loopback** (`sw.register` regista com
-      `scope: "/"`, manifest e ícones servidos com o `content-type` certo, 5
-      testes novos no `relay`); **HTTPS real, Add-to-Home-Screen e o modo
-      standalone no Safari continuam por provar no iPhone** — só aí o R7
-      (TLS) e este P1 se encontram a sério. Decisão tomada aqui, sem
-      perguntar: a app fica servida **só pelo Pi** (ver "Desenho" acima).
-- [x] **P2 — A `ui/` corre sem Tauri (identidade).** `api.ts` deteta
-      `window.__TAURI_INTERNALS__` e passa a chamar `invoke`/`listen` ou o
-      novo `wasm-backend.ts`, função a função — sem uma classe `PomboBackend`
-      formal: `enviarFicheiro`/`criarLigacao` têm assinaturas que só fazem
-      sentido no Tauri (caminho de ficheiro vs. `File` do browser), por isso
-      só as funções com a mesma forma nos dois lados (`identidade`,
-      `dispositivos`, `cancelar`, `buscarNoRelay`, `aoAcontecer`) ganharam
-      ramo — abstrair as outras à força seria a mesma interface a fingir que
-      dois desenhos diferentes são um só. `pagina/` ganhou `IdentidadeWasm`
-      (`gerar`/`deSegredo`/`numeroSeguranca`/`impressaoCurta`), bindings finos
-      sobre o `Identity` que já compilava para wasm32; a persistência em si
-      (ida e volta ao `localStorage`) fica em TypeScript — não há
-      `web-sys` novo, é a mesma API que qualquer página usa. **Provado em
-      Chromium/loopback:** a app carrega sem Tauri, gera uma identidade nova
-      na primeira visita, mostra o número de segurança real no separador
-      Definições, e mantém a mesma identidade a recarregar a página (bytes
-      de `localStorage` idênticos antes/depois). **Confirmado no iPhone
-      real (01/09/2026):** `localStorage` sobrevive à instalação como app no
-      ecrã principal — o computador aprendido por link antes de instalar
-      continuou lá depois. Não foi preciso `IndexedDB`. Mostrar a
-      impressão digital (`impressaoCurta()`) em destaque na interface fica
-      para o P5, que é quando ela passa a ser precisa (`--autorizados`).
-**Desenho do P3, antes de mexer (regra 8):**
-
-- **`Descarga` ganha um segundo construtor, não um struct novo.** O de
-  sempre (`nova`) abre o envelope com a `TransferKey` do fragmento do URL;
-  o da caixa (`daCaixa`) abre-o com a `Identity` do dispositivo
-  (`Envelope::open`). Os dois chegam ao mesmo sítio — um `Descarga` com o
-  manifesto validado — e daí para a frente é o código que o R5 já tem e já
-  testa (`bloco`, `proximo_tamanho`, o índice como AAD): sem isto duplicava-
-  -se a lógica de abrir blocos, que é a parte que mais importa não errar.
-- **Igual ao `trazer()` nativo, minus a escrita em disco.** Consulta
-  `/caixa` (assinado), para cada id por completar salta (`trazer()` também
-  salta — "um depósito que ainda esteja a subir fica para a próxima"),
-  descarrega `/deposito/{id}/blocos`, decifra bloco a bloco.
-- **Memória, com um limite explícito, não "até rebentar".** Sem
-  `showSaveFilePicker` fiável (é o mesmo R5 que já sabia disto), os blocos
-  decifrados juntam-se num `Blob`. Um ficheiro maior do que
-  `LIMITE_MEMORIA` (o mesmo número do `pagina.js`, 500 MB, por
-  consistência — **não medido em iPhone real**) não se tenta: falha com uma
-  mensagem clara em vez de arriscar a aba. O proxy de streaming por
-  service worker (para lá desse limite) fica de fora desta fase — o
-  próprio texto do S8 já dizia que o limiar certo só se mede no aparelho a
-  sério, e construir o proxy sem poder validar o número não prova nada a
-  mais; entra se/quando um ficheiro real do tamanho de um vídeo do iPhone
-  mostrar que faz falta.
-- **Descarregar sem gesto de clique.** `buscarNoRelay()` corre ao abrir a
-  app (não a um clique) — um `<a download>` disparado por script chega para
-  gravar o ficheiro, mas não é `showSaveFilePicker` e por isso não pede
-  onde guardar. **Confirmado no iPhone real:** o Safari deixa passar um
-  download disparado por script, sem bloquear e sem gesto nenhum.
-- **Pré-mortem, uma linha:** se a descida cair a meio, o depósito fica
-  incompleto no relay (não se apaga) e a próxima `buscarNoRelay()` tenta-o
-  de novo do princípio — sem retoma nesta fase, pela mesma razão do P5
-  (`ponytail`, mesma nota).
-
-- [x] **P3 — Receber pelo relay ao abrir a app.** Equivalente ao
-      `buscarNoRelay()` do Android, em wasm+`fetch()`: consulta `/caixa`,
-      decifra e verifica com o `core/` (`Descarga.daCaixa`, que reutiliza
-      toda a verificação por bloco do R5). Ficheiros até 500 MB juntam-se
-      num `Blob` e descarregam-se sozinhos (`<a download>` clicado por
-      script); acima disso falha com aviso em vez de arriscar a aba —
-      **o proxy de streaming por service worker fica de fora**, por decisão
-      registada acima, não por esquecimento. **Provado em
-      Chromium/loopback**, processos a sério (relay, `pombo enviar` nativo,
-      PWA a receber por `buscarNoRelay()`), byte a byte idêntico.
-      **E confirmado no iPhone real (01/09/2026):** ficheiro depositado do
-      computador chegou igual ao iPhone, descarregado sozinho ao abrir a
-      app, sem gesto de clique e sem o Safari bloquear nada. O limite exato
-      de memória continua por medir (não houve ficheiro perto de 500 MB à
-      mão), mas o caminho abaixo desse limite está provado.
-      **Correção pós-P5/P3, apanhada pelo `advisor()` a rever a sessão:** o
-      cartão de dispositivo novo mostrava o número de segurança em branco
-      — `Descarga` ganhou `numeroSegurancaDe()`, testado.
-
-**Ordem revista: P6 antes do P4.** O P4 (push) não tem uma única linha
-verificável a partir daqui — o `PushManager` só existe depois de instalar
-no ecrã principal, e a entrega passa pelo serviço de push da Apple até a um
-aparelho real. O P6 (design responsivo) é o inverso: prova-se por inteiro
-em Chromium (`browser_resize` a 720p–4K, sem servidor nenhum de terceiros
-envolvido), e o André pediu-o explicitamente à parte. Trocada a ordem por
-isso — não por o P4 ser menos importante.
-
-- [x] **P4 — Push.** Construído a pedido explícito do André, depois de eu ter
-      proposto adiar (o bloqueio original: `pushManager.subscribe()` só
-      existe depois de instalar no ecrã principal, e é essa chamada que dá o
-      endpoint e o público a que o relay assina o JWT — não havia como
-      escrever a assinatura ES256 sem a primeira execução a sério ser contra
-      um serviço de push de verdade). O André decidiu avançar mesmo assim.
-      **VAPID (ES256, RFC 8292):** `relay/src/vapid.rs` gera o par P-256 na
-      primeira vez e guarda o escalar em `<dados>/vapid_chave`, `0600` — o
-      mesmo `--dados` que já guarda os depósitos, já fora do `git` de
-      propósito, por isso sem flag nova nenhuma a inventar. `GET /vapid`
-      devolve a chave pública (sem segredo, sem autenticação); `POST
-      /subscricao` guarda a subscrição do browser, assinado como tudo o
-      resto (`autenticado::verificar`, ação `"subscricao"`, `extra` = o
-      `endpoint` — sem isso, uma assinatura apanhada a subscrever servia
-      para registar o endpoint de outra pessoa em nome de quem a apanhou).
-      **O aviso sai só quando o depósito fica completo** (`subir()`, não
-      `criar()`) — avisar mais cedo mandava quem recebe atrás de um
-      manifesto que a `caixa` já lista mas que ainda não fecha (P3/P5 não
-      sabem retomar). Um `410`/`404` do serviço de push apaga a subscrição
-      morta sozinho.
-      **Simplificação deliberada (`ponytail:` no código):** o service worker
-      **não** pergunta ao `/caixa` sozinho — mostra sempre o mesmo aviso
-      genérico ("Chegou um ficheiro novo"). O desenho original queria isso
-      sem carga nenhuma, mas o service worker não tem acesso a
-      `localStorage` (só a `IndexedDB`), e ir lá buscar a identidade para
-      assinar um pedido a sério dobrava o âmbito desta fase por pouco — o
-      clique na notificação já abre a app, que faz exatamente essa pergunta
-      sozinha (P3, já construído). Teto: nenhuma pré-visualização do que
-      chegou na própria notificação; sobe quando isso for pedido a sério.
-      **Provado, não só em Chromium simulado — contra o serviço de push a
-      sério do Chrome (FCM), com o botão "Ativar notificações" a sério em
-      Definições:** `pushManager.subscribe()` aceitou a chave pública VAPID
-      e devolveu um `endpoint` genuíno da Google; `POST /subscricao`
-      guardou-a (`204`). Cinco testes de integração
-      (`relay/tests/deposito_http.rs`, módulo `push`) provam a escada
-      completa contra um serviço de push falso que captura o pedido a
-      sério: o aviso só sai depois de o depósito ficar completo (não a meio
-      de uma subida cortada), o cabeçalho `Authorization: vapid t=…, k=…`
-      está bem formado, o `aud` do JWT bate com a origem do **serviço de
-      push**, não com a do relay, um `410` apaga a subscrição, e um depósito
-      sem subscrição continua a entregar-se na mesma. Um teste de
-      auto-verificação (`vapid::testes`) assina um JWT e confirma-o com a
-      própria chave pública — é o que teria apanhado um erro de codificação
-      da assinatura (DER em vez de r‖s) que um serviço de push a sério
-      recusaria em silêncio com 401, sem dizer porquê.
-      **Achado a rever isto antes de escrever código:** o `relays` dos dois
-      nós de casa tinha o A10 primeiro — "ao depositar, fica-se com o
-      primeiro que responder ao `/saude`" — e a PWA só verifica a própria
-      origem (o Pi) ao buscar. Um envio nativo para um contacto aprendido
-      por link caía sempre no A10, onde a PWA nunca olharia; sem isso
-      corrigido, o P4 não teria nada de real para desencadear. Corrigido
-      (Pi primeiro nos dois `relays`) e documentado no `COMO_CORRER.md`.
-      **Por confirmar no iPhone real:** tudo — a Apple é um serviço de push
-      diferente do Chrome/FCM, e o `PushManager` só existe depois da
-      instalação. O que muda em relação ao resto do S8: desta vez a
-      mecânica de fio (formato do JWT, do pedido, da chave pública) já foi
-      testada contra infraestrutura a sério, só não a da Apple — o risco que
-      sobra é mais estreito do que "nada disto correu fora de um mock".
-      `CLAUDE.md` diz para não fechar sem máquina real.
-**Desenho do P5, antes de mexer (regra 8) — revisto depois de ler o código a
-sério, não só o resumo do plano:**
-
-- **O caminho direto está fora, para sempre, não "por agora".** A PWA corre
-  em HTTPS (tem de correr, para ser instalável); o `receber::servir` de um
-  familiar fala HTTP simples na LAN. Uma página HTTPS não pode fazer
-  `fetch()` a HTTP — é *mixed content*, bloqueado pelo browser, não uma
-  falta de código nossa. A escada do iPhone tem **um degrau só: o relay.**
-  Isto fecha a dúvida que ficava aberta no texto antigo da bala P5
-  ("direto se houver destino alcançável").
-- **`depositar_ligacao` não ensina nada a ninguém — verificado no código,
-  não assumido.** Corrigindo uma leitura anterior deste plano: pensava-se
-  que um link criado do iPhone via `CAIXA_LIGACAO` bastava para desbloquear
-  o `chaves_para()` do lado de casa. Não basta: um depósito `CAIXA_LIGACAO`
-  nunca aparece em nenhum `/caixa` (o filtro é por impressão digital, e a
-  `CAIXA_LIGACAO` não é uma), por isso `trazer()` — a única função que
-  escreve em `conhecidos.json` — nunca lhe toca. Criar um link não regista
-  o iPhone em lado nenhum.
-- **O que regista, de facto: `trazer()` em `rede/src/relay.rs:459-462`**,
-  chamado quando um dispositivo de casa faz `buscar_no_relay()` e encontra
-  um depósito **endereçado à sua própria identidade**. Para isso acontecer,
-  o iPhone precisa de saber, à partida, a `PublicIdentity` completa de
-  **um** dispositivo de casa — não só o nome, as duas chaves públicas.
-- **De onde vem essa identidade, sem inventar uma segunda cerimónia de
-  confiança:** a família já tem uma — o link sem instalação (R5). O André
-  cria um link no desktop (`criarLigacao`, já existe) e abre-o no iPhone.
-  A oferta que o `/d/{id}` serve já traz a `PublicIdentity` completa de
-  quem criou o link (`Oferta.de`); só faltava a página do lado do browser
-  guardá-la. Dá-se ao `Descarga` (em `pagina/`) um acessor novo para a
-  identidade completa (não só a etiqueta que `.de()` já dá), e o
-  `pagina.js` grava-a num registo próprio em `localStorage`
-  (`pombo-conhecidos`) — o mesmo ficheiro `pombo-relay` a servir os dois
-  papéis (a app instalada e a página do link), por isso é a mesma origem e
-  o mesmo `localStorage`. **Por confirmar no iPhone real:** se uma PWA
-  instalada no ecrã principal partilha mesmo o `localStorage` com o Safari
-  normal para a mesma origem — é a mesma incerteza do ITP já registada no
-  P2, agora com uma segunda consequência se for "não": sem partilha, este
-  truque de aprendizagem não chega à app instalada e passa a ser preciso
-  outra via (ainda por desenhar).
-- **Duas passagens pelo `File`, não uma — e é a mesma forma do caminho
-  nativo.** O relay exige o manifesto completo (raiz de Merkle) antes de
-  aceitar o `POST /deposito`; o manifesto só fecha depois de ver todos os
-  blocos. Por isso: 1ª passagem sobre o `File` (via `file.slice()`, sem
-  carregar o ficheiro todo — o `File` já vive fora da memória do
-  JavaScript) só para resumir cada bloco e fechar o manifesto; 2ª passagem
-  sela e sobe cada bloco. É exatamente o que `depositar_em` já faz em
-  Rust nativo (`Manifest::from_reader` primeiro, `fluxo_selado` depois,
-  reabrindo o ficheiro) — não é um desenho novo, é o mesmo com `File.slice`
-  no lugar de `std::fs::File`.
-- **A fórmula da assinatura passa a viver num sítio só.** Existia
-  duplicada — `relay/src/autenticado.rs::mensagem()` (quem verifica) e
-  `rede/src/relay.rs::assinado()` (quem assina, nativo) — e o wasm ia ser
-  uma terceira cópia. Três cópias de um formato de string
-  (`"pombo-{acao}-v1|{impressao}|{extra}|{instante}"`) seria o tipo de
-  coisa que diverge um dia sem ninguém notar até uma assinatura deixar de
-  bater. Move-se para `core::protocolo::mensagem_assinada`, e os dois
-  sítios existentes passam a chamá-la.
-- **CORS entra a sério aqui, não é só teoria do P1.** A PWA fica servida
-  pelo Pi (decisão do S8); os pedidos assinados ao A10 são de outra
-  origem. Sem `Access-Control-Allow-Origin` e sem os cabeçalhos `x-pombo-*`
-  no preflight, o segundo nó fica inacessível a partir do Safari — a HA do
-  R4 degrada-se para um nó só, em silêncio, sem erro nenhum que o diga.
-  Como a autorização já vem da assinatura (não do CORS), abrir largo aqui
-  não abre nada que a assinatura já não guardasse.
-- **A impressão digital sai já no P5, não fica adiada.** É aqui que o
-  primeiro depósito do iPhone pode levar 403 (não está em
-  `--autorizados`) — a interface mostra `impressaoCurta()` em destaque
-  antes de se tentar depositar, não só depois de falhar.
-- **Pré-mortem, uma linha:** se o `PUT` do depósito morrer a meio da
-  segunda passagem, o iPhone vê `Falhou` (o mesmo evento de sempre) e o
-  utilizador tenta outra vez — a retoma por `?de=N` já existe do lado do
-  relay; o P5 não teve de inventar nada aí, só usar.
-
-- [x] **P5 — Enviar do iPhone.** `<input type=file>` escondido faz de
-      seletor (o Tauri `open()` não existe fora do Tauri); duas passagens
-      pelo `File` (resumir com `ManifestoBuilderWasm`, depois selar com
-      `selarBloco`/`construirOferta` e subir por um único `PUT` com corpo
-      `Blob`); sobe **só ao relay**, nunca direto — confirmado, não só
-      previsto: mixed content bloqueia mesmo `fetch()` HTTPS→HTTP. O
-      destino aprende-se ao abrir um link criado no desktop: `Descarga`
-      ganhou `remetenteJson()`, e o `pagina.js` grava a `PublicIdentity` de
-      quem criou o link em `localStorage` (`pombo-conhecidos`), que a app
-      instalada lê em `listarDispositivos()`. A fórmula de assinatura dos
-      pedidos ao relay (`core::protocolo::mensagem_assinada`) deixou de
-      estar duplicada — o `relay/` e o `rede/` nativo passaram a usá-la
-      também. O relay ganhou CORS (`tower-http`, largo de propósito: quem
-      autoriza é a assinatura) para a HA entre os dois nós continuar a
-      valer a partir do Safari.
-      **Provado de ponta a ponta, com processos a sério, não só em
-      loopback simulado:** `pombo-relay --app ui/dist`, um `pombo ligacao`
-      nativo aberto no Chromium (aprende o destinatário), um ficheiro
-      enviado da PWA por `fetch()`, e `pombo caixa` nativo a recebê-lo —
-      **byte a byte idêntico** (`diff` limpo) — com o aviso de "dispositivo
-      novo" a aparecer corretamente do lado de quem recebe. O "criar link"
-      a partir da PWA também foi provado (a página do link abre, decifra o
-      manifesto e mostra nome/tamanho corretos). **Simplificações
-      deliberadas** (`ponytail:` no código): uma só tentativa de subida,
-      sem retoma; um único relay (a própria origem da PWA), sem HA do
-      lado do emissor. **Confirmado no iPhone real (01/09/2026):** o
-      `localStorage` partilhado entre a PWA instalada e o Safari normal (de
-      que o aprender-por-link depende) sobrevive à instalação — envio e
-      receção nos dois sentidos, entre o iPhone a sério e a app do
-      computador, byte a byte iguais, com uma correção no caminho: ver
-      "bug do `buscarNoRelay()` só ao arranque" na secção seguinte.
-- [x] **P6 — O design a sério, responsivo.** A extração do design empacotado
-      (`design/claude-design/_ds/nocturne-.../styles.css` — o sistema já
-      linkado a partir do `.dc.html`, não a página composta) confirmou que
-      o `app.css` do S5 já usava a folha certa; o que faltava era o `@font-
-      face` do "Inter" que só existe resolvido dentro da ferramenta de
-      design (a raiz do `OTS parsing error` do P1) — **removido**, com
-      `system-ui` (já era o segundo nome em `--font-heading`/`--font-body`)
-      a fazer de letra, sem ficheiro nenhum a servir. `ui/src/App.svelte`
-      ganhou uma grelha responsiva para "Os teus dispositivos"
-      (`grid-template-columns: repeat(auto-fill, minmax(240px, 1fr))` —
-      1 coluna num telemóvel, várias num ecrã largo, sem pontos de quebra à
-      mão) e `.app` passou de 780px fixo para `clamp(780px, 70vw, 1400px)`
-      (texto continua estreito e legível; a grelha ganha espaço em ecrãs
-      grandes). Dois bugs visuais **encontrados a testar, não hipotéticos**:
-      o cartão "Para quem não tem a app" sobrepunha-se a si próprio em
-      telemóvel (`.linha:has(.btn-block-mobile)` empilha agora abaixo de
-      480px) e `--autorizados` partia a meio do "--" ao fim da linha
-      (`code { white-space: nowrap }`). **Provado em Chromium**:
-      `browser_resize` a 390 (telemóvel), 768 (tablet), 1280×720, 1920×1080,
-      2560×1440 e 3840×2160, nos dois temas — sem deslocamento horizontal
-      em nenhum (`scrollWidth === clientWidth` confirmado), grelha a 1→7
-      colunas conforme a largura. Por ser o mesmo `ui/` em todo o lado, o
-      desktop e o Android herdam o resultado de graça — nenhuma das duas
-      builds foi corrida nesta verificação (fora do alcance daqui), mas não
-      tocaram em nada que as distinga da PWA.
-
-Cada fase segue a regra 8 (desenhar antes de implementar) quando arrancar a
-sério — este roteiro é a ordem de trabalho, não o desenho protocolar de cada
-peça.
-
-### Estado do S8 (01/09/2026) — as seis fases construídas, cinco provadas no iPhone real
-
-**Cinco fases fecharam com prova de ponta a ponta entre aparelhos a sério —
-o computador (app nativa, A10) e um iPhone real, não só Chromium/loopback:**
-P1, P2, P5, P3, P6. Envio e receção nos dois sentidos, byte a byte iguais;
-instalação no ecrã principal, modo isolado; `localStorage` sobrevive à
-instalação (a incerteza repetida em P2/P3/P5, fechada); descarga disparada
-por script no Safari, sem gesto de clique, sem bloqueio.
-
-**O P4 (push) fechou depois, a pedido explícito do André** — eu tinha
-proposto adiá-lo (ver a bala do P4 para o porquê). Provado contra o serviço
-de push a sério do Chrome (não o da Apple — ver a bala) e por cinco testes
-de integração contra um serviço de push falso que captura o pedido HTTP
-real. Ainda por confirmar no iPhone: tudo o que só a Apple pode confirmar.
-
-**Dois bugs reais, só visíveis a testar com o iPhone a sério, não hipotéticos:**
-
-- **`buscarNoRelay()` só corria uma vez, ao abrir a app** (`App.svelte`,
-  tanto no Tauri como na PWA) — quem já tinha a app aberta antes de o outro
-  lado enviar nunca reparava no depósito novo, sem reiniciar. O comentário
-  no Rust já dizia "chamado ao abrir a app e **de vez em quando** pela
-  interface", mas nada chamava o "de vez em quando". Passou a correr no
-  mesmo temporizador de 4 s que já refrescava a lista de dispositivos.
-- **O texto do ecrã vazio de dispositivos mentia em modo PWA:** "Abre o
-  Pombo-Correio noutro aparelho, na mesma rede. Aparece aqui sozinho" — verdade
-  no Tauri (mDNS), falso na PWA (sem mDNS possível num browser; só se
-  conhecem por link). Corrigido para um texto próprio nesse modo.
-
-Os dois foram corrigidos, reconstruídos e reimplantados (Pi + A10) antes da
-confirmação final do André.
-
-**O S8 está construído por inteiro.** Falta um guião de verificação no
-iPhone para o P4 — pedir permissão de notificações em Definições, esperar
-por um depósito, confirmar que a notificação chega e que tocar nela abre a
-app — o único passo que só a Apple pode fechar.
+**Confirmado a sério no iPhone real (01/09/2026)**, não só em Chromium: P1,
+P2, P5, P3, P6 — instalação no ecrã principal, `localStorage` a sobreviver,
+envio e receção nos dois sentidos byte a byte, descarga disparada por
+script sem gesto de clique. Dois bugs só visíveis fora do Chromium,
+corrigidos (`buscarNoRelay()` só corria uma vez ao abrir a app; o ecrã
+vazio de dispositivos prometia deteção automática que a PWA não tem). Ver
+`BACKLOG.md` para o desenho completo de cada fase e a prova de ponta a
+ponta.
 
 ### S9 — Distribuição e exposição pública
 
-Nasce da Review2 (secção 7) mais o que já ficava por fechar do S7: FCM no
-Android (metade do R6, a outra metade — Web Push iOS — já fechou no S8) e os
-binários musl que nunca chegaram a arrancar. Nenhuma das cinco fases é um
-bug — a Review2 não encontrou nenhum achado crítico nem médio no S8; isto é
-trabalho novo, não reparação.
+Nasce da Review2 (secção 7) mais o que ficava por fechar do S7: FCM no
+Android (a outra metade do R6, Web Push iOS já fechado no S8) e os
+binários musl.
 
-**Duas fases não têm bloqueador nenhum** (musl, retoma de descarga) e podem
-arrancar já; as outras três dependem de uma decisão ou conta do André. Ver
-"Antes do S9".
-
-- [x] **Q1 — Binários musl estáticos (amd64 + arm64).** Feito com `cross`
-      (docker por trás) em vez de instalar toolchains cruzados à mão — o
-      `apt` só tem `musl-tools` para `x86_64`, nada para `aarch64-musl`. As
-      imagens `:0.2.5` por omissão do `cross` têm `glibc` velha demais para
-      o `rustc` atual (falha a compilar `libc`/`zeroize_derive`); fixadas as
-      `:edge` num `Cross.toml` novo na raiz. **Provado real, não só em
-      loopback**: o binário `x86_64` corre dentro de um `alpine` (zero
-      `glibc`) e responde a `/saude`; o `aarch64` foi copiado a sério para o
-      Pi 5 (Debian, sem `musl` instalada) e correu lá, também a responder a
-      `/saude` — `ldd` confirma "não é um executável dinâmico" nos dois.
-      Comandos em `COMO_CORRER.md`.
-- [x] **Q2 — Retoma de descarga na PWA (Review2 F-08).**
-
-      **Desenho (regra 8), antes de mexer:** o cliente nativo
-      (`rede/src/relay.rs::trazer`) já resolve isto — três tentativas
-      (`TENTATIVAS`), cada uma a retomar do byte da fronteira do último
-      bloco completo (`byte_do_bloco`, arredondado **para baixo**: o que o
-      relay tenha a mais é meio bloco selado que ninguém abre). A PWA fica
-      com o mesmo desenho, mas mais simples de escrever: o objeto wasm
-      `Descarga` (`d`) já guarda internamente quantos blocos decifrou —
-      **não recriar `d` entre tentativas** é suficiente para reter o
-      progresso, sem precisar de `IndexedDB` nem de nenhum estado novo. O
-      `feitos` que o código já conta para os eventos de progresso dá o
-      deslocamento: `feitos * (tamBloco + SEAL_OVERHEAD)`, o mesmo cálculo
-      do `byte_do_bloco` nativo — `tamBloco` é fixo (`m.tamanhoBloco()`,
-      só o último bloco é mais pequeno, e nunca é o que fica a meio de uma
-      retoma porque é sempre o último a pedir-se).
-
-      **O que cada lado observa:** a rede cai a meio de um `leitor.read()`
-      → a promessa nunca resolve com `done` limpo, ou rejeita — o buffer
-      parcial desse bloco é descartado (uma variável local, nunca chega a
-      `d.bloco()`), a próxima tentativa pede `Range: bytes=N-` a partir do
-      último bloco **completo**, o relay responde com esses bytes outra
-      vez (no máximo um bloco redundante, nunca dados corrompidos). Se a
-      rede cair **exatamente** na fronteira de um bloco selado, é o mesmo
-      caso: nenhum bloco parcial ficou pendurado, só a tentativa seguinte
-      continua dali. Se as três tentativas falharem, cai-se no
-      comportamento que já existe hoje: `trazer()` devolve `false`, e o
-      próximo `buscarNoRelay()` (4 s depois, no temporizador do
-      `App.svelte`) recomeça do zero com um `d` novo — para isto se tornar
-      relevante a rede tinha de estar em baixo minutos a fio, o que já era
-      verdade antes desta fase. Do lado do relay não muda nada: um `GET`
-      com `Range` não mexe no temporizador de limpeza horária (R1); se o
-      depósito expirar a meio das três tentativas (só possível se a rede
-      esteve mesmo muito tempo em baixo), a tentativa seguinte recebe 404,
-      cai no mesmo "falhou" genérico de sempre — não é um caso novo.
-
-      **Corrida encontrada a desenhar isto, não hipotética:** o
-      `setInterval` de 4 s em `App.svelte` **não espera** o
-      `buscarNoRelay()` anterior acabar. Hoje isso quase nunca importa
-      porque uma descida sem retoma é rápida; com três tentativas a
-      esticar quanto tempo um `trazer()` pode ficar em curso num Wi-Fi
-      mau, duas chamadas concorrentes ao **mesmo** `idRelay` deixam de ser
-      só teóricas — cada uma criaria o seu próprio `d`, descarregaria o
-      ficheiro a dobrar e tentaria apagar o depósito duas vezes. Corrigido
-      com um `Set<string>` module-level em `wasm-backend.ts`: `trazer()`
-      salta um `idRelay` já em curso, em vez de arrancar uma segunda
-      descida. Sem isto, esta fase tornava um bug latente e raro num bug
-      frequente.
-
-      **Pré-mortem, uma linha:** se a ligação morrer a meio de uma
-      tentativa, o browser conclui "falhou esta tentativa, tenta a
-      próxima com o que já tem" — nunca "perdi tudo, recomeça do zero" a
-      não ser que as três falhem; o relay não conclui nada, porque não
-      distingue uma descida normal de uma retomada.
-
-      **Provado a sério, contra o relay real, não um mock:** o `page.route()`
-      do Playwright não intercetou o `fetch()` em stream de `.../blocos`
-      nesta configuração (confirmado com três abordagens diferentes — ver
-      `BACKLOG.md`), por isso a queda de rede foi simulada a direito num
-      script que corre a mesma sequência do `trazerUmaVez()` (byte a byte
-      igual, correndo contra o `pombo_correio_pagina.js` a sério) dentro do
-      browser, contra um depósito real de ~2,5 blocos (2 621 440 bytes)
-      auto-endereçado. Cortada a 1ª tentativa a meio do 2º bloco: a 2ª
-      tentativa pediu exatamente `Range: bytes=1048616-` (a fronteira do 1º
-      bloco selado, `tamBloco + SEAL_OVERHEAD`), recuperou os 3 blocos, e o
-      ficheiro remontado bateu byte a byte com o original — a autenticação
-      AEAD do `d.bloco()` teria falhado sozinha se a retoma tivesse desviado
-      um único byte. O caminho feliz (sem queda nenhuma) continua provado
-      pela app a sério, sem interceção nenhuma: depósito, temporizador de
-      4 s a apanhá-lo, descarga e `DELETE` automático, como antes desta
-      fase. **Não testado ao vivo**: o `Set` `emCurso` (revisto por leitura,
-      não por uma corrida provocada a sério).
+- [x] **Q1 — Binários musl estáticos (amd64 + arm64).** Com `cross`
+      (`:edge`, não `:0.2.5` — `glibc` velha demais). Corridos a sério fora
+      da LAN: `aarch64` no Pi 5 sem `musl` instalada, `x86_64` num Alpine.
+- [x] **Q2 — Retoma de descarga na PWA (Review2 F-08).** Mesmo desenho do
+      cliente nativo (`trazer()`): não recriar o `Descarga` wasm entre
+      tentativas basta para reter o progresso, sem `IndexedDB` nem estado
+      novo. Provado a sério contra uma queda de rede real, não simulada por
+      interceção.
 - [x] **Q3 — Limitador de débito (Review0 F-02 / Review2 F-09).**
-      `tower_governor` sobre um sub-`Router` só com as rotas públicas sem
-      assinatura nenhuma (`/saude`, `/vapid`, `GET /d/{id}`) — as outras já
-      custam uma identidade Ed25519 gerada, não um pedido HTTP, por isso
-      ficam de fora. Chave por IP do TCP (`PeerIpKeyExtractor`), não por
-      `X-Forwarded-For`: não há proxy nenhum entre o cliente e o relay,
-      nem antes nem depois do Q4. `ponytail:` 5 de rajada, 1/s a reencher —
-      números de partida, por afinar quando o Q4 puser o relay mesmo
-      alcançável de fora da tailnet.
+      `tower_governor` nas rotas públicas sem assinatura, chave por IP do
+      socket TCP.
+- [x] **Q4 — DDNS pública (DuckDNS).** `pombo-correio.duckdns.org`, TLS a
+      sério (`acme.sh`, desafio DNS-01) atrás de um `nginx` novo no Pi.
+      Verificado de fora a sério (`check-host.net`, não só loopback/LAN).
+      Os quatro dispositivos de casa autorizados a sério em
+      `--autorizados`.
+- [x] **Q5 — Push FCM (Android), o resto do R6.** `relay/src/fcm.rs` — JWT
+      RS256 → access token OAuth2 → FCM HTTP v1, sem carga (mensagem
+      vazia, só acorda a app, prioridade alta). Confirmado a sério na
+      OnePlus Pad 2: token real, subscrição registada, entrega
+      `ENTREGUE` pela API da Google.
 
-      **Armadilha encontrada a testar, não hipotética:** `PeerIpKeyExtractor`
-      precisa do IP real do TCP, que só chega ao `axum` com
-      `into_make_service_with_connect_info::<SocketAddr>()` em vez do
-      `Router` nu. Mudei o `axum::serve` de produção (`servir()`) mas
-      esqueci o dos testes (`servir_em_porta_livre_com_pagina_e_app`) — sem
-      o `ConnectInfo`, o extrator falha a **todos** os pedidos, não só aos
-      que excedem o limite: 5 dos 51 testes do `relay` começaram a falhar,
-      todos os que tocam em `/saude`/`/vapid`/`/d/{id}`, um só pedido cada,
-      bem dentro da rajada de 5 — o sintoma certo apontava para a causa
-      errada (parecia "o limite é baixo demais", era "o extrator nunca
-      encontra o IP"). Corrigido nos dois sítios; os 51 testes voltaram a
-      passar, mais dois novos (`rajada_no_saude_acaba_por_levar_429`,
-      `a_mesma_rajada_nao_atinge_uma_rota_autenticada`, este último a provar
-      que martelar `/saude` não arrasta `/caixa` com ele). `cargo clippy -p
-      pombo-correio-relay --all-targets`: zero avisos.
-- [x] **Q4 — DDNS pública (DuckDNS).** Expor o relay a quem não tem
-      Tailscale instalado. Bloqueado no token do André (ver "Antes do S9").
-      Entra depois ou junto do Q3 — nunca antes, para não abrir a porta sem
-      o limitador de débito de pé.
-
-      **Estado a 02/09/2026:** o encaminhamento de porta (TCP 53319, router
-      NOS → Pi) já está criado e ativo — o Q4 chegou antes do DuckDNS
-      propriamente dito, porque o `--autorizados` (que já era pré-requisito
-      escrito desde a análise "Antes do S8") passou de teórico a urgente
-      assim que a porta abriu. Feito antes de continuar: `--autorizados` a
-      sério no Pi (`~/.local/share/pombo-relay/autorizados`), com as
-      impressões atuais de A10 (CLI e app) e do iPhone; testado a sério — um
-      depósito real do A10 passou.
-
-      **Bug real encontrado a autorizar a tablet Android, não hipotético:**
-      a app não tinha onde mostrar a própria impressão digital — nem numa
-      build nova nem numa antiga. `impressaoDigital()` (`api.ts`) sempre
-      devolveu `null` no Tauri de propósito, com um comentário a dizer
-      "desktop/Android ainda não precisam de a mostrar" — verdade em S8,
-      quando só a PWA precisava de se autorizar sozinha; deixou de o ser
-      assim que o `--autorizados` se tornou obrigatório para toda a gente
-      (S9 Q4). Corrigido com um comando Tauri novo,
-      `impressao_digital` (`src-tauri/src/lib.rs`, reaproveita
-      `descoberta::impressao_curta` que já existia para o `dispositivos`
-      se filtrar a si próprio), ligado em `api.ts`. O cartão "Impressão
-      digital" em Definições passou a aparecer em todas as plataformas — só
-      teve de se separar do cartão "Notificações" (P4), que continua a só
-      fazer sentido na PWA (`{#if impressao && !eTauri()}`), senão o
-      Android ganhava um botão de push que não faz nada. Confirmado real:
-      apk assinado (`zipalign`+`apksigner`, chave de debug) instalado a
-      sério na OnePlus Pad 2 (`adb`), a impressão digital apareceu no ecrã,
-      o André leu-a e acrescentou-se ao `--autorizados`. **Todos os quatro
-      dispositivos de casa autorizados** (A10 CLI, A10 app, iPhone,
-      OnePlus Pad 2).
-
-      **Fechado a 02/09/2026:** domínio `pombo-correio.duckdns.org` (token do
-      André), IP mantido atual por um `duckdns-update.timer` no Pi (5 em 5
-      min, `curl` ao endpoint de update do DuckDNS). TLS a sério emitido por
-      `acme.sh --issue --dns dns_duckdns` (desafio DNS-01, sem abrir mais
-      nenhuma porta para isso) e instalado num `nginx` novo no Pi, que
-      termina TLS e reencaminha para o relay em `127.0.0.1:53319` — a mesma
-      ideia do "TLS pelo Tailscale" do R7 (nunca código de TLS nosso), só que
-      aqui é a ferramenta equivalente para um domínio público em vez da
-      tailnet. Ficou a faltar encaminhar a porta 443 no router para o Pi
-      (igual ao que já se tinha feito para a 53319); o André criou as duas
-      regras. `nginx` teve de ficar a ouvir em `192.168.1.232:443` e não em
-      `0.0.0.0:443` — o `tailscaled` já tinha a wildcard-equivalente ocupada
-      na sua própria interface, e um bind específico conflita com um bind
-      universal na mesma porta.
-
-      **Verificado de fora a sério, não só em loopback** (regra 3): local no
-      Pi deu 200 contra o hostname real; de fora, `check-host.net` (TCP
-      connect a `pombo-correio.duckdns.org:443` e depois um pedido HTTPS
-      completo a `/saude`) confirmou de nós na Áustria, Portugal e Ucrânia —
-      ligação aceite e `200 OK` com o certificado a validar contra o IP
-      público real (`89.153.98.18`). Os nós no Irão falharam a ligar
-      (bloqueio de rede do próprio país, não do nosso lado). **Q4 fechado.**
-      O que resta do S9 é só o Q5, bloqueado no Firebase do André.
-- [x] **Q5 — Push FCM (Android), o resto do R6.** Estende `relay/src/push.rs`
-      para enviar também para o Firebase Cloud Messaging, ao lado do Web
-      Push já feito para iOS. Bloqueado na conta Firebase e credenciais de
-      serviço do André (ver "Antes do S9"); a forma do código deve poder
-      partilhar o `Subscricoes`/o disparo em `subir()` já existentes,
-      só a acrescentar um segundo transporte.
-
-      **Desenho (regra 1), a 02/09/2026 — porque é que isto ainda faz falta
-      com o `RecetorService` já a manter a app viva em segundo plano:** o
-      foreground service sobrevive à app em segundo plano, não ao processo
-      morto (fechada de vez, ou depois de reiniciar o telemóvel). Só nesse
-      caso é que um depósito no relay não tem ninguém vivo a reparar — o
-      mesmo caso que o P4 resolve para o iPhone. FCM é o mecanismo do Android
-      para acordar isso mesmo sem o processo estar vivo.
-
-      **Duas partes, o que cada uma observa:**
-      - *Cliente (Kotlin + Rust).* No arranque, `MainActivity.onCreate` pede
-        o token FCM ao SDK da Firebase e escreve-o em
-        `<dataDir>/fcm-token` — mesmo padrão do `nome-dispositivo` e da
-        `partilha-pendente`, já lidos de ficheiro pelo Rust por não haver
-        outra ponte antes do `setup()`. Um `FcmService` (novo,
-        `FirebaseMessagingService`) reescreve o ficheiro sempre que o token
-        rodar (`onNewToken` — a Google pode trocá-lo a qualquer momento,
-        raro mas acontece). O Rust, no `setup()`, lê o ficheiro se existir e
-        regista-o em cada relay configurado — **sempre**, não só quando
-        muda: reenviar o mesmo token não tem custo (`Subscricoes::guardar`
-        já substitui pelo mais recente) e evita guardar estado de "já
-        registei este" que pudesse dessincronizar do que o relay tem.
-      - *Relay.* Guarda o token como mais uma `Subscricao` (agora um enum:
-        `WebPush{endpoint,keys}` ou `Fcm{token}` — o mesmo mapa
-        `impressao → Subscricao`, sem duplicar o ficheiro nem o código de
-        `guardar`/`obter`/`remover`). Ao completar um depósito (`subir()`,
-        inalterado — dispara para quem quer que seja o transporte), troca
-        no `notificar()` conforme a variante.
-
-      **O transporte FCM em si:** sem SDK novo em Rust — HTTP v1 é só dois
-      pedidos. Assina um JWT RS256 com a chave privada da conta de serviço
-      (`iss`=`client_email`, `scope`=`firebase.messaging`,
-      `aud`=`https://oauth2.googleapis.com/token`), troca-o por um
-      *access token* OAuth2 (`POST /token`), e usa esse token (Bearer) para
-      `POST https://fcm.googleapis.com/v1/projects/{project_id}/messages:send`.
-      Sem cache do *access token* — um JWT novo por envio, tal como o VAPID
-      já faz por pedido; um depósito não é frequente o suficiente para a
-      chamada extra pesar. **Sem carga aqui também** (mesma escolha do P4):
-      mensagem de dados vazia, só acorda a app — o conteúdo continua por
-      perguntar ao relay (`buscar_no_relay`, já existe).
-
-      **Falhas, o que cada lado conclui:**
-      - Sem `--firebase-conta-servico` configurado no relay (André não
-        gerou a credencial ainda): `Fcm` fica `None` no `Estado`, uma
-        subscrição FCM guarda-se na mesma mas `notificar()` não tem para
-        onde enviar — melhor esforço, tal como um serviço de push em baixo.
-      - Token FCM morto (`UNREGISTERED`/`NOT_FOUND` na resposta da API):
-        apaga-se a subscrição, mesmo tratamento do 404/410 do Web Push.
-      - Falha de rede a caminho da Google, ou da troca OAuth2: engolida,
-        nunca atrasa nem falha o depósito que a desencadeou — o `subir()`
-        não pode depender de uma API de terceiros estar de pé.
-      - App reinstalada/dados apagados: token novo, sobrescreve o antigo no
-        relay da próxima vez que o Rust arrancar — sem lixo acumulado
-        porque o mapa é por impressão digital, não por token.
-
-      **Pré-mortem:** se o pedido a `messages:send` morrer a meio (rede
-      cortada), o relay não sabe se chegou — mas o pior caso é o mesmo do
-      Web Push já em produção: um aviso perdido, não uma duplicação nem um
-      dado corrompido, porque não há estado nenhum a atualizar depois do
-      envio. Aceitável pela mesma razão que já foi aceite no P4.
-
-      **Nova dependência:** `jsonwebtoken` (assinatura RS256) — não há
-      forma de fazer isto com o que já está no `Cargo.toml`; a alternativa
-      seria montar RSA-SHA256 à mão com `rsa`+`sha2`, mais código para o
-      mesmo resultado. Feature `rust_crypto` (não `aws_lc_rs`) — a mesma
-      família pura-Rust já usada no `vapid.rs` (`p256`), sem trazer um
-      backend C novo para o mesmo resultado.
-
-      **Estado a 02/09/2026 — servidor feito e provado, cliente Android
-      escrito mas ainda por provar a sério:**
-      - Servidor (`relay/src/{fcm,subscricoes,push}.rs`): 5 testes novos
-        (JWT RS256 auto-verificado contra a própria chave pública de teste,
-        subscrição FCM registada pelo `/subscricao`, melhor esforço sem
-        credencial configurada), todos os 58 testes do relay a passar,
-        `cargo clippy -p pombo-correio-relay --all-targets` limpo.
-      - **Achado a testar, antes de sequer pensar em pôr isto no Pi:** o
-        `Subscricao` passou a exigir um campo `"tipo"` (`WebPush`/`Fcm`) —
-        mas o Pi já tem um `subscricoes.json` real, gravado no formato
-        antigo (a subscrição do iPhone, do P4). Sem correção, o relay
-        recusava arrancar (`serde_json::from_slice` a falhar dentro do
-        `?` de `Subscricoes::carregar`). Corrigido: um ficheiro ilegível
-        (formato antigo ou corrompido) começa vazio com um aviso no
-        `stderr`, em vez de derrubar o arranque — a subscrição perdida
-        regenera-se sozinha no próximo "Ativar notificações". Teste novo
-        (`um_subscricoes_json_de_antes_do_tipo_nao_impede_o_arranque`)
-        prova isto com o JSON antigo a sério, não um caso inventado.
-      - Cliente Android (`FcmService.kt`, `MainActivity.kt`, Gradle +
-        `google-services.json`, Rust em `ui/src-tauri/src/lib.rs` a
-        espreitar `fcm-token` e registar via `rede::relay::inscrever_fcm`):
-        a build Android (`tauri android build --target aarch64 --apk
-        --debug`) só passou depois de a memória da máquina se libertar de
-        uma build Gradle **de outro projeto** (`Musify`) a correr ao mesmo
-        tempo — sete tentativas mortas antes disso, sem relação nenhuma
-        com o código.
-
-      **Confirmado a sério de ponta a ponta na OnePlus Pad 2 (regra 3 —
-      nada disto ficou só em `cargo check`), 02/09/2026:**
-      1. APK de debug instalado (coexiste com a app de produção — outro
-         `applicationId`, mesma lição do S9 Q4); a app abriu e o SDK do
-         Firebase Messaging devolveu um token real, escrito em
-         `fcm-token` pela `MainActivity`.
-      2. `relay/src/main.rs`: relay do Pi atualizado (`git pull` +
-         `cargo build --release`) e reiniciado com
-         `--firebase-conta-servico` a apontar para a credencial. **O
-         aviso do `subscricoes.json` ilegível saiu a sério no arranque**
-         — a subscrição antiga do iPhone (formato de antes do `tipo`)
-         não passava no novo parse; sem a correção acima, o relay não
-         teria arrancado nesta atualização.
-      3. Registo verificado a chamar `rede::relay::inscrever_fcm`
-         diretamente (a mesma função que o cliente Android chama) com uma
-         identidade já autorizada — `subscricoes.json` no Pi passou a ter
-         a entrada `{"tipo":"fcm","token":"..."}`, tal e qual o desenho.
-      4. Entrega verificada a chamar `Fcm::enviar` a sério com o token
-         real da tablet e a credencial real — resposta **`ENTREGUE`** da
-         API do FCM (`202`/sucesso da Google), não um mock.
-      5. Limpo depois: `subscricoes.json` do Pi voltou a `{}` (o registo
-         de teste não é uma subscrição real de ninguém).
-
-      **Q5 fechado.** O Sprint 9 está completo — Q1 a Q5 feitos e
-      verificados de ponta a ponta, nada só provado em loopback.
+**Sprint 9 completo, Q1 a Q5 verificados de ponta a ponta** — nada só
+provado em loopback. Ver `BACKLOG.md` para o desenho, as armadilhas
+(sintomas enganadores em Q2/Q3, builds Android mortas em Q4/Q5) e a prova
+de cada fase.
 
 ### Antes do S9
 
@@ -1306,273 +698,343 @@ arrancar já; as outras três dependem de uma decisão ou conta do André. Ver
 
 ### S10 — Fechar o que a Review3 encontrou
 
-Nasce inteira da `audit/Review3.md` (02/09/2026), a auditoria do S9 completo.
-Sem achado crítico nem criptográfico — mas **F-11 é um bug de produção a
-sério, já em exploração possível hoje**, não uma sugestão para mais tarde:
-o relay está exposto ao público em `pombo-correio.duckdns.org` com o
-limitador de débito do Q3 a não fazer nada do que devia. Por isso T1 vem
-primeiro, sozinho, à frente de tudo o resto — as outras duas fases não
-dependem dele e podiam trocar de ordem entre si sem problema.
+Nasce da `audit/Review3.md` (02/09/2026) — F-11 já era um bug de produção a
+sério (o limitador de débito deixara de ver o IP real de quem pedia, atrás
+do `nginx` do Q4), não só uma sugestão para mais tarde.
 
-Três fases, nenhuma bloqueada em nada do André — todas correm com o que já
-está no repositório e nas máquinas de casa:
+- [x] **T1 — Limitador de débito atrás do `nginx` (F-11).** `IpConfiavel`,
+      `KeyExtractor` próprio: só confia em `X-Real-IP` quando o IP do
+      socket é mesmo o `127.0.0.1` do `nginx` local — a porta 53319 direta
+      continua a usar o IP do socket, sem furo de confiança cega. Confirmado
+      a sério no Pi: rajada pública leva 429, o próprio Pi continua a 200.
+- [x] **T2 — Notificação local ao acordar por FCM (F-12).**
+      `FcmService.onMessageReceived` deixou de estar vazio — canal
+      `pombo_push`, `PendingIntent` para a `MainActivity`, pedido runtime de
+      `POST_NOTIFICATIONS`. Confirmado a sério no tablet (processo morto a
+      sério, não por `force-stop` — a diferença importou, ver
+      `BACKLOG.md`). **Por confirmar:** tocar na notificação abre a app —
+      a ligação USB à tablet caiu a meio da verificação.
+- [x] **T3 — Autorização automática pelo link de pareamento (F-14).**
+      `Ficha` ganhou `de` (quem criou o depósito); `POST /convite` autoriza
+      quem prova ter aberto um link cujo criador já é de casa. Confirmado
+      com Playwright a sério: um link aberto por uma identidade nova
+      resgatou-se sozinho, depois usado para enviar um ficheiro real.
+      **Furo achado e corrigido antes de fechar, não hipotético:** nada
+      consumia o convite — um único link reencaminhado autorizava um
+      número sem limite de dispositivos. Corrigido com
+      `Deposito::consumir_convite`; reverificado com duas identidades
+      diferentes, a segunda falha visivelmente na interface. **A Review4
+      (04/09/2026) revisitou este T3 com escrutínio adicional — ver S11.**
 
-- [x] **T1 — Corrigir o limitador de débito atrás do `nginx` (Review3 F-11).**
-      `PeerIpKeyExtractor` lê o IP do socket TCP; desde que o Q4 pôs um
-      `nginx` a terminar TLS em `127.0.0.1:53319`, é **esse** IP que o
-      extrator vê em todo o tráfego que chega por `pombo-
-      correio.duckdns.org:443` — um só visitante (ou scanner) a martelar
-      `/saude` 6 vezes derruba a rajada de 5 para **todos os visitantes
-      públicos**, não só para si. O comentário em `rotas_publicas()`
-      (`relay/src/servidor.rs:434`) ainda diz "não há proxy nenhum... nem
-      depois do Q4" — verdade quando foi escrito (antes do `nginx` existir),
-      falso agora; ninguém voltou lá depois do Q4 fechar.
+**Deliberadamente fora:** F-13 (retoma de upload na PWA) e WebRTC/
+hole-punching — nenhum resolve uma dor que exista hoje. Ver `BACKLOG.md`
+para o desenho, o porquê de cada correção e a prova completa.
 
-      **Nota para o desenho (regra 8, a fazer a sério quando isto arrancar):**
-      a correção óbvia da Review3 — trocar para `SmartIpKeyExtractor` e pôr o
-      `nginx` a mandar `X-Forwarded-For` — tem um furo se for aplicada ao
-      pé da letra: a porta 53319 continua **também** encaminhada a direito
-      pelo router (Q4, antes do `nginx` existir), sem passar por proxy
-      nenhum. Se o extrator confiar cegamente num `X-Forwarded-For` vindo de
-      qualquer IP, alguém a bater direto na 53319 forja esse cabeçalho a
-      cada pedido e sai do limitador de graça — pior do que o que já
-      temos, não melhor. A correção tem de distinguir as duas entradas:
-      confiar no cabeçalho só quando o IP do socket é mesmo o `127.0.0.1` do
-      `nginx`; caso contrário (a 53319 direta), usar o IP do socket como já
-      acontece hoje. Pode ser um `key_extractor` próprio (o `tower_governor`
-      permite implementar o trait) em vez do `SmartIpKeyExtractor` de
-      confiança cega — a decidir ao abrir esta fase, não aqui.
+---
 
-      **Feito:** `IpConfiavel`, um `KeyExtractor` próprio em
-      `relay/src/servidor.rs` — só lê `X-Real-IP` (o `nginx` do Pi já o
-      define; nada a mudar aí) quando o IP do socket é mesmo `127.0.0.1`;
-      caso contrário usa o IP do socket, exatamente o que impede o furo de
-      confiança cega descrito acima. Três testes de unidade
-      (`ip_confiavel_só_le_o_cabecalho_de_quem_e_mesmo_o_nginx_local`)
-      provam os três casos sem precisar de rede: via nginx confia,
-      direto-a-fingir ignora o cabeçalho forjado, nginx sem cabeçalho
-      degrada para o IP do socket em vez de abrir uma falha nova. 60/60
-      testes do relay, `cargo clippy -p pombo-correio-relay --all-targets`
-      limpo. **Confirmado a sério no Pi, não só em unidade** (regra 3):
-      relay reconstruído e reiniciado; uma rajada de 6 pedidos a `/saude`
-      a partir do A10 (`192.168.1.17`, pelo hostname público através do
-      `nginx`) levou 429 ao 6º — e, **na mesma janela**, o próprio Pi a
-      pedir-se a si mesmo pelo mesmo hostname (`192.168.1.232`, IP
-      diferente) continuou a receber 200 três vezes seguidas. Antes desta
-      correção os dois pedidos partilhavam o mesmo balde (ambos viam
-      `127.0.0.1` do lado do relay); agora não. **T1 fechado.**
-- [x] **T2 — Notificação local ao acordar por FCM (Review3 F-12).** O Q5
-      só resolve metade do problema: o `data: {}` acorda o processo (é o
-      contrato do FCM, e é por isso que continua a fazer sentido apesar do
-      `RecetorService`), mas `FcmService.onMessageReceived` está vazio —
-      ninguém vê nada na barra de notificações, e sem `MainActivity` a
-      correr não há ninguém a chamar `buscarNoRelay()`. Implementar a
-      notificação local ali mesmo (o mesmo padrão de canal que o
-      `RecetorService` já usa para o foreground service, `pombo_rececao`,
-      mas um canal novo e **não silencioso** — `IMPORTANCE_LOW` é para o
-      aviso permanente "pronto a receber", não para "chegou algo") com um
-      `PendingIntent` que abre a `MainActivity`. O texto não pode dizer o
-      que chegou — o payload continua vazio de propósito (zero conhecimento
-      do relay sobre o conteúdo, decisão do Q5) — mesma frase genérica que
-      o P4 já usa do lado da PWA, "Chegou um ficheiro novo".
+### S11 — Fechar o que a Review4 encontrou
 
-      **Feito:** notificação real no canal `pombo_push`
-      (`IMPORTANCE_HIGH`), `PendingIntent` para a `MainActivity`.
-      `MainActivity` ganhou o pedido em runtime de `POST_NOTIFICATIONS`
-      (Android 13+) — já estava no manifesto mas nunca era pedido, por
-      isso nunca ficava concedido, achado a testar no dispositivo, não
-      hipotético.
+Nasce da `audit/Review4.md` (04/09/2026), auditoria do S10 completo em postura
+de "advogado do diabo". Sem achado criptográfico, mas com o **T3 do S10
+revisitado a sério**: seis achados (F-15 a F-20), um só de severidade ALTA —
+o resto do S10 (T1, T2) sai confirmado sem reparo. A forma repete-se: uma
+certeza que deixou de ser verdade assim que se pensou nela a fundo — desta
+vez não é "não há proxy" (F-11), é "só um pedido de cada vez lê a ficha do
+convite" (F-15), implícito no código, nunca escrito, e falso desde que
+`convidar()` existe.
 
-      **Duas causas encontradas a testar a sério, nenhuma hipotética.** A
-      primeira tentativa (processo morto por `adb shell am force-stop`)
-      não mostrou nada. Diagnosticado por `logcat`: a Google tentava
-      mesmo entregar (`broadcast intent callback: result=CANCELLED
-      forIntent { act=com.google.android.c2dm... }`), mas `force-stop`
-      marca o pacote como "parado" — um estado que bloqueia **qualquer**
-      broadcast, incluindo o do FCM, até o utilizador reabrir a app à
-      mão; não tem que ver com o Q5, é um artefacto do método de teste.
-      Corrigido o teste (matar o processo a sério — Recentes, arrastar o
-      cartão para fora — em vez de forçar parar), apareceu uma segunda
-      causa, esta real: `Fcm::enviar` não marcava a mensagem como
-      prioritária. Sem `"android":{"priority":"high"}` a Google entrega
-      "quando lhe convier" a um processo em segundo plano — pode adiar,
-      o oposto do "acorda agora" que a mensagem de dados existe para
-      fazer. Corrigido em `fcm.rs`.
+Três fases, T1 primeiro por ser a única de severidade ALTA e a única com
+desenho de estado a sério (regra 8); T2 e T3 são independentes entre si e
+de T1:
 
-      **Confirmado a sério no tablet, não só em `cargo check`** (regra 3):
-      processo morto pelo gesto real (Recentes, cartão arrastado para
-      fora, confirmado morto por `dumpsys`); relay do Pi reconstruído e
-      reiniciado com a correção; `Fcm::enviar` chamado a sério com o
-      token real da tablet e a credencial real. A notificação apareceu
-      ("Pombo-Correio — Chegou um ficheiro novo — Agora mesmo"), o canal
-      `pombo_push` foi criado sozinho, e o **processo voltou a arrancar
-      sozinho** por causa da entrega — exatamente o que o F-12 pedia.
-      **Por confirmar:** tocar na notificação abre a `MainActivity` — a
-      ligação USB à tablet caiu a meio da verificação (o `lsusb` deixou
-      de ver o aparelho, nada a ver com o código) antes de chegar a esse
-      passo. É `PendingIntent.getActivity` com `FLAG_ACTIVITY_NEW_TASK`,
-      API padrão sem lógica nova nossa — risco baixo, mas fica escrito
-      como não confirmado em vez de dado como certo. **T2 fechado** quanto
-      ao que foi mesmo provado.
-- [x] **T3 — Autorização automática pelo link de pareamento (Review3
-      F-14).** A ideia já estava escrita em "Ideias por implementar" →
-      "Autorização automática pelo link de pareamento" — mas só ao abrir
-      esta fase a sério (regra 8) é que o desenho ficou completo o
-      suficiente para codificar.
+- [x] **T1 — Corrigir a corrida no consumo do convite (Review4 F-15, F-16).**
+      `convidar()` lê a `Ficha` (com `de` preenchido), decide, autoriza, e só
+      **depois** apaga o `de` num pedido de escrita à parte — quatro passos,
+      nenhum trinco entre eles. Dois pedidos concorrentes para o mesmo `id`
+      (o cenário exato para que um link existe: reencaminhado, aberto por
+      duas pessoas ao mesmo tempo) leem os dois o `de` preenchido antes de
+      qualquer um o apagar, e saem os dois autorizados — o mesmo furo que o
+      T3 do S10 corrigiu para "reencaminhado ao longo do tempo" continua
+      aberto para "reencaminhado ao mesmo tempo". Agravante: o `consumir_
+      convite` de hoje ignora o erro de escrita (`let _ = ...`) — se falhar,
+      o convite fica ilimitado para sempre, sem aviso nenhum.
 
-      **Só o caminho do link, não o da tablet/desktop — por decisão, não
-      por esquecimento.** A dor descrita na ideia ("cada telemóvel novo
-      obriga a copiar a impressão à mão") também aconteceu no S9 Q4 para
-      a OnePlus Pad 2, mas por um caminho diferente (emparelhamento QR/
-      número de segurança, sem link nenhum envolvido) — resolver os dois
-      de vez pedia um segundo mecanismo de prova, sem desenho nenhum
-      ainda escrito para esse. Fica como ideia nova, à parte, não
-      construída aqui.
+      **Desenho (regra 8):** juntar tudo — ler, decidir, autorizar, apagar
+      `de` — numa só função em `Deposito`
+      (`resgatar_convite(id, impressao, autorizados: &Autorizados)`, a
+      assinatura implementada — passar `&Autorizados` em vez do
+      `autorizado: impl Fn(&str) -> bool` do rascunho inicial, porque o
+      passo 3 também precisa de **mutar** por `autorizar()`, não só
+      consultar `deixa()`), atrás de um `tokio::sync::Mutex` novo no
+      próprio `Deposito` — não por
+      `id` (adicionar um mapa de trincos para um caminho tão pouco
+      frequente é estado a mais para o mesmo resultado, o mesmo raciocínio
+      que já afastou a cache de OAuth2 do FCM). Dentro do trinco, por esta
+      ordem exata:
 
-      **Quem sabe hoje o quê, verificado no código, não assumido:**
-      `POST /deposito` (criar um depósito — inclui criar um link, que é só
-      um depósito com `para=CAIXA_LIGACAO`) já exige `--autorizados`;
-      `GET /caixa` e `GET /deposito/{id}` **não exigem** — só confirmam
-      que quem pergunta é dono da chave que diz ser. Ou seja: um
-      dispositivo novo já consegue *receber* sem estar autorizado (é como
-      isto sempre funcionou); só fica bloqueado quando tenta *enviar* pela
-      primeira vez. É exatamente aí, e só aí, que a autorização automática
-      faz falta.
+      1. Se `autorizados.deixa(&prova.impressao)` já for verdade (outra aba
+         do mesmo browser já correu isto primeiro), devolver sucesso sem
+         tocar em mais nada — cobre duas abas concorrentes sem as precisar
+         distinguir de um ataque.
+      2. Confirmar `para == CAIXA_LIGACAO` e `de` autorizado; senão, o 403
+         de sempre.
+      3. Chamar `autorizados.autorizar(&prova.impressao)`. **Se isto
+         falhar (erro de I/O), devolver 500 e sair sem tocar em `de`** — o
+         convite continua vivo para a próxima tentativa.
+      4. Só depois de `autorizar()` ter tido sucesso, apagar o `de` da
+         ficha e gravar.
+      5. Largar o trinco.
 
-      **O que falta ligar, concretamente:** o relay hoje não sabe quem
-      criou um depósito — `Ficha` só guarda `para`. Sem isso, não há como
-      distinguir "este link foi criado por alguém de casa" de "este link
-      foi criado por outro estranho" (se algum dia um estranho conseguisse
-      criar um, o que hoje já não acontece por `--autorizados`, mas o
-      relay não teria como o provar depois). `Ficha` ganha `de: String`
-      (`#[serde(default)]` — a mesma lição do Q5, mas aqui nem é preciso: um
-      depósito expira em 7 dias, por isso não há um `subscricoes.json` de
-      longa vida a proteger, só a janela de trânsito de uma correção), a
-      preencher com `prova.impressao` em `criar()`.
+      `convidar()` chama `resgatar_convite` uma vez só; deixa de existir
+      uma segunda chamada a `consumir_convite` à parte.
 
-      **O convite em si:** rota nova, `POST /convite`, corpo `{"id"}`,
-      assinada (`acao="convite"`, `extra=id` — sem isso, uma assinatura
-      apanhada a convidar-se a si próprio serviria para convidar em nome
-      de outro `id`). Quem já está autorizado recebe 204 sem fazer nada —
-      o cliente chama isto sempre que abre um link, sem saber de antemão
-      se já está autorizado, por isso tem de ser inofensivo repetir.
-      Senão: vai buscar a `Ficha` do `id`; se `de` estiver vazio (link
-      anterior ao T3, ou de outro tipo de depósito) ou `de` não estiver
-      em `--autorizados` **neste preciso momento** (não em quando o link
-      foi criado — um convite feito por alguém entretanto removido da
-      lista deixa de valer, o comportamento certo para uma lista de
-      segurança), recusa com 403. Senão, autoriza quem pediu.
+      **Porque a ordem importa — "Ghost Burn" (achado da Review5 sobre
+      este próprio plano, antes de qualquer código ser escrito):** a
+      primeira versão deste desenho apagava `de` **antes** de autorizar,
+      "o convite gasta-se primeiro". Isso partia a retentativa que o F-16
+      pede a seguir: um 500 transitório (disco a meio) deixava o convite
+      já sem `de`; a *segunda* tentativa da PWA já não encontrava convite
+      nenhum e levava um 403 definitivo, que a PWA lê como recusa e apaga
+      do `localStorage` para sempre — a retentativa do F-16 tornava-se
+      inútil exatamente no caso para que foi desenhada. Autorizar primeiro
+      e só apagar `de` depois de confirmado é a única ordem em que um erro
+      500 deixa o convite intacto para a retentativa ter algo para repetir.
 
-      **Pré-mortem, uma linha:** se dois links forem abertos ao mesmo
-      tempo por pessoas diferentes, cada uma só pode assinar um convite
-      em *seu próprio* nome (`prova.impressao` vem da própria assinatura)
-      — nunca há como pedir a autorização de outra impressão digital, por
-      isso um link nunca vira forma de autorizar terceiros.
+      **Pré-mortem (regra 9):** se dois pedidos chegarem ao mesmo tempo
+      para o mesmo link, o trinco serializa-os. Duas abas do mesmo browser:
+      a primeira autoriza e apaga o `de`; a segunda, já dentro do trinco,
+      vê o requerente já autorizado no passo 1 e sai também com sucesso —
+      nunca as duas em 403. Um estranho a repetir o pedido depois de o
+      link já ter sido gasto por outra pessoa: `de` já está vazio quando
+      ele entra no trinco, passo 2 falha, cai no 403 de sempre — nunca
+      autorizado.
 
-      **`Autorizados` precisa de mutabilidade e persistência.** Hoje é um
-      `HashSet` lido uma vez no arranque. Passa a `RwLock<HashSet>` (não
-      `tokio::sync::Mutex` — `deixa()` é chamado em código síncrono, dos
-      dois handlers existentes, e trocar isso para `async` só para isto
-      espalhava `.await` sem necessidade) mais o caminho do ficheiro.
-      `autorizar()` novo: insere em memória e acrescenta uma linha ao
-      mesmo `--autorizados` que o André já edita à mão, com um comentário
-      a dizer que foi automático — o ficheiro continua a ser a fonte de
-      verdade, só ganha um segundo escritor. Sem persistência, um
-      reinício do relay esquecia quem foi autorizado a meio, e o
-      dispositivo voltava a levar 403 do nada.
+      **F-16, na mesma fase por tocar o mesmo par pedido/resposta:**
+      `resgatarConvites()` em `wasm-backend.ts` só entra no `catch` (e
+      preserva o convite) se o `fetch()` falhar mesmo — DNS, rede em baixo.
+      Uma resposta HTTP de erro (502 com o `nginx` de pé mas o relay a
+      reiniciar, 500 de disco, 429 do limitador) chega como sucesso da
+      Promise e o código apaga o convite na mesma, perdendo-o para sempre
+      sem nunca ter sido resgatado a sério. Corrigir para olhar a
+      `res.status`: 5xx/429 preserva (tenta no próximo arranque); qualquer
+      outro caso apaga (sucesso, ou 403/404 definitivo — repetir não ia
+      resultar). Seguro por construção: `convidar()` já responde 204 a quem
+      já está autorizado, por isso um pedido perdido em trânsito mas que
+      chegou a ser processado no relay não duplica nada ao repetir-se — o
+      retry cai direto nesse caminho.
 
-      **Limitação conhecida, aceite:** os dois nós de casa (A10 e Pi) têm
-      cada um o seu próprio `--autorizados`, sem réplica entre eles — o
-      mesmo que já era verdade antes desta fase (Q4 exigiu acrescentar a
-      impressão da tablet aos dois à mão). A PWA só fala com a própria
-      origem de qualquer forma (P5, `ponytail`: "um único relay, sem HA
-      do lado do emissor"), por isso `POST /convite` só precisa de correr
-      aí — não é uma lacuna nova que esta fase introduz.
+      **Implementado e testado** (`relay/tests/deposito_http.rs`, módulo
+      `convite`): `duas_identidades_diferentes_a_disputar_o_mesmo_link_so_
+      uma_ganha` prova a corrida do F-15 a sério (duas identidades
+      *diferentes*, `tokio::join!`, corrido oito vezes seguidas para
+      confirmar que não é sorte) — confirmado que falha, de facto, sem o
+      trinco (sabotagem temporária local, revertida). `falha_a_autorizar_
+      nao_apaga_o_convite_ghost_burn` prova o F-16 sem mocks: torna
+      `autorizados.txt` só de leitura, confirma 500 sem apagar `de`, repõe
+      a escrita e confirma que a retentativa tem sucesso.
 
-      **Do lado do cliente:** `pagina.js`, ao aprender quem criou um link
-      (`aprenderRemetente`, já existe), passa a guardar também o `id` do
-      link junto da entrada em `pombo-conhecidos` — é o único sítio onde
-      esse `id` e a existência de um convite por resgatar se cruzam.
-      `wasm-backend.ts`, em `obterIdentidade()` (chamado uma vez por
-      arranque da app, com a identidade já pronta para assinar), percorre
-      `pombo-conhecidos` à procura de convites por resgatar e chama
-      `POST /convite` para cada um, uma vez — sucesso ou falha, o campo
-      limpa-se a seguir: se falhou porque quem convidou já não está
-      autorizado, tentar de novo nunca ia resultar; se falhou por rede,
-      o pior caso é o dispositivo continuar a pedir autorização manual,
-      exatamente o que já acontecia antes desta fase.
+- [x] **T2 — Ciclo de vida da descoberta e da notificação (Review4 F-17,
+      F-18).** Duas pontas soltas, nenhuma protocolar — polimento de
+      interface, sem desenho de estado.
+      - **F-17:** quem abre um link pela `pagina/www/` descarrega o ficheiro
+        e fecha o separador — nada convida a visitar a app principal (`/`),
+        por isso o convite que `pagina.js` já guardou em `pombo-conhecidos`
+        nunca chega a ser resgatado na prática, e ao fim dos 7 dias de
+        retenção o `id` já nem existe para tentar. **Dois níveis, não um só
+        (Review5):** um link permanente e discreto no rodapé do cartão
+        ("O Pombo-Correio é livre e encriptado de ponta a ponta. Abrir a
+        aplicação") — presente mesmo quando a descarga **falha**
+        (ficheiro grande em rede com quota, armazenamento cheio: o caso em
+        que o CTA só-pós-sucesso nunca aparecia, e exatamente o caso em que
+        o convite mais precisa de outra via) — e, depois da descarga
+        concluir com sucesso, um destaque dinâmico a substituir o botão
+        ("Ficheiro guardado ✓. Queres enviar ficheiros de volta? Abrir o
+        Pombo-Correio"). Mesmo padrão do resto da `pagina/`, sem framework.
+        **Provado a sério:** `pombo-relay` real (`--pagina pagina/www`),
+        link real criado por `pombo ligacao`, aberto num Chromium a sério
+        por Playwright — o link permanente aparece antes de qualquer
+        descarga, o destaque dinâmico substitui o botão depois de guardar
+        (testado pelo caminho de memória, o do Safari/Firefox — o de
+        `showSaveFilePicker` não foi tocado por esta fase), e o ficheiro
+        descarregado bate byte a byte com o original.
+      - **F-18:** a notificação local do T2 do S10 (`FcmService`, canal
+        `pombo_push`, id `2`) só se limpa da barra do sistema se o
+        utilizador tocar nela; abrir a app pelo ícone do ecrã principal
+        deixa-a presa lá. **Tem de ser em `onResume()`, não `onCreate()`
+        (Review5):** tocar no ícone com a app já em segundo plano (na
+        gaveta de processos) invoca só `onStart()`→`onResume()` — o
+        Android não volta a chamar `onCreate()` numa Activity que já
+        existe, por isso "no arranque" sozinho falhava o caso mais comum.
+        `NotificationManagerCompat.from(this).cancel(2)` em `onResume()`
+        cobre arranque a frio e regresso com um só sítio.
+        **Provado a sério, tablet OnePlus Pad real:** build assinada
+        (`tauri android build --target aarch64 --apk`, `zipalign` +
+        `apksigner` com o `debug.keystore`) instalada por `adb install`.
+        Arranque a frio → `am start` outra vez com a app já em segundo
+        plano (confirmado antes por `dumpsys activity activities`, task
+        viva com `visible=false`) devolveu **"Warning: Activity not
+        started, its current task has been brought to the front"** — a
+        confirmação inequívoca de que só `onNewIntent`/`onResume` correram,
+        nunca `onCreate`, exatamente o caso que a versão anterior do plano
+        falhava. `logcat` sem `FATAL EXCEPTION` à volta do evento: o
+        `cancel(2)` novo corre sem rebentar no sítio certo. O `cancel()`
+        em si (que uma notificação id=2/canal `pombo_push` realmente
+        desaparece) não foi refeito de água em pé — já validado a sério no
+        mesmo tablet no S10 T2; o que esta fase mudava era só o timing, e
+        é o timing que ficou provado.
 
-      **Feito e testado (regra 7):** `Ficha.de`, `Autorizados::autorizar`
-      (com persistência em disco) e a rota `POST /convite` — 7 testes
-      novos no relay (67/67 a passar, `cargo clippy -p pombo-correio-relay
-      --all-targets` limpo): o caminho feliz de ponta a ponta, um link sem
-      `de` (formato anterior ao T3) a ser recusado em vez de assumido
-      como válido, repetir o convite já autorizado sem mal nenhum, e sem
-      assinatura a dar 401. `npm run check` em `ui/` (0 erros) e `npm run
-      build` confirmam o lado do cliente (`pagina.js`, `wasm-backend.ts`)
-      sem regressão de tipos.
+- [x] **T3 — Robustez do relay (Review4 F-19 parte 2, F-20).** Dois arranjos
+      pequenos e sem risco, cada um isolado no seu ficheiro.
+      - **`/convite` sem limite de débito:** ao contrário de `/saude`,
+        `/vapid` e `/d/{id}`, a rota fica de fora de `rotas_publicas()` e por
+        isso do `GovernorLayer` — nada impede uma rajada de pedidos a forçar
+        leituras de disco repetidas (a `Deposito::ficha` de cada tentativa).
+        Corrige-se movendo a rota para dentro de `rotas_publicas()`: exige
+        assinatura como já exige, mas passa a partilhar o balde por IP como
+        as outras rotas alcançáveis sem autorização prévia. **Cuidado nos
+        testes (Review5):** em `relay/tests/deposito_http.rs` todos os
+        pedidos caem em `127.0.0.1` (o `IpConfiavel` não distingue em
+        teste), e o balde de `rotas_publicas()` só aguenta 5 de rajada por
+        segundo — um teste que dispare mais de 5 convites em sequência
+        rápida contra a mesma instância leva 429 em vez do código
+        esperado. Cada teste que exercite `/convite` várias vezes precisa
+        da sua própria instância (porta efémera, já o padrão de
+        `relay_com_lista`), nunca partilhar uma instância entre casos.
+      - **`autorizados.txt` sem quebra de linha garantida:** `Autorizados::
+        autorizar` faz `append` presumindo que o ficheiro já acaba em `\n`.
+        Um ficheiro editado à mão sem essa quebra final funde a próxima
+        impressão com a última linha existente, e ambas as identidades
+        perdem o acesso ao reiniciar. **Numa escrita só (Review5):** não
+        ler o último byte e depois fazer duas chamadas a `write` (uma para
+        o `\n` em falta, outra para a impressão) — isso reabre, dentro do
+        próprio ficheiro, a janela de corrida que o `O_APPEND` existe para
+        fechar. Calcular `precisa_nl` a partir do último byte, montar a
+        linha completa numa `String` só, e emitir um único `write_all()` —
+        o kernel só garante atomicidade a uma escrita `O_APPEND`, não a
+        duas seguidas.
 
-      **Confirmado a sério, processos e browser reais, não só em unidade**
-      (regra 3): `pombo-relay` a sério com um `--autorizados` de uma só
-      impressão; `pombo ligacao` nativo (identidade já autorizada) a criar
-      um link real; esse link aberto num Chromium a sério (Playwright),
-      que aprendeu o criador e o `id` do convite em `pombo-conhecidos`;
-      navegar para `/` no mesmo browser (mesma origem) gerou uma
-      identidade nova e resgatou o convite sozinho — o `autorizados.txt`
-      em disco ganhou a linha `3b6db6b307e6dce5 # autorizado
-      automaticamente por convite` sem o André tocar em nada. **E a prova
-      completa a sério, não só o 204**: com a nova identidade já
-      autorizada, o próprio Chromium enviou um ficheiro real através da
-      interface ("Enviar ficheiro" → seletor do sistema) para quem criou o
-      link — `POST /deposito` teria dado 403 sem o convite; a `Ficha` do
-      depósito criado confirma `"de":"3b6db6b307e6dce5"`.
+      **Implementado e testado:** `cargo clippy --workspace --all-targets`
+      dá zero, e `relay/src/autenticado.rs` ganhou o teste `autorizar_nao_
+      funde_linhas_quando_o_ficheiro_nao_acaba_em_quebra_de_linha`; o
+      isolamento de testes do `/convite` já era o padrão existente
+      (`relay_com_lista`, porta efémera por teste) — nada a mudar aí.
 
-      **Achado a rever a primeira versão, antes de fechar — não hipotético,
-      um furo a sério:** nada consumia o convite. O mesmo `id` de link
-      autorizava qualquer número de identidades novas, não só a primeira —
-      e um link é feito precisamente para ser reencaminhado ("quem tiver
-      este endereço abre o ficheiro", diz a própria interface). Um único
-      link WhatsApp-partilhado teria autorizado um número sem limite de
-      dispositivos no relay público, sem limite de débito nenhum a
-      travar (`/convite` não está em `rotas_publicas()`) — a mesma forma
-      do F-11 que o T1 corrigiu: uma superfície de escrita exposta com uma
-      certeza desatualizada por trás ("o segredo do link só chega a quem
-      o André mandou" deixou de ser verdade assim que se pensou nisso a
-      sério). Corrigido com `Deposito::consumir_convite` — apaga o `de` da
-      ficha depois de autorizar, a próxima tentativa cai no mesmo 403 de
-      "sem criador registado" que já existia para links anteriores ao T3.
-      Duas outras correções na mesma revisão: `/convite` passou a exigir
-      `ficha.para == CAIXA_LIGACAO` (só links contam — sem isto, o
-      destinatário de um depósito normal, aprendido por `/caixa` sem
-      assinatura nenhuma, autorizava-se sozinho por reciprocidade, a
-      funcionalidade que o desenho original decidiu explicitamente não
-      construir); e `Autorizados::autorizar` passou a escrever no disco
-      **antes** de confirmar em memória, com reversão se a escrita falhar
-      — a ordem inversa deixava uma autorização válida só em RAM até o
-      relay reiniciar, e depois 403 sem explicação nenhuma.
+      **Deliberadamente fora desta fase, revisto e reafirmado:** a
+      recomendação de cache do *access token* OAuth2 do FCM (parte 1 do
+      F-19) já é uma decisão tomada, escrita no próprio `fcm.rs` — "um
+      depósito não é frequente o suficiente para a troca extra pesar; cache
+      seria estado a mais para o mesmo resultado". A Review4 não trouxe
+      nada de novo que mude essa conta (nenhum número de tráfego a sério
+      desde então); fica de fora outra vez, pela mesma razão, não por
+      esquecimento. **A Review5 reavaliou e concorda:** ~300ms por
+      notificação sem estado persistente compensa a simplificação, dado o
+      baixo volume de transferências concorrentes de um produto doméstico.
 
-      **Reverificado a sério depois da correção, o mesmo tipo de prova:**
-      duas identidades diferentes (uma a seguir à outra, `localStorage`
-      limpo entre as duas para simular um segundo aparelho) tentaram o
-      mesmíssimo link. A primeira autorizou-se e enviou um ficheiro real.
-      A segunda **falhou visivelmente na própria interface** — não só um
-      403 de rede: "Error: o relay recusou o depósito: este relay não é
-      teu" — e a ficha do link em disco confirma `"de":""`, o convite
-      gasto. Mais dois testes de integração (`o_mesmo_link_nao_convida_
-      duas_identidades_diferentes`,
-      `um_deposito_normal_nao_serve_de_convite_so_por_ter_um_remetente_
-      autorizado`), 69/69 no relay, `cargo clippy -p pombo-correio-relay
-      -p pombo-correio-rede -p pombo-correio-core -p pombo-correio
-      --all-targets` limpo. **T3 fechado.**
+**Transição do S11 para o S12:** o upload fragmentado na PWA (Review3 F-13)
+e o emparelhamento por QR Code foram agendados para o **S12** logo a seguir ao
+S11 fechar, motivados pela intenção expressa de partilhar ficheiros de vídeo
+e imagens pesadas acima de 1 GB.
 
-**Deliberadamente fora do S10** — vistas as duas sugestões da Review3 que
-sobram (F-13, retoma de upload na PWA; exploração de WebRTC/hole-punching):
-nenhuma delas resolve uma dor que exista hoje. F-13 é simetria bonita, não
-um bug — a subida byte-exata continua a funcionar, só sem retoma; entra se
-um upload grande a sério começar a falhar em rede móvel. WebRTC já estava
-marcado como "adiado até o relay doer" desde a arquitetura original — nada
-no S9 mudou isso. Ficam nas "Ideias por implementar" / no `BACKLOG.md`, não
-aqui, para o S10 não crescer para além do que a Review3 pediu a sério.
+---
+
+### S12 — Ficheiros grandes (>1 GB) e emparelhamento por QR
+
+Nasce da necessidade operacional de partilhar ficheiros volumosos (>1 GB,
+como vídeos em resolução nativa) através da PWA, onde o upload monolítico
+atual colapsa os limites de memória do navegador, aliado ao emparelhamento
+visual sem atrito entre ecrãs desktop e telemóveis.
+
+Três fases:
+
+- [x] **T1 — Upload fragmentado e retomável na PWA (Review3 F-13 / Ficheiros >1 GB).**
+      O upload monolítico atual (`wasm-backend.ts:depositarEm`) acumula todos os
+      blocos de 1 MiB selados num único array `partes` no heap do JavaScript,
+      gerando um único `Blob` gigante e um único `PUT /deposito/{id}?de=0`.
+      Para ficheiros >1 GB, isto esgota a quota de memória do WebKit no iOS
+      (limite Jetsam de ~1.4 GB), causando o crash fatal da aba (*"Aconteceu um
+      problema com esta página web"*). Além disso, qualquer queda de ligação
+      móvel ou bloqueio de ecrã perto do final perde todo o envio, exigindo
+      recomeçar dos 0 MB.
+
+      **Desenho:** o relay já suporta nativamente `PUT /deposito/{id}?de=N`
+      (`servidor.rs:subir` e `deposito.rs:abrir_para_subir`). Adaptar a PWA
+      para enviar o ficheiro em pedaços de tamanho moderado (ex: 16 MiB por
+      pedido `PUT`), lendo do ficheiro via `File.slice()` sob demanda, selando
+      os blocos correspondentes e libertando a memória RAM logo a seguir. O
+      consumo de memória mantém-se plano em ~20 MB mesmo para ficheiros de 5 GB.
+      Em caso de falha de rede, consultar `GET /deposito/{id}` para saber
+      quantos bytes já estão no relay e retomar exatamente no offset certo.
+
+      **Implementado, código escrito e verificado por leitura + typecheck —
+      por provar em rede real (regra 3):** `depositarEm` em `wasm-backend.ts`
+      agora sela e sobe em pedaços de `TAM_PEDACO_PUT` (16 MiB), com um ciclo
+      de tentativas (`TENTATIVAS`, o mesmo número já usado na descida) por
+      fora. **Pré-mortem — se a ligação morrer a meio de um `PUT`, o que
+      conclui cada lado?** O relay pode já ter escrito parte dos bytes desse
+      pedido (`escrever()` grava em fluxo, não atómico por pedido); o browser
+      não sabe quantos. Por isso nunca se assume que o pedido falhado não
+      escreveu nada — pergunta-se ao relay (`GET /deposito/{id}`, campo
+      `bytes`) e retoma-se em `Math.floor(bytes / tamBlocoSelado)`, a fronteira
+      de bloco completo mais próxima sem passar à frente do confirmado. Isto
+      usa o próprio contrato documentado em `abrir_para_subir` — `de` menor do
+      que o que lá está trunca o meio-bloco a mais, `de` maior dá erro — pelo
+      que reenviar sempre a partir de uma fronteira de bloco é seguro por
+      construção, sem exigir que `selarBloco` seja determinístico entre
+      tentativas. Cada pedaço enviado emite `progresso` (mesmo `Evento` que a
+      descida já usa), pelo que a UI ganha uma barra de progresso na subida
+      sem nenhuma mudança no `App.svelte`. **Não corrido** com um ficheiro
+      real >1 GB nem com uma queda de rede a sério — por decisão do André,
+      ver T3 (ainda em aberto) e a nota de handoff.
+
+      **Bug do lado do relay apanhado ao rever, e corrigido a sério (com
+      teste, `cargo test`/`clippy` verdes):** este T1 torna comum um caminho
+      que antes quase nunca acontecia — repetir um `PUT` ao mesmo `id` a
+      seguir a uma ligação cair. `servidor.rs::subir` marcava o `id` em
+      `a_subir` e só o largava numa instrução a seguir a um `.await`; se a
+      ligação cai a sério a meio (o futuro do handler é cancelado pelo hyper,
+      não devolve um erro normal), essa instrução nunca corria e a marca
+      ficava presa até o relay reiniciar — a retoma automática receberia
+      sempre 409. Corrigido com um `Drop` (`MarcaSubida`, novo `struct` em
+      `servidor.rs`) que larga a marca em qualquer saída, incluindo
+      cancelamento; `a_subir` passou de `tokio::sync::Mutex` a
+      `std::sync::Mutex` (nunca se detém através de um `.await`, e um `Drop`
+      não pode ser `async`). Teste
+      `marca_subida_larga_ao_cair_mesmo_sem_remove_explicito` confirmado a
+      falhar com o `Drop` sabotado de propósito (posto a não fazer nada) e
+      revertido a seguir — 73 testes do `relay` continuam verdes.
+
+- [x] **T2 — Emparelhamento por QR Code na interface.**
+      Abrir links de ligação gerados no computador (`pombo ligacao` ou botão
+      "Criar link" na UI) exige atualmente copiar e colar o URL através de
+      aplicações de terceiros (WhatsApp, e-mail) para chegar ao telemóvel de
+      um familiar.
+      
+      **Desenho:** exibir na interface (Desktop e Web) um QR Code contendo o
+      URL do link de pareamento (`https://pombo-correio.duckdns.org/d/{id}#...`)
+      gerado com uma biblioteca JS SVG/canvas leve e sem dependências nativas.
+      O familiar não precisa de scanner na app: basta apontar a **câmara
+      nativa do telemóvel** (iOS Camera ou Android Google Lens) ao ecrã do
+      computador para abrir o link no navegador e desencadear a auto-autorização
+      (construída em S10 T3 e S11 T1). Sem permissões de câmara (`CAMERA`) a
+      pedir na app.
+
+      **Implementado, por provar visualmente num telemóvel a sério (regra
+      3):** biblioteca `qrcode-svg` (zero dependências, só gera SVG,
+      confirmada na ponytail — nenhuma alternativa "stdlib"/já instalada
+      existia). `App.svelte` gera o QR do `ligacao` corrente com `join: true`
+      (um único `<path>`, não centenas de `<rect>`) e `xmlDeclaration: false`
+      (a declaração XML por omissão não pertence a HTML injetado por
+      `{@html}`) — confirmado por inspeção direta do SVG gerado (24,7 KB,
+      bem formado). Sem tipos publicados pelo pacote: `qrcode-svg.d.ts`
+      próprio, só com a forma usada. `npm run build` e `svelte-check` limpos.
+      **Não verificado** apontar a câmara de um iPhone/Android a sério ao QR
+      no ecrã — por decisão do André, ver a nota de handoff.
+
+- [ ] **T3 — Validação e teste real de carga.**
+      Transferir um ficheiro real de vídeo ou imagem com mais de 1 GB entre a
+      PWA no iPhone e o relay no Raspberry Pi 5. Confirmar que o consumo de
+      RAM permanece estável, simular corte de rede aos 50% e verificar que a
+      retoma conclui com sucesso com hash BLAKE3 final idêntico.
 
 ---
 

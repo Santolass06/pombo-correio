@@ -408,3 +408,12 @@ html, body {
      linha, que é onde cabem bem mesmo num telemóvel. */
   .linha:has(.btn-block-mobile) { flex-direction: column; align-items: stretch; }
 }
+
+/* — QR do link (S12 T2) — */
+.qr-ligacao {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+.qr-ligacao svg {
+  border-radius: var(--radius-md); box-shadow: var(--shadow-sm);
+}

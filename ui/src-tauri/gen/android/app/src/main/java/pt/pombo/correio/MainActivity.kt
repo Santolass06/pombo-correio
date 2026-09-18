@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import com.google.firebase.messaging.FirebaseMessaging
@@ -67,6 +68,17 @@ class MainActivity : TauriActivity() {
         tarefa.result?.let { FcmService.escreverToken(this, it) }
       }
     }
+  }
+
+  // S11 T2 (Review4 F-18, corrigido pela Review5): tem de ser `onResume`, não
+  // `onCreate` — tocar no ícone com a app já em segundo plano (na gaveta de
+  // processos) invoca só `onStart()`→`onResume()`, o Android não volta a
+  // chamar `onCreate()` numa Activity que já existe. `onResume()` cobre
+  // arranque a frio (chama-se sempre a seguir ao `onCreate`) e regresso, num
+  // sítio só.
+  override fun onResume() {
+    super.onResume()
+    NotificationManagerCompat.from(this).cancel(2)
   }
 
   // A app é `singleTask`: já estando aberta, uma partilha não repete o onCreate,

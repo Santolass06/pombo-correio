@@ -514,6 +514,78 @@ mod convite {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn duas_abas_do_mesmo_browser_pedem_o_convite_ao_mesmo_tempo() {
+        // S11 T1 (Review5): dentro do trinco, quem já está autorizado sai
+        // logo no passo 1 — as duas abas têm de sair com sucesso, nunca uma
+        // delas em 403.
+        let de_casa = Identity::generate("de casa");
+        let (base, _d) = relay_com_lista("convite-concorrente", &de_casa).await;
+        let id = criar_como(&de_casa, &base, "ligacao", 10, "{}").await.unwrap();
+
+        let novo = Identity::generate("telemóvel novo");
+        let (a, b) = tokio::join!(convidar_como(&novo, &base, &id), convidar_como(&novo, &base, &id));
+        assert_eq!(a, reqwest::StatusCode::NO_CONTENT);
+        assert_eq!(b, reqwest::StatusCode::NO_CONTENT);
+        assert!(criar_como(&novo, &base, "abc", 10, "{}").await.is_some());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn duas_identidades_diferentes_a_disputar_o_mesmo_link_so_uma_ganha() {
+        // O achado ALTA da própria Review4 (F-15): sem o trinco de
+        // `resgatar_convite`, dois pedidos concorrentes para o mesmo `id` —
+        // o cenário exato para que um link existe, reencaminhado e aberto
+        // por duas pessoas ao mesmo tempo — liam os dois o `de` preenchido
+        // antes de qualquer um o apagar, e saíam os dois autorizados.
+        let de_casa = Identity::generate("de casa");
+        let (base, _d) = relay_com_lista("convite-corrida-duas-identidades", &de_casa).await;
+        let id = criar_como(&de_casa, &base, "ligacao", 10, "{}").await.unwrap();
+
+        let primeiro = Identity::generate("primeiro telemóvel novo, a disputar");
+        let segundo = Identity::generate("segundo telemóvel novo, a disputar");
+        let (a, b) =
+            tokio::join!(convidar_como(&primeiro, &base, &id), convidar_como(&segundo, &base, &id));
+
+        let sucessos = [a, b].into_iter().filter(|s| *s == reqwest::StatusCode::NO_CONTENT).count();
+        let recusas = [a, b].into_iter().filter(|s| *s == reqwest::StatusCode::FORBIDDEN).count();
+        assert_eq!(sucessos, 1, "exatamente uma das duas identidades tem de ganhar a corrida");
+        assert_eq!(recusas, 1, "a outra tem de ver o convite já gasto, nunca autorizar-se também");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn falha_a_autorizar_nao_apaga_o_convite_ghost_burn() {
+        // Achado da Review5 sobre o próprio desenho, antes de qualquer
+        // código existir: apagar `de` antes de autorizar partia a
+        // retentativa que o F-16 da PWA depende (5xx preserva o convite no
+        // `localStorage` para repetir). Simula a falha de I/O em
+        // `autorizados.autorizar()` tornando o ficheiro só de leitura.
+        let de_casa = Identity::generate("de casa");
+        let (base, dir) = relay_com_lista("convite-ghost-burn", &de_casa).await;
+        let id = criar_como(&de_casa, &base, "ligacao", 10, "{}").await.unwrap();
+
+        let lista = dir.0.join("autorizados.txt");
+        let permissoes_normais = std::fs::metadata(&lista).unwrap().permissions();
+        let mut so_leitura = permissoes_normais.clone();
+        so_leitura.set_readonly(true);
+        std::fs::set_permissions(&lista, so_leitura).unwrap();
+
+        let novo = Identity::generate("telemóvel novo");
+        assert_eq!(
+            convidar_como(&novo, &base, &id).await,
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            "a escrita em autorizados.txt tem de falhar com o ficheiro só de leitura"
+        );
+
+        // O `de` da ficha continua intacto — é o que a retentativa precisa
+        // de encontrar. Repor a escrita e confirmar que repetir tem sucesso,
+        // sem precisar de um novo convite.
+        let ficha = std::fs::read_to_string(dir.0.join(format!("{id}.json"))).unwrap();
+        assert!(ficha.contains(&impressao_de(&de_casa)), "`de` não pode ter sido apagado numa falha de autorizar()");
+
+        std::fs::set_permissions(&lista, permissoes_normais).unwrap();
+        assert_eq!(convidar_como(&novo, &base, &id).await, reqwest::StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn convite_sem_assinatura_nao_da() {
         let de_casa = Identity::generate("de casa");
         let (base, _d) = relay_com_lista("convite-nu", &de_casa).await;

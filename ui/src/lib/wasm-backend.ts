@@ -160,10 +160,17 @@ export function aprenderConhecido(c: Conhecido): void {
  * falhar aqui só significa continuar sem autorização automática, o mesmo
  * estado de antes desta fase.
  *
- * Sucesso ou falha, o campo `convite` limpa-se a seguir e não se tenta de
- * novo: se falhou porque quem convidou já não está autorizado, repetir
- * nunca ia resultar; se falhou por rede, o pior caso é precisar da
- * autorização manual de sempre.
+ * O campo `convite` só se limpa a seguir a uma resposta que não seja um
+ * erro transitório de servidor — sucesso (204), ou uma recusa definitiva
+ * (403/404) que repetir nunca ia resultar. **Um `5xx`/`429` preserva o
+ * convite** (S11 T1, Review4 F-16): `fetch()` só rejeita a Promise por falha
+ * de rede/DNS, nunca por um código de erro HTTP — esse chega como sucesso
+ * da Promise, e apagar o convite aí (a versão de antes desta fase) perdia-o
+ * para sempre sem nunca ter sido resgatado a sério, mesmo com o relay só
+ * momentaneamente em baixo (a meio de um reinício, disco cheio). Seguro por
+ * construção repetir: `convidar()` já responde 204 a quem já está
+ * autorizado, por isso um pedido que chegou a ser processado no relay mas se
+ * perdeu em trânsito não duplica nada ao repetir-se.
  */
 async function resgatarConvites(): Promise<void> {
   const lista = lerConhecidos();
@@ -172,8 +179,9 @@ async function resgatarConvites(): Promise<void> {
 
   const base = relayDeCasa();
   for (const c of pendentes) {
+    let resposta: Response;
     try {
-      await fetch(`${base}/convite`, {
+      resposta = await fetch(`${base}/convite`, {
         method: "POST",
         headers: { ...(await cabecalhosAssinados("convite", c.convite!)), "content-type": "application/json" },
         body: JSON.stringify({ id: c.convite }),
@@ -182,6 +190,7 @@ async function resgatarConvites(): Promise<void> {
       // Falha de rede: fica por resgatar até ao próximo arranque, ver acima.
       continue;
     }
+    if (resposta.status >= 500 || resposta.status === 429) continue;
     delete c.convite;
   }
   try {
@@ -255,16 +264,20 @@ interface CabecalhosAssinados {
 /** Overhead de selar um bloco: 24 de nonce + 16 de autenticação — `SEAL_OVERHEAD` em `core/src/crypto.rs`. */
 const SEAL_OVERHEAD = 24 + 16;
 
+/** De quantos em quantos bytes selados se faz um `PUT` (S12 T1) — bastante para poucos pedidos, pouco para não voltar a esgotar a RAM do Safari num ficheiro de vários GB. */
+const TAM_PEDACO_PUT = 16 * 1024 * 1024;
+
 /**
  * Sela e sobe um ficheiro para o relay, endereçado a `destinatario` (ou à
  * caixa de link, se `caixa` for `CAIXA_LIGACAO`). Duas passagens pelo
  * `File` — ver o desenho do P5 no PLANO.md: a primeira só resume (fecha o
  * manifesto, que o `POST /deposito` exige completo), a segunda sela e sobe.
  *
- * `ponytail:` uma só tentativa, sem retoma — ao contrário do cliente nativo
- * (3 tentativas, `?de=N`). O relay já suporta retomar; falta o lado do
- * browser voltar a tentar quando o `PUT` falhar a meio. Upgrade quando um
- * envio a sério do iPhone mostrar que faz falta.
+ * A segunda passagem sobe em pedaços moderados (`TAM_PEDACO_PUT`), lidos do
+ * `File` sob demanda e largados da memória logo depois de cada `PUT` — sem
+ * isto, um ficheiro de vídeo de vários GB juntava-se todo num único `Blob`
+ * em RAM antes do envio, o que rebenta o limite Jetsam do WebKit no iOS
+ * (S12 T1, Review3 F-13).
  */
 async function depositarEm(
   ficheiro: File,
@@ -333,25 +346,64 @@ async function depositarEm(
     if (!respCriar.ok) throw new Error(`o relay recusou o depósito: ${await respCriar.text()}`);
     const { id: idRelay } = (await respCriar.json()) as { id: string };
 
-    // 2ª passagem: selar e subir. Um `Blob` (não um `ReadableStream` em
-    // upload) de propósito — o suporte do Safari para corpos de `fetch` em
-    // fluxo é incerto, e um `Blob` funciona em todo o lado.
-    const partes: Uint8Array[] = [];
-    for (let i = 0; i * tamBloco < ficheiro.size || (i === 0 && ficheiro.size === 0); i++) {
-      const inicio = i * tamBloco;
-      const bloco = new Uint8Array(await ficheiro.slice(inicio, inicio + tamBloco).arrayBuffer());
-      if (bloco.length === 0) break;
-      partes.push(m.selarBloco(chaveHex, i, bloco));
-    }
+    // 2ª passagem: selar e subir, em pedaços — nunca o ficheiro inteiro de
+    // uma vez. Um `Blob` por pedaço (não um `ReadableStream` em upload) de
+    // propósito — o suporte do Safari para corpos de `fetch` em fluxo é
+    // incerto, e um `Blob` funciona em todo o lado.
+    const tamBlocoSelado = tamBloco + SEAL_OVERHEAD;
+    let proximoBloco = 0;
 
-    const respSubir = await fetch(`${base}/deposito/${idRelay}?de=0`, {
-      method: "PUT",
-      // `as BlobPart[]`: o TS pede uma `ArrayBuffer` garantidamente não
-      // partilhada; o `Uint8Array` que o wasm-bindgen devolve é sempre uma
-      // (nunca `SharedArrayBuffer`), só o tipo genérico é que não o garante.
-      body: new Blob(partes as BlobPart[]),
-    });
-    if (!respSubir.ok) throw new Error("a subida ao relay falhou");
+    for (let tentativa = 0; ; tentativa++) {
+      try {
+        while (proximoBloco * tamBloco < ficheiro.size || (proximoBloco === 0 && ficheiro.size === 0)) {
+          const primeiroBlocoDoPedaco = proximoBloco;
+          const partes: Uint8Array[] = [];
+          let bytesNoPedaco = 0;
+
+          while (
+            bytesNoPedaco < TAM_PEDACO_PUT &&
+            (proximoBloco * tamBloco < ficheiro.size || (proximoBloco === 0 && ficheiro.size === 0))
+          ) {
+            const inicio = proximoBloco * tamBloco;
+            const bloco = new Uint8Array(await ficheiro.slice(inicio, inicio + tamBloco).arrayBuffer());
+            if (bloco.length === 0) break;
+            const selado = m.selarBloco(chaveHex, proximoBloco, bloco);
+            partes.push(selado);
+            bytesNoPedaco += selado.length;
+            proximoBloco++;
+          }
+          if (partes.length === 0) break;
+
+          const respSubir = await fetch(`${base}/deposito/${idRelay}?de=${primeiroBlocoDoPedaco * tamBlocoSelado}`, {
+            method: "PUT",
+            // `as BlobPart[]`: o TS pede uma `ArrayBuffer` garantidamente não
+            // partilhada; o `Uint8Array` que o wasm-bindgen devolve é sempre
+            // uma (nunca `SharedArrayBuffer`), só o tipo genérico não o garante.
+            body: new Blob(partes as BlobPart[]),
+          });
+          if (!respSubir.ok) throw new Error(`a subida ao relay falhou: ${respSubir.status}`);
+
+          emitir({ tipo: "progresso", id, feitos: proximoBloco, total: numBlocos, bytes: 0, bytes_por_seg: 0 });
+        }
+        break; // subida completa
+      } catch (erroSubida) {
+        if (tentativa + 1 >= TENTATIVAS) throw erroSubida;
+        // Falhou a meio de um pedaço: o relay pode já ter recebido parte
+        // dele (a escrita é em fluxo, não atómica por pedido). Perguntar-lhe
+        // quantos bytes selados tem a sério, e retomar na fronteira de bloco
+        // mais próxima — nunca mais atrás do que ele confirma, nunca mais à
+        // frente (S12 T1, Review3 F-13; contrato em `deposito.rs::abrir_para_subir`).
+        const bytesConfirmados = await (async () => {
+          try {
+            const e: EstadoDeposito = await (await fetch(`${base}/deposito/${idRelay}`)).json();
+            return e.bytes;
+          } catch {
+            return 0;
+          }
+        })();
+        proximoBloco = Math.floor(bytesConfirmados / tamBlocoSelado);
+      }
+    }
 
     emitir({ tipo: "depositado", id, para: nomeDestinatario ?? "" });
     return { idRelay, chaveHex };

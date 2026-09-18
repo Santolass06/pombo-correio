@@ -15,3 +15,6 @@ dist/
 
 # Auditorias de outro agente — não versionadas, por decisão do André
 /audit/
+
+# Segredos e caminhos locais desta máquina — nunca para o GitHub
+/handoff.md
