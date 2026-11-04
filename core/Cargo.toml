@@ -14,3 +14,8 @@ rand = "0.10.2"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.19"
 x25519-dalek = { version = "3.0.0", features = ["static_secrets", "serde"] }
+
+# No browser (wasm32-unknown-unknown) o `getrandom` não tem fonte de
+# aleatoriedade por omissão: usa o `crypto.getRandomValues` da página.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.4.3", features = ["wasm_js"] }

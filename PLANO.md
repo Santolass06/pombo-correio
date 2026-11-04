@@ -1002,7 +1002,11 @@ menos o último. É esta conta que mantém o relay ignorante.
       qualquer maneira, em vez de o trazer duas vezes.
 - [ ] **R6 — push.** FCM no Android, Web Push no iOS. Precisa de contas e chaves
       de serviço — decisão do utilizador, não técnica.
-- [ ] Binários musl para amd64 e arm64.
+- [~] Binários musl: **amd64 feito** (`cargo build --release -p pombo-correio-relay
+      --target x86_64-unknown-linux-musl` → `static-pie`, 1,8 MB, responde a HTTP
+      aqui). **arm64 não** neste ambiente: o `blake3` precisa de
+      `aarch64-linux-musl-gcc`, que não existe. Compilar no próprio Pi 5 (ou com
+      `cargo-zigbuild`/`cross`) — por tentar numa máquina com o toolchain.
 
 **Depende de decisões que ainda não estão tomadas:** como expor os servidores à
 internet (domínio, IP público ou CGNAT). Enquanto não estiverem, R1–R4 fazem-se e
@@ -1152,7 +1156,12 @@ entre máquinas:
 
 ### S8 — PWA iOS
 
-- [ ] `core/` para WASM.
+- [~] `core/` para WASM. **Compila** (`cargo build -p pombo-correio-core --target
+      wasm32-unknown-unknown`): bastou ligar a feature `wasm_js` do `getrandom` para
+      esse alvo. **Não foi executado** em nenhum browser nem Node — compilar não
+      prova que a cifra corre; falta o *glue* (`wasm-bindgen`), uma API para JS e um
+      teste que abra um bloco selado em Rust dentro do browser. O `std::fs` de
+      `Identity::load/save` compila mas só falharia em execução; vale gatear.
 - [ ] Service worker, Web Push, instalação no ecrã principal.
 - [ ] Encaminhamento explícito para a app Ficheiros (contorna o HEIC→JPEG).
 
