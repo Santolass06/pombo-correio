@@ -126,17 +126,13 @@ impl Estado {
         let mut depositos = HashMap::new();
         for entrada in std::fs::read_dir(&cfg.dir)? {
             let caminho = entrada?.path();
-            if caminho.extension().is_some_and(|e| e == "meta") {
-                if let Some(meta) = std::fs::read(&caminho)
+            if caminho.extension().is_some_and(|e| e == "meta")
+                && let Some(meta) = std::fs::read(&caminho)
                     .ok()
                     .and_then(|b| serde_json::from_slice::<Meta>(&b).ok())
                     .filter(|m| id_valido(&m.id))
-                {
-                    depositos.insert(
-                        meta.id.clone(),
-                        Deposito { meta, escrita: Default::default() },
-                    );
-                }
+            {
+                depositos.insert(meta.id.clone(), Deposito { meta, escrita: Default::default() });
             }
         }
         Ok(Arc::new(Self { cfg, interior: Mutex::new(Interior { dispositivos, depositos }) }))
@@ -251,10 +247,10 @@ async fn registar(
     corpo: Bytes,
 ) -> Result<StatusCode, Erro> {
     e.varrer();
-    if let Some(token) = &e.cfg.token_de_registo {
-        if h.get("x-pombo-token").and_then(|v| v.to_str().ok()) != Some(token.as_str()) {
-            return Err(erro(StatusCode::FORBIDDEN, "token de registo inválido"));
-        }
+    if let Some(token) = &e.cfg.token_de_registo
+        && h.get("x-pombo-token").and_then(|v| v.to_str().ok()) != Some(token.as_str())
+    {
+        return Err(erro(StatusCode::FORBIDDEN, "token de registo inválido"));
     }
     let p: PublicIdentity =
         serde_json::from_slice(&corpo).map_err(|_| erro(StatusCode::BAD_REQUEST, "identidade ilegível"))?;
