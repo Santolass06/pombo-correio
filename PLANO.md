@@ -1009,6 +1009,96 @@ internet (domínio, IP público ou CGNAT). Enquanto não estiverem, R1–R4 faze
 validam-se em loopback e na LAN; a ponta pela internet fica marcada como não
 provada.
 
+#### Desenho R1–R3 (escrito antes de implementar — regras 1 e 2)
+
+**Ramo.** O plano falava de `s7-relay`; esta sessão trabalha em
+`claude/elegant-albattani-tqlu7i`, que cumpre a mesma função (o `main` fica
+verde, e é o que os aparelhos da família correm). Nada aqui muda o formato de
+fio da LAN: o relay é **puramente aditivo**. Sem relay configurado, o
+comportamento é exatamente o de hoje.
+
+**Lacuna do desenho acima, fechada: o relay só fala bytes.** A subida *também*
+retoma em bytes, não em blocos (o relay não sabe o que é um bloco). Quem envia
+converte: o bloco *k* começa no byte `k * (CHUNK_SIZE + SEAL_OVERHEAD)` (1 MiB
++ 40; confirmado em `core/src/chunk.rs` e `core/src/crypto.rs`). O tamanho
+selado total é conhecido de quem envia (`size + n_blocos * SEAL_OVERHEAD`) e é
+**declarado no `POST`** — é isso que torna observável a diferença entre «subida
+em curso» e «completa».
+
+**Interface do relay**
+
+| Pedido | Quem | Corpo / efeito |
+|---|---|---|
+| `POST /registo` | qualquer um (com token opcional) | `PublicIdentity`; auto-assinado |
+| `POST /deposito` | registado | `{para, tamanho, oferta}` → `{id}` (128 bits, do relay) |
+| `PUT /deposito/{id}?de=N` | quem depositou | bytes selados a partir do byte N; **trunca a N** antes de acrescentar |
+| `GET /deposito/{id}` | quem depositou ou o destinatário | `{tenho, tamanho, completo, de, para, oferta}` |
+| `GET /deposito/{id}/blocos` | só o destinatário, só se completo | bytes, com `Range: bytes=N-` |
+| `GET /caixa` | o próprio destinatário | depósitos completos à espera dele |
+| `DELETE /deposito/{id}` | destinatário (após verificar tudo) ou quem depositou | apaga |
+
+A `oferta` é a `Oferta` de hoje, **como está** (envelope + manifesto selado +
+assinatura): o relay guarda-a como JSON opaco e nunca a abre.
+
+**Autenticação (R2).** Cada pedido leva `x-pombo-quem` (impressão digital em
+hex), `x-pombo-instante` (segundos Unix) e `x-pombo-assinatura` (Ed25519 sobre
+`pombo-relay-v1\nMÉTODO\ncaminho?query\ninstante\nBLAKE3(corpo)`). O relay
+recusa instantes fora de ±120 s. Para os corpos em fluxo (`PUT` dos blocos) o
+hash do corpo é o do corpo vazio: não se faz buffer de gigabytes para o assinar.
+Consequência assumida: sem TLS, quem esteja no caminho pode adulterar o corpo —
+mas isso só estraga a entrega, porque quem recebe verifica cada bloco contra o
+manifesto. TLS entra com a exposição à internet (decisão do utilizador, em
+aberto). Repetição dentro da janela de 120 s: aceite (as operações são
+idempotentes menos `POST /deposito`, limitado pela quota).
+
+**Limites (o relay vai estar na internet).** Tamanho máximo por depósito e
+quota total, ambos configuráveis; o espaço é **reservado ao `POST`** pelo
+tamanho declarado e um `PUT` que ultrapasse o declarado é cortado. `POST
+/deposito` exige dispositivo registado; o registo, se o relay estiver exposto,
+exige um token de casa (`--token-de-registo`). Máximo de dispositivos
+registados. TTL por depósito, com varrimento.
+
+**Quem apaga, e quando.** O destinatário, com `DELETE` assinado, **depois de
+verificar o último bloco e gravar o ficheiro**. O TTL é só a rede de segurança.
+Quem depositou também pode apagar (desistência). Se o `DELETE` falhar, o
+depósito expira — o ficheiro já está no destinatário; só se gasta espaço.
+
+**Duplicados.** Se a entrega direta meio-funcionou e a cópia do relay também
+chega, o destinatário dedupa pela raiz de Merkle depois de abrir o manifesto: se
+já tem o ficheiro completo com essa raiz, apaga o depósito e não grava de novo.
+
+**Observação de cada lado, e quando**
+
+- *Caminho feliz (R3).* Quem envia tenta o destino direto; falhou a ligar →
+  deposita no relay (`POST`, `PUT`) → emite `Evento::NoRelay` («chega quando o
+  destino abrir a app») — **não** `Enviado`, porque ainda não chegou. Quem
+  recebe, ao abrir e depois periodicamente, pergunta `GET /caixa`; para cada
+  depósito: abre o envelope, valida a assinatura, abre o manifesto, descarrega
+  com `Range`, verifica bloco a bloco, grava, e só então `DELETE`.
+- *Direto falha a meio da transferência.* Fica como hoje (`Falhou`, retomável).
+  O relay só entra quando **não se consegue ligar** — não se desvia uma
+  transferência que já ia a meio.
+- *Upload para o relay corta a meio.* O relay fica com cauda truncada
+  (`tenho < tamanho`, `completo=false`): invisível na caixa. Ao retomar, quem
+  envia pergunta `GET /deposito/{id}`, arredonda `tenho` **para baixo** à
+  fronteira de bloco selado, e faz `PUT ?de=<essa fronteira>`; o relay trunca
+  àquele byte antes de acrescentar. O destinatário nunca vê um depósito
+  incompleto.
+- *Download corta a meio.* O parcial em disco tem blocos verificados;
+  retoma-se com `Range` a partir do bloco seguinte. Nada se perde.
+- *Destinatário já não existe / nunca abre.* TTL apaga. Quem enviou não é
+  avisado (limitação conhecida; o push, R6, fecharia isto).
+
+**Pré-mortem.** *Se a ligação morrer agora…* — no `PUT`: o relay conclui «ainda
+não completo» (pelo tamanho declarado) e quem envia conclui «não sei quanto
+chegou» e **pergunta** em vez de supor. No `DELETE`: quem recebe conclui «já
+tenho o ficheiro» e o relay conclui «ainda tenho o depósito» — expira. Nenhum
+dos dois estados perde dados.
+
+**Onde isto fica provado.** Só em loopback, com dois processos de relay/cliente
+no mesmo anfitrião. A ponta pela internet (TLS, domínio, CGNAT) e a validação
+entre máquinas reais ficam **não provadas**.
+
 ### S8 — PWA iOS
 
 - [ ] `core/` para WASM.
