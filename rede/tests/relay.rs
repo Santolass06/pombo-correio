@@ -185,8 +185,16 @@ async fn relay_que_adultera_e_apanhado() {
 
     let item = relay.caixa(&b).await.unwrap().remove(0);
     let recebidos = dir.0.join("recebidos");
-    let r = receber_da_caixa(&b, &relay, &item, &recebidos, dir.0.join("c.json"), pombo_correio_rede::silencio(), sem_cancelamento(), &Metricas::desligada()).await;
+    let (ouv, ev) = ouvinte();
+    let r = receber_da_caixa(&b, &relay, &item, &recebidos, dir.0.join("c.json"), ouv, sem_cancelamento(), &Metricas::desligada()).await;
     assert!(r.is_err(), "tinha de recusar bytes adulterados");
+    {
+        // O cartão aberto pela oferta tem de fechar: sem evento terminal a
+        // interface ficava presa em «a passar» para sempre.
+        let ev = ev.lock().unwrap();
+        assert!(ev.iter().any(|e| matches!(e, Evento::Oferta { .. })));
+        assert!(ev.iter().any(|e| matches!(e, Evento::Falhou { .. })), "falta o evento terminal");
+    }
     assert!(!recebidos.join("x.bin").exists(), "nada de ficheiro final");
     assert_eq!(relay.caixa(&b).await.unwrap().len(), 1, "o depósito não se apaga se nada foi aceite");
 }
@@ -234,4 +242,59 @@ async fn destino_vivo_nao_usa_o_relay() {
     assert!(ev.lock().unwrap().iter().any(|e| matches!(e, Evento::Enviado { .. })));
     assert!(!ev.lock().unwrap().iter().any(|e| matches!(e, Evento::NoRelay { .. })));
     assert_eq!(std::fs::read(recebidos.join("d.bin")).unwrap(), original);
+}
+
+/// Sem impressão que identifique, nada vai para o relay — um prefixo vazio
+/// casaria com o primeiro dispositivo registado e o ficheiro iria para quem
+/// calhasse. Falha se alguém tirar a guarda.
+#[tokio::test(flavor = "multi_thread")]
+async fn impressao_vazia_ou_curta_nao_deposita() {
+    let dir = Temp::novo("impressao");
+    let relay = relay_de_pe(&dir).await;
+    let (a, b) = (Identity::generate("A"), Identity::generate("B"));
+    relay.registar(&a, None).await.unwrap();
+    relay.registar(&b, None).await.unwrap();
+    let (caminho, _) = ficheiro(&dir, "f.bin", 1000);
+    for curta in ["", "ab", "1234567"] {
+        let r = pombo_correio_rede::relay::enviar_por_relay(
+            &a, &relay, &FonteCaminho(caminho.clone()), curta,
+            pombo_correio_rede::silencio(), sem_cancelamento(), &Metricas::desligada(),
+        )
+        .await;
+        assert!(r.is_err(), "«{curta}» não pode servir");
+    }
+    assert!(relay.caixa(&b).await.unwrap().is_empty(), "nada pode ter sido depositado");
+}
+
+/// Um destino que **aceita a ligação e nunca responde** (o que um telemóvel em
+/// *doze* faz: o SYN cai) tem de ir para o relay em poucos segundos, e não
+/// ficar pendurado. Falha se o timeout do primeiro pedido sair.
+#[tokio::test(flavor = "multi_thread")]
+async fn destino_calado_cai_para_o_relay_em_segundos() {
+    let dir = Temp::novo("calado");
+    let relay = relay_de_pe(&dir).await;
+    let (a, b) = (Identity::generate("A"), Identity::generate("B"));
+    relay.registar(&a, None).await.unwrap();
+    relay.registar(&b, None).await.unwrap();
+
+    let calado = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endereco = calado.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut presos = Vec::new();
+        while let Ok((s, _)) = calado.accept().await {
+            presos.push(s); // aceita e fica calado
+        }
+    });
+
+    let (caminho, _) = ficheiro(&dir, "f.bin", 5000);
+    let (ouv, ev) = ouvinte();
+    let t = std::time::Instant::now();
+    enviar_com_alternativa(
+        &a, &FonteCaminho(caminho), endereco, &impressao(&b), Some(&relay),
+        ouv, sem_cancelamento(), &Metricas::desligada(), 0,
+    )
+    .await
+    .unwrap();
+    assert!(t.elapsed() < std::time::Duration::from_secs(9), "demorou {:?}", t.elapsed());
+    assert!(ev.lock().unwrap().iter().any(|e| matches!(e, Evento::NoRelay { .. })));
 }

@@ -1112,7 +1112,9 @@ entre máquinas:
   injetado. Cada um foi confirmado a falhar com sabotagem deliberada (retoma
   sem truncar; TTL).
 - `core/src/relay.rs`: a mensagem assinada, 3 testes.
-- `rede/src/relay.rs` + `Evento::NoRelay`: 5 testes (feliz com 3 blocos e
+- `rede/src/relay.rs` + `Evento::NoRelay`: 7 testes (os 5 seguintes, mais a
+  guarda da impressão vazia e o destino que aceita e não responde, ambos
+  sabotados para confirmar que falham) (feliz com 3 blocos e
   depósito apagado; retoma da descida por `Range`, sabotada a conta dos bytes;
   **relay que adultera um byte é apanhado** e o depósito não é apagado; sem relay
   o erro é o de sempre; destino vivo nunca toca no relay).
@@ -1144,11 +1146,24 @@ entre máquinas:
 
 - **Dedupe por raiz de Merkle** (desenho acima): *não implementado*. Se o direto
   e o relay entregarem o mesmo ficheiro, o segundo reescreve o primeiro.
+- **Corrida conhecida no `<raiz>.parcial`:** a receção direta e a do relay
+  partilham o mesmo parcial e **não há exclusão mútua entre elas**. Se o mesmo
+  ficheiro chegar pelos dois ao mesmo tempo, os blocos podem cair em posições
+  erradas. Mitigação parcial já feita: `receber_da_caixa` recusa publicar um
+  ficheiro cujo parcial não tenha o tamanho do manifesto (e emite `Falhou`). Não
+  é a correção — essa é um conjunto em memória das raízes em curso, consultado
+  em `propor` (409) e na caixa. **Por fazer, antes de dar o relay por fiável.**
+- **Android:** `<dados>/relay` vive em `/data/data/<pkg>/`, que só o
+  `adb shell run-as <pkg>` alcança; um familiar não o consegue configurar. O
+  próximo item de interface é um campo nas Definições para o endereço do relay.
 - **Retoma da subida entre sessões:** o relay suporta-a (testado), mas o cliente
   não guarda a chave da transferência, por isso recomeçar é um depósito novo.
 - **Cancelar uma receção vinda do relay** pela interface não está ligado (o
   vigia usa um sinal próprio que nunca dispara).
-- R4 (dois nós ativo-ativo), R5 (página sem instalação), R6 (push), TLS, domínio
+- **R4 (dois nós ativo-ativo)** cabia em loopback e não foi feito: é o próximo
+  passo — **desenhar primeiro** (cliente em paralelo, quem fica com o depósito,
+  o que acontece se o nó que tem o depósito cai antes de o destinatário o ir
+  buscar). R5 (página sem instalação), R6 (push), TLS, domínio
   e a exposição à internet: **por fazer / decisão do utilizador**.
 - **Validação entre máquinas reais: por fazer.** O S7 não fecha (sem tag).
   Passos mínimos: `pombo-relay` no Pi, os outros aparelhos com o ficheiro `relay`

@@ -34,6 +34,19 @@ pub struct Relay {
     http: reqwest::Client,
 }
 
+/// Não se conseguiu falar com o relay, ou a ligação caiu a meio. Distingue-se
+/// das falhas «a sério» (assinatura, bloco adulterado) porque estas não se
+/// repetem com sucesso, e aquelas sim — a retoma existe precisamente para elas.
+#[derive(Debug)]
+pub struct RelayInacessivel;
+
+impl std::fmt::Display for RelayInacessivel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "a ligação ao relay caiu — fica retomável")
+    }
+}
+impl std::error::Error for RelayInacessivel {}
+
 /// Um depósito à espera na caixa de quem recebe.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ItemCaixa {
@@ -276,6 +289,37 @@ pub async fn receber_da_caixa(
     cancelar: Cancelar,
     metricas: &Metricas,
 ) -> Result<Option<PathBuf>> {
+    // Todo o cartão tem de acabar num evento terminal, senão a interface fica
+    // presa em «a passar» para sempre (a regra de `receber.rs` e `enviar.rs`).
+    // Por isso os erros reportam-se aqui, num só sítio, e não onde nascem.
+    let mut id_do_cartao: Option<String> = None;
+    let r = descarregar(
+        eu, relay, item, destino, ficheiro_conhecidos, ouvinte.clone(), cancelar, metricas, &mut id_do_cartao,
+    )
+    .await;
+    if let Err(e) = &r {
+        let erro = if e.downcast_ref::<RelayInacessivel>().is_some() {
+            e.to_string()
+        } else {
+            format!("o ficheiro vindo do relay não passou a verificação: {e}")
+        };
+        ouvinte(Evento::Falhou { id: id_do_cartao.unwrap_or_else(|| item.id.clone()), erro });
+    }
+    r
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn descarregar(
+    eu: &Identity,
+    relay: &Relay,
+    item: &ItemCaixa,
+    destino: &Path,
+    ficheiro_conhecidos: PathBuf,
+    ouvinte: Ouvinte,
+    cancelar: Cancelar,
+    metricas: &Metricas,
+    id_do_cartao: &mut Option<String>,
+) -> Result<Option<PathBuf>> {
     let oferta = &item.oferta;
     oferta.de.verify(&oferta.manifesto_selado, &oferta.assinatura).map_err(|_| anyhow::anyhow!("assinatura inválida"))?;
     let chave = oferta.envelope.open(eu).map_err(|_| anyhow::anyhow!("o envelope não é para mim"))?;
@@ -298,6 +342,7 @@ pub async fn receber_da_caixa(
     let anterior = conhecidos.nome_anterior(&oferta.de).map(str::to_string);
     let novo = anterior.is_none();
     let _ = conhecidos.registar(&oferta.de);
+    *id_do_cartao = Some(id.clone());
     ouvinte(Evento::Oferta {
         id: id.clone(),
         de: oferta.de.clone(),
@@ -323,7 +368,7 @@ pub async fn receber_da_caixa(
         if desde > 0 {
             p = p.header("range", format!("bytes={desde}-"));
         }
-        let r = p.send().await.context("não consegui falar com o relay")?;
+        let r = p.send().await.map_err(|_| RelayInacessivel)?;
         if !r.status().is_success() {
             bail!("o relay recusou a descida: {}", r.text().await.unwrap_or_default());
         }
@@ -341,11 +386,7 @@ pub async fn receber_da_caixa(
             while sobra.len() < esperado {
                 match fluxo.next().await {
                     Some(Ok(pedaco)) => sobra.extend_from_slice(&pedaco),
-                    _ => {
-                        let erro = "a ligação ao relay caiu — fica retomável".to_string();
-                        ouvinte(Evento::Falhou { id: id.clone(), erro: erro.clone() });
-                        bail!(erro);
-                    }
+                    _ => return Err(RelayInacessivel.into()),
                 }
             }
             let selado: Vec<u8> = sobra.drain(..esperado).collect();
@@ -368,6 +409,15 @@ pub async fn receber_da_caixa(
     f.flush().await?;
     drop(f);
 
+    // Cinto e suspensórios: o parcial `<raiz>.parcial` é partilhado com a
+    // receção direta. Se as duas escreverem ao mesmo tempo (não há exclusão
+    // mútua entre elas — ver PLANO.md), os blocos acabam em posições erradas e
+    // o tamanho denuncia-o. Nunca se publica um ficheiro que não tenha o tamanho
+    // do manifesto.
+    let tamanho_final = tokio::fs::metadata(&parcial).await?.len();
+    if tamanho_final != manifesto.size {
+        bail!("o ficheiro parcial tem {tamanho_final} bytes e devia ter {} — outra receção do mesmo ficheiro em curso?", manifesto.size);
+    }
     let final_ = destino.join(crate::receber::nome_seguro(&manifesto.name));
     tokio::fs::rename(&parcial, &final_).await?;
     ouvinte(Evento::Recebido { id, caminho: final_.clone() });
@@ -410,7 +460,9 @@ pub async fn vigiar_caixa(
                     eu, relay, &item, destino, ficheiro_conhecidos.clone(), ouvinte.clone(), parar.clone(), metricas,
                 )
                 .await;
-                if r.is_err() {
+                if let Err(e) = r
+                    && e.downcast_ref::<RelayInacessivel>().is_none()
+                {
                     *falhas.entry(item.id.clone()).or_default() += 1;
                 }
             }
