@@ -9,5 +9,6 @@ pub mod chunk;
 pub mod crypto;
 pub mod error;
 pub mod identity;
+pub mod relay;
 
 pub use error::{Error, Result};

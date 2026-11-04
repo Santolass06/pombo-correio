@@ -1,0 +1,20 @@
+[package]
+name = "pombo-correio-relay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+axum = "0.8.9"
+futures-util = "0.3.33"
+getrandom = "0.4.3"
+hex = "0.4.3"
+pombo-correio-core = { workspace = true }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "fs", "io-util", "net", "signal", "time", "sync"] }
+tokio-util = { version = "0.7", features = ["io"] }
+
+[dev-dependencies]
+reqwest = { version = "0.13.4", default-features = false, features = ["json"] }

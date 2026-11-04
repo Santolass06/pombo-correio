@@ -2731,6 +2731,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pombo-correio-relay"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "futures-util",
+ "getrandom 0.4.3",
+ "hex",
+ "pombo-correio-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "potential_utf"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

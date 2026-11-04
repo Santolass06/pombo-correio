@@ -983,7 +983,7 @@ menos o último. É esta conta que mantém o relay ignorante.
 #### Peças, por ordem de dependência
 
 - [ ] **R1 — depósito opaco.** `relay/` em axum: `POST /deposito` (devolve o id),
-      `PUT /deposito/{id}?de=N` (subir, retomável), `GET /deposito/{id}`
+      `PUT /deposito/{id}/blocos?de=N` (subir, retomável), `GET /deposito/{id}`
       (cabeçalho: oferta selada e bytes já lá), `GET /deposito/{id}/blocos` com
       `Range` (descer, retomável), TTL com limpeza. Testável em loopback.
 - [ ] **R2 — registo de dispositivos e caixa autenticada.** `POST /registo` com a
@@ -1031,7 +1031,7 @@ em curso» e «completa».
 |---|---|---|
 | `POST /registo` | qualquer um (com token opcional) | `PublicIdentity`; auto-assinado |
 | `POST /deposito` | registado | `{para, tamanho, oferta}` → `{id}` (128 bits, do relay) |
-| `PUT /deposito/{id}?de=N` | quem depositou | bytes selados a partir do byte N; **trunca a N** antes de acrescentar |
+| `PUT /deposito/{id}/blocos?de=N` | quem depositou | bytes selados a partir do byte N; **trunca a N** antes de acrescentar |
 | `GET /deposito/{id}` | quem depositou ou o destinatário | `{tenho, tamanho, completo, de, para, oferta}` |
 | `GET /deposito/{id}/blocos` | só o destinatário, só se completo | bytes, com `Range: bytes=N-` |
 | `GET /caixa` | o próprio destinatário | depósitos completos à espera dele |
