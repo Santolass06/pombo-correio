@@ -351,7 +351,7 @@ Foi criado precisamente para o problema em aberto abaixo.
 - [x] **S4 — Descoberta e dispositivos conhecidos**
 - [x] **S5 — Interface e desktop** (falta Windows)
 - [x] **S6 — Android**
-- [ ] **S7 — Relay e link sem instalação**
+- [ ] **S7 — Relay e link sem instalação** (R1–R3 feitos em loopback; falta validar entre máquinas)
 - [ ] **S8 — PWA iOS**
 
 ### S1 — Primitivas do núcleo ✅
@@ -982,16 +982,16 @@ menos o último. É esta conta que mantém o relay ignorante.
 
 #### Peças, por ordem de dependência
 
-- [ ] **R1 — depósito opaco.** `relay/` em axum: `POST /deposito` (devolve o id),
+- [x] **R1 — depósito opaco** (verificado em loopback; ver «Estado do S7»). `relay/` em axum: `POST /deposito` (devolve o id),
       `PUT /deposito/{id}/blocos?de=N` (subir, retomável), `GET /deposito/{id}`
       (cabeçalho: oferta selada e bytes já lá), `GET /deposito/{id}/blocos` com
       `Range` (descer, retomável), TTL com limpeza. Testável em loopback.
-- [ ] **R2 — registo de dispositivos e caixa autenticada.** `POST /registo` com a
+- [x] **R2 — registo de dispositivos e caixa autenticada** (verificado em loopback). `POST /registo` com a
       `PublicIdentity` auto-assinada; `GET /caixa` assinada com Ed25519 e um
       instante, para o relay saber que é mesmo o dono a perguntar o que tem à
       espera. Sem isto, qualquer um lista a caixa alheia — não lê nada, mas fica
       a saber quanto e quando, e pode gastar a largura de banda de casa.
-- [ ] **R3 — o cliente desce a escada.** Direto → relay, e ao abrir a app
+- [x] **R3 — o cliente desce a escada** (verificado em loopback e com 3 processos reais; app só compilada). Direto → relay, e ao abrir a app
       pergunta pela caixa. É aqui que o "o destino não está disponível" deixa de
       ser um beco.
 - [ ] **R4 — dois nós ativo-ativo.** Cliente corre ambos em paralelo e fica com o
@@ -1098,6 +1098,57 @@ dos dois estados perde dados.
 **Onde isto fica provado.** Só em loopback, com dois processos de relay/cliente
 no mesmo anfitrião. A ponta pela internet (TLS, domínio, CGNAT) e a validação
 entre máquinas reais ficam **não provadas**.
+
+#### Estado do S7 (fim da sessão de 2026-11-04)
+
+**Feito e verificado em loopback / um só anfitrião** — nada disto foi visto
+entre máquinas:
+
+- `relay/` (`pombo-relay`): 10 testes de integração com HTTP real e relógio
+  injetado. Cada um foi confirmado a falhar com sabotagem deliberada (retoma
+  sem truncar; TTL).
+- `core/src/relay.rs`: a mensagem assinada, 3 testes.
+- `rede/src/relay.rs` + `Evento::NoRelay`: 5 testes (feliz com 3 blocos e
+  depósito apagado; retoma da descida por `Range`, sabotada a conta dos bytes;
+  **relay que adultera um byte é apanhado** e o depósito não é apagado; sem relay
+  o erro é o de sempre; destino vivo nunca toca no relay).
+- CLI: `pombo receber --relay H:P` e `pombo enviar … --relay H:P --impressao FP`.
+  Corrido com **3 processos** (relay, recetor, emissor com destino morto), 2,5 MB
+  aleatórios, SHA-256 igual, relay sem depósitos no fim — ainda assim **no mesmo
+  anfitrião, build debug**.
+- App Tauri: lê `<dados>/relay` (linha 1 `host:porta`, linha 2 token opcional),
+  regista-se e vigia a caixa de 20 em 20 s; envia por `enviar_com_alternativa`.
+  `cargo clippy --workspace --all-targets` limpo, `npm run build`/`check` limpos.
+  **A app não foi vista a correr** (nem o ecrã do estado «deixado no relay»), e o
+  código `cfg(android)` das chamadas a `despachar` **não foi compilado** (não há
+  alvo Android neste ambiente) — foi editado à mão, 3 chamadas mecânicas.
+
+**Decisões tomadas pelo caminho**
+
+- `/dispositivos` (diretório de chaves públicas dos registados) acrescentado ao
+  relay: sem ele quem envia não tem a chave pública de um destino que não alcança.
+- `enviar_fonte` ganhou um *timeout* de 5 s no primeiro pedido (`/identidade`) e
+  um erro tipado `DestinoInacessivel`. É o único ponto que mexe no caminho
+  direto, e só no erro; o formato de fio da LAN não mudou. **Efeito
+  colateral:** um destino vivo mas que demore mais de 5 s a responder passa a
+  falhar (ou a ir pelo relay). Em LAN não deve acontecer; fica por validar nos
+  aparelhos reais (Android em *doze*).
+- O desvio só ocorre com o destino **inacessível antes de qualquer oferta**.
+  Uma transferência direta que cai a meio continua a ser `Falhou` retomável.
+
+**Não feito / limitações assumidas**
+
+- **Dedupe por raiz de Merkle** (desenho acima): *não implementado*. Se o direto
+  e o relay entregarem o mesmo ficheiro, o segundo reescreve o primeiro.
+- **Retoma da subida entre sessões:** o relay suporta-a (testado), mas o cliente
+  não guarda a chave da transferência, por isso recomeçar é um depósito novo.
+- **Cancelar uma receção vinda do relay** pela interface não está ligado (o
+  vigia usa um sinal próprio que nunca dispara).
+- R4 (dois nós ativo-ativo), R5 (página sem instalação), R6 (push), TLS, domínio
+  e a exposição à internet: **por fazer / decisão do utilizador**.
+- **Validação entre máquinas reais: por fazer.** O S7 não fecha (sem tag).
+  Passos mínimos: `pombo-relay` no Pi, os outros aparelhos com o ficheiro `relay`
+  a apontar para o IP do Pi, desligar o destino, enviar, abrir o destino.
 
 ### S8 — PWA iOS
 

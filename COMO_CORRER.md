@@ -110,3 +110,15 @@ Lá dentro: `identidade` (chaves privadas, `0600` em Unix), `conhecidos.json` e
 
 Apagar a `identidade` cria um dispositivo novo aos olhos dos outros, e o número
 de segurança muda — os outros voltam a avisar que é um dispositivo desconhecido.
+
+## Relay (S7, experimental)
+
+```sh
+cargo build --release -p pombo-correio-relay
+target/release/pombo-relay --porta 53319 --dir /var/lib/pombo-relay   # no Pi / A10
+```
+
+Cada dispositivo aponta para ele: na app, um ficheiro `relay` na pasta de dados
+(linha 1 `host:porta`, linha 2 token de registo, opcional); no CLI,
+`pombo receber --relay H:P` e `pombo enviar F DESTINO --relay H:P --impressao FP`.
+O relay só vê bytes cifrados. Sem TLS por agora — **não o exponhas à internet**.

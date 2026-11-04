@@ -150,6 +150,11 @@ pub async fn enviar_por_relay(
     cancelar: Cancelar,
     metricas: &Metricas,
 ) -> Result<()> {
+    // Um prefixo vazio ou curto casaria com qualquer dispositivo: o ficheiro
+    // iria parar a quem calhasse. Exige-se uma impressão que identifique.
+    if impressao_do_destino.len() < 8 {
+        bail!("não sei para que dispositivo deixar no relay");
+    }
     let nome = fonte.nome();
     let manifesto = Manifest::from_reader(&nome, fonte.abrir().context("não consegui abrir o ficheiro a enviar")?)?;
     if manifesto.size == 0 {
@@ -387,9 +392,15 @@ pub async fn vigiar_caixa(
     metricas: &Metricas,
     intervalo: Duration,
     parar: Cancelar,
+    token_de_registo: Option<String>,
 ) {
     let mut falhas: HashMap<String, u32> = HashMap::new();
+    let mut registado = false;
     while !parar.load(Relaxed) {
+        // O registo repete-se até pegar: o relay pode estar em baixo ao arrancar.
+        if !registado {
+            registado = relay.registar(eu, token_de_registo.as_deref()).await.is_ok();
+        }
         if let Ok(itens) = relay.caixa(eu).await {
             for item in itens {
                 if falhas.get(&item.id).copied().unwrap_or(0) >= 3 {

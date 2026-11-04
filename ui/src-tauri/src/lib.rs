@@ -10,7 +10,10 @@
 use std::sync::Arc;
 
 use pombo_correio_core::identity::Identity;
-use pombo_correio_rede::{Cancelar, Cancelaveis, Evento, Metricas, descoberta, enviar, receber};
+use pombo_correio_rede::{
+    Cancelar, Cancelaveis, Evento, Metricas, descoberta, receber,
+    relay::{Relay, enviar_com_alternativa, enviar_por_relay, vigiar_caixa},
+};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
@@ -28,6 +31,18 @@ struct Estado {
     cancelaveis: Cancelaveis,
     /// Registo de métricas, partilhado com o servidor e com cada envio.
     metricas: Metricas,
+    /// O relay de casa, se houver um configurado (ficheiro `relay` na pasta de
+    /// dados). Sem ele, tudo se passa como antes: só envio direto.
+    relay: Option<Relay>,
+}
+
+/// Lê o `relay` da pasta de dados: primeira linha `host:porta` (ou URL), segunda
+/// linha opcional com o token de registo. Ficheiro em falta = sem relay.
+fn config_do_relay(dados: &std::path::Path) -> Option<(Relay, Option<String>)> {
+    let texto = std::fs::read_to_string(dados.join("relay")).ok()?;
+    let mut linhas = texto.lines().map(str::trim).filter(|l| !l.is_empty());
+    let endereco = linhas.next()?;
+    Some((Relay::novo(endereco), linhas.next().map(str::to_string)))
 }
 
 /// Como a interface vê este dispositivo.
@@ -95,9 +110,13 @@ async fn dispositivos(estado: tauri::State<'_, Estado>) -> Result<Vec<Vizinho>, 
 /// O endereço vem como dica e confirma-se num instante; só se não servir é que
 /// se procura. Sem isto pagava-se a janela inteira da descoberta antes de cada
 /// envio — e no Android antes mesmo de o seletor de ficheiros abrir.
-async fn endereco_de(app: &tauri::AppHandle, destino: &Vizinho) -> Result<std::net::SocketAddr, String> {
-    let fp = descoberta::impressao_curta(&app.state::<Estado>().eu.public());
-    descoberta::resolver_com_dica(
+async fn endereco_de(
+    app: &tauri::AppHandle,
+    destino: &Vizinho,
+) -> Result<Option<std::net::SocketAddr>, String> {
+    let estado = app.state::<Estado>();
+    let fp = descoberta::impressao_curta(&estado.eu.public());
+    match descoberta::resolver_com_dica(
         destino.endereco.parse().ok(),
         &destino.nome,
         destino.impressao.as_deref(),
@@ -105,7 +124,13 @@ async fn endereco_de(app: &tauri::AppHandle, destino: &Vizinho) -> Result<std::n
         Some(&fp),
     )
     .await
-    .map_err(|e| e.to_string())
+    {
+        Ok(a) => Ok(Some(a)),
+        // Sem relay, ou sem impressão para o procurar lá, o erro é o de sempre.
+        Err(e) if estado.relay.is_none() || destino.impressao.is_none() => Err(e.to_string()),
+        // Não o encontrei na rede, mas há relay: o envio segue por lá.
+        Err(_) => Ok(None),
+    }
 }
 
 /// Põe ficheiros a caminho do destino e devolve logo; o resto conta-se por
@@ -117,10 +142,12 @@ async fn endereco_de(app: &tauri::AppHandle, destino: &Vizinho) -> Result<std::n
 fn despachar(
     app: &tauri::AppHandle,
     fontes: Vec<Box<dyn pombo_correio_rede::Fonte>>,
-    endereco: std::net::SocketAddr,
+    endereco: Option<std::net::SocketAddr>,
+    impressao: Option<String>,
 ) {
     let eu = copiar(&app.state::<Estado>().eu);
     let metricas = app.state::<Estado>().metricas.clone();
+    let relay = app.state::<Estado>().relay.clone();
     let app = app.clone();
 
     tauri::async_runtime::spawn(async move {
@@ -129,13 +156,28 @@ fn despachar(
             let ouvinte = ouvinte_de_envio(app.clone(), cancelar.clone());
             // A app corre servidor na PORTA, por isso quem recebe pode avisá-la
             // de um cancelamento por esse endereço.
-            if let Err(e) =
-                enviar::enviar_fonte(&eu, fonte.as_ref(), endereco, ouvinte.clone(), cancelar, &metricas, PORTA).await
-            {
+            let impressao = impressao.as_deref().unwrap_or("");
+            let resultado = match (endereco, relay.as_ref()) {
+                (Some(endereco), relay) => {
+                    enviar_com_alternativa(
+                        &eu, fonte.as_ref(), endereco, impressao, relay,
+                        ouvinte.clone(), cancelar, &metricas, PORTA,
+                    )
+                    .await
+                    .map_err(|e| e.to_string())
+                }
+                (None, Some(relay)) => {
+                    enviar_por_relay(&eu, relay, fonte.as_ref(), impressao, ouvinte.clone(), cancelar, &metricas)
+                        .await
+                        .map_err(|e| e.to_string())
+                }
+                (None, None) => Err("não encontrei o destino".to_string()),
+            };
+            if let Err(e) = resultado {
                 // Só chega aqui um erro anterior ao envio propriamente dito —
                 // ligar ou abrir a origem. A partir do aceite, o próprio
                 // `enviar` fecha a transferência por evento.
-                ouvinte(Evento::Falhou { id: String::new(), erro: e.to_string() });
+                ouvinte(Evento::Falhou { id: String::new(), erro: e });
             }
         }
     });
@@ -149,7 +191,7 @@ async fn enviar_ficheiro(
     destino: Vizinho,
 ) -> Result<(), String> {
     let endereco = endereco_de(&app, &destino).await?;
-    despachar(&app, vec![Box::new(pombo_correio_rede::FonteCaminho(ficheiro))], endereco);
+    despachar(&app, vec![Box::new(pombo_correio_rede::FonteCaminho(ficheiro))], endereco, destino.impressao.clone());
     Ok(())
 }
 
@@ -239,7 +281,12 @@ async fn enviar_android(app: tauri::AppHandle, destino: Vizinho) -> Result<(), S
             return Ok(()); // cancelado, sem erro
         };
 
-        despachar(&app, vec![Box::new(FonteAndroid { app: app.clone(), uri, nome })], endereco);
+        despachar(
+            &app,
+            vec![Box::new(FonteAndroid { app: app.clone(), uri, nome })],
+            endereco,
+            destino.impressao.clone(),
+        );
         Ok(())
     }
 }
@@ -337,7 +384,7 @@ async fn enviar_partilhados(
                 }) as Box<dyn pombo_correio_rede::Fonte>
             })
             .collect();
-        despachar(&app, fontes, endereco);
+        despachar(&app, fontes, endereco, destino.impressao.clone());
         Ok(())
     }
 }
@@ -547,10 +594,29 @@ pub fn run() {
                 }
             });
 
+            // Relay opcional: regista-se e vai à caixa de tempos a tempos. Sem o
+            // ficheiro `relay`, nada disto arranca e a app é a de sempre.
+            let relay = config_do_relay(&dados);
+            if let Some((relay, token)) = relay.clone() {
+                let eu_caixa = copiar(&eu);
+                let ouvinte = ouvinte_para(app.handle().clone());
+                let destino = dados.join("recebidos");
+                let conhecidos = dados.join("conhecidos.json");
+                let metricas = metricas.clone();
+                tauri::async_runtime::spawn(async move {
+                    vigiar_caixa(
+                        &eu_caixa, &relay, &destino, conhecidos, ouvinte, &metricas,
+                        std::time::Duration::from_secs(20), Default::default(), token,
+                    )
+                    .await;
+                });
+            }
+
             app.manage(Estado {
                 eu,
                 cancelaveis,
                 metricas,
+                relay: relay.map(|(r, _)| r),
             });
             Ok(())
         })

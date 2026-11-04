@@ -18,3 +18,7 @@ tokio-util = { version = "0.7", features = ["io"] }
 
 [dev-dependencies]
 reqwest = { version = "0.13.4", default-features = false, features = ["json"] }
+
+[[bin]]
+name = "pombo-relay"
+path = "src/main.rs"

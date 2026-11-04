@@ -5,7 +5,11 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use pombo_correio_core::identity::Identity;
-use pombo_correio_rede::{Evento, Metricas, Ouvinte, descoberta, enviar, receber, sem_cancelamento};
+use pombo_correio_rede::{
+    Evento, Metricas, Ouvinte, descoberta, receber,
+    relay::{Relay, enviar_com_alternativa, vigiar_caixa},
+    sem_cancelamento,
+};
 
 use progresso::Progresso;
 
@@ -29,6 +33,13 @@ enum Comando {
     Receber {
         #[arg(long, default_value_t = PORTA)]
         porta: u16,
+        /// Relay de casa (`host:porta`): regista-se lá e vai à caixa de 20 em
+        /// 20 segundos. Sem isto, só se recebe diretamente.
+        #[arg(long)]
+        relay: Option<String>,
+        /// Token de registo, se o relay o exigir.
+        #[arg(long)]
+        token: Option<String>,
     },
     /// Envia um ficheiro para outro dispositivo.
     Enviar {
@@ -36,6 +47,17 @@ enum Comando {
         /// Nome do dispositivo na rede local, ou endereço como
         /// `192.168.1.50:53318` para fora dela.
         destino: String,
+        /// Relay de casa (`host:porta`). Só é usado se o destino não for
+        /// alcançável; exige que o destino se tenha registado no relay.
+        #[arg(long)]
+        relay: Option<String>,
+        /// Impressão digital (prefixo de pelo menos 8 hex) do destino no relay,
+        /// para quando `destino` é um endereço e não um nome da rede local.
+        #[arg(long)]
+        impressao: Option<String>,
+        /// Token de registo, se o relay o exigir.
+        #[arg(long)]
+        token: Option<String>,
     },
     /// Lista os dispositivos à espera na rede local.
     Dispositivos,
@@ -180,11 +202,25 @@ async fn main() -> Result<()> {
     let ouvinte = ouvinte_terminal();
 
     match cli.comando {
-        Comando::Receber { porta } => {
+        Comando::Receber { porta, relay, token } => {
             println!("Pombo-Correio — à espera");
             println!("  Este dispositivo: {}", eu.label);
             println!("  Número de segurança: {}", eu.public().safety_number());
             println!("  A guardar em {}", dados.join("recebidos").display());
+
+            if let Some(endereco) = relay {
+                let eu_caixa = Identity::from_secret_bytes(eu.secret_bytes().0, eu.secret_bytes().1, eu.label.clone());
+                let (destino, conhecidos) = (dados.join("recebidos"), dados.join("conhecidos.json"));
+                let (ouv, metricas) = (ouvinte.clone(), Metricas::no_diretorio(&dados));
+                println!("  Relay: {endereco}");
+                tokio::spawn(async move {
+                    vigiar_caixa(
+                        &eu_caixa, &Relay::novo(&endereco), &destino, conhecidos, ouv, &metricas,
+                        std::time::Duration::from_secs(20), Default::default(), token,
+                    )
+                    .await;
+                });
+            }
 
             receber::servir(
                 eu,
@@ -198,14 +234,27 @@ async fn main() -> Result<()> {
             .await
         }
 
-        Comando::Enviar { ficheiro, destino } => {
+        Comando::Enviar { ficheiro, destino, relay, impressao, token } => {
             let fp = descoberta::impressao_curta(&eu.public());
+            let relay = relay.map(|r| Relay::novo(&r));
+            if let Some(r) = &relay {
+                // Para poder depositar, este dispositivo tem de estar registado.
+                // Falhar aqui não impede o envio direto.
+                if let Err(e) = r.registar(&eu, token.as_deref()).await {
+                    println!("  (relay indisponível: {e})");
+                }
+            }
             let endereco = descoberta::resolver(&destino, PORTA, Some(&fp))?;
             println!("A preparar {}...", ficheiro.display());
             let metricas = Metricas::no_diretorio(&dados);
+            let fonte = pombo_correio_rede::FonteCaminho(ficheiro);
             // Porta 0: o CLI a enviar não corre servidor, por isso quem recebe
             // não o pode avisar de um cancelamento — mas o Ctrl+C basta.
-            enviar::enviar(&eu, &ficheiro, endereco, ouvinte, sem_cancelamento(), &metricas, 0).await
+            enviar_com_alternativa(
+                &eu, &fonte, endereco, impressao.as_deref().unwrap_or(""), relay.as_ref(),
+                ouvinte, sem_cancelamento(), &metricas, 0,
+            )
+            .await
         }
 
         Comando::Dispositivos => {
