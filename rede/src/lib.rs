@@ -13,6 +13,7 @@ pub mod enviar;
 pub mod metricas;
 pub mod protocolo;
 pub mod receber;
+pub mod relay;
 
 pub use metricas::Metricas;
 
@@ -73,6 +74,11 @@ pub enum Evento {
     /// Cancelado por quem enviava. O que já chegou fica em disco, por isso
     /// retomar continua a valer — cancelar não é perder o trabalho feito.
     Cancelado { id: String },
+
+    /// Quem envia: o destino não estava alcançável e o ficheiro ficou no relay,
+    /// selado. **Não** é `Enviado` — ainda não chegou; chega quando o destino
+    /// abrir a app e for à caixa.
+    NoRelay { id: String, ficheiro: String },
 
     /// Correu mal. A transferência pode ser retomada.
     Falhou { id: String, erro: String },

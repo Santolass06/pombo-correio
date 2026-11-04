@@ -138,6 +138,13 @@
       if (e.tipo === "recebido")
         return { ...t, estado: "pronto" as const, feitos: t.total, detalhe: e.caminho };
       if (e.tipo === "enviado") return { ...t, estado: "pronto" as const, feitos: t.total };
+      if (e.tipo === "no_relay")
+        return {
+          ...t,
+          estado: "pronto" as const,
+          feitos: t.total,
+          detalhe: "Deixado no relay — chega quando o destino abrir a app",
+        };
       if (e.tipo === "cancelado")
         return { ...t, estado: "cancelado" as const, detalhe: "Cancelado — o que já passou fica guardado" };
       if (e.tipo === "falhou") return { ...t, estado: "falhou" as const, detalhe: e.erro };

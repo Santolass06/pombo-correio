@@ -227,6 +227,7 @@ pub fn router(estado: Arc<Estado>) -> Router {
         .route("/deposito/{id}", get(estado_do_deposito).delete(apagar))
         .route("/deposito/{id}/blocos", put(subir).get(descer))
         .route("/caixa", get(caixa))
+        .route("/dispositivos", get(dispositivos))
         .with_state(estado)
 }
 
@@ -274,6 +275,22 @@ async fn registar(
     std::fs::write(e.cfg.dir.join("dispositivos.json"), json)
         .map_err(|_| erro(StatusCode::INTERNAL_SERVER_ERROR, "não gravei o registo"))?;
     Ok(StatusCode::OK)
+}
+
+/// O diretório de quem está registado: só chaves públicas, para quem envia
+/// poder embrulhar a chave de uma transferência a um destino que não alcança
+/// diretamente. Só para dispositivos já registados.
+async fn dispositivos(
+    State(e): State<Arc<Estado>>,
+    h: HeaderMap,
+    metodo: Method,
+    uri: Uri,
+) -> Result<Json<Vec<PublicIdentity>>, Erro> {
+    e.varrer();
+    e.autenticar(&h, &metodo, &uri, b"")?;
+    let mut v: Vec<PublicIdentity> = e.interior.lock().unwrap().dispositivos.values().cloned().collect();
+    v.sort_by(|a, b| a.label.cmp(&b.label));
+    Ok(Json(v))
 }
 
 // --- Depósito ------------------------------------------------------------

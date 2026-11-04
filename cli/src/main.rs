@@ -165,6 +165,9 @@ fn ouvinte_terminal() -> Ouvinte {
             println!("\n  Cancelado. O que já passou fica guardado — retomar continua a valer.");
         }
 
+        Evento::NoRelay { ficheiro, .. } => {
+            println!("  {ficheiro}: deixado no relay — chega quando o destino abrir a app")
+        }
         Evento::Falhou { erro, .. } => println!("  Falhou: {erro}"),
     })
 }

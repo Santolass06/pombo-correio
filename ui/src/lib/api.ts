@@ -41,6 +41,7 @@ export type Evento =
   | { tipo: "recebido"; id: string; caminho: string }
   | { tipo: "enviado"; id: string }
   | { tipo: "cancelado"; id: string }
+  | { tipo: "no_relay"; id: string; ficheiro: string }
   | { tipo: "falhou"; id: string; erro: string };
 
 export const identidade = () => invoke<Eu>("identidade");

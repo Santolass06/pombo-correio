@@ -162,7 +162,7 @@ fn ouvinte_de_envio(app: tauri::AppHandle, cancelar: Cancelar) -> pombo_correio_
             Evento::Oferta { id, .. } => {
                 estado.cancelaveis.lock().unwrap().insert(id.clone(), cancelar.clone());
             }
-            Evento::Enviado { id } | Evento::Cancelado { id } | Evento::Falhou { id, .. } => {
+            Evento::Enviado { id } | Evento::NoRelay { id, .. } | Evento::Cancelado { id } | Evento::Falhou { id, .. } => {
                 estado.cancelaveis.lock().unwrap().remove(id);
             }
             _ => {}
@@ -408,6 +408,10 @@ enum ParaInterface {
     #[serde(rename = "cancelado")]
     Cancelado { id: String },
 
+    /// Ficou no relay, à espera de o destino abrir a app. Não é «enviado».
+    #[serde(rename = "no_relay")]
+    NoRelay { id: String, ficheiro: String },
+
     #[serde(rename = "falhou")]
     Falhou { id: String, erro: String },
 }
@@ -459,6 +463,7 @@ impl From<Evento> for ParaInterface {
             },
             Evento::Enviado { id } => Self::Enviado { id },
             Evento::Cancelado { id } => Self::Cancelado { id },
+            Evento::NoRelay { id, ficheiro } => Self::NoRelay { id, ficheiro },
             Evento::Falhou { id, erro } => Self::Falhou { id, erro },
         }
     }

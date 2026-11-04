@@ -55,7 +55,7 @@ struct Estado {
 /// ficheiro fecha isso, nos dois sistemas — o `Path` do Windows trata `/` e `\`
 /// como separadores, o do Unix só `/`, e nenhum dos dois deixa passar um `..`
 /// inteiro.
-fn nome_seguro(bruto: &str) -> String {
+pub(crate) fn nome_seguro(bruto: &str) -> String {
     let base = std::path::Path::new(bruto)
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())

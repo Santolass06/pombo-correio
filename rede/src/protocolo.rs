@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// O manifesto vai selado porque traz o nome do ficheiro. O envelope vai em
 /// claro — é a chave embrulhada e só o destinatário a consegue abrir.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Oferta {
     pub de: PublicIdentity,
     pub envelope: Envelope,

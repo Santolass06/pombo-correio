@@ -46,6 +46,7 @@ impl Registo {
                 Evento::Recebido { .. } => "recebido",
                 Evento::Enviado { .. } => "enviado",
                 Evento::Cancelado { .. } => "cancelado",
+                Evento::NoRelay { .. } => "no_relay",
                 Evento::Falhou { .. } => "falhou",
             };
             eu.tipos.lock().unwrap().push(nome.into());

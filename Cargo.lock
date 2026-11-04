@@ -2724,6 +2724,7 @@ dependencies = [
  "hex",
  "mdns-sd",
  "pombo-correio-core",
+ "pombo-correio-relay",
  "reqwest",
  "serde",
  "serde_json",

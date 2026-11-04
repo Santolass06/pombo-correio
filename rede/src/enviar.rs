@@ -31,6 +31,19 @@ fn amigavel(e: &reqwest::Error) -> String {
     }
 }
 
+/// Não se conseguiu falar com o destino (antes de qualquer oferta). É o único
+/// erro que justifica tentar o relay: nada chegou a ser proposto, por isso nada
+/// fica a meio nem duplicado.
+#[derive(Debug)]
+pub struct DestinoInacessivel(pub String);
+
+impl std::fmt::Display for DestinoInacessivel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "não consegui falar com o destino")
+    }
+}
+impl std::error::Error for DestinoInacessivel {}
+
 /// Fixa o tipo do fluxo produzido pela macro.
 ///
 /// `try_stream!` não permite anotar os tipos e o `wrap_stream` é genérico
@@ -98,11 +111,13 @@ pub async fn enviar_fonte(
     // transferência vai embrulhada.
     let deles: PublicIdentity = cliente
         .get(format!("{base}/identidade"))
+        .timeout(std::time::Duration::from_secs(5))
         .send()
         .await
-        .context("não consegui falar com o destino")?
+        .map_err(|e| DestinoInacessivel(e.to_string()))?
         .json()
-        .await?;
+        .await
+        .map_err(|e| DestinoInacessivel(e.to_string()))?;
 
     ouvinte(Evento::Destino { quem: deles.clone() });
 
