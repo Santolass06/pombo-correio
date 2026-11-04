@@ -1125,9 +1125,12 @@ entre máquinas:
 - App Tauri: lê `<dados>/relay` (linha 1 `host:porta`, linha 2 token opcional),
   regista-se e vigia a caixa de 20 em 20 s; envia por `enviar_com_alternativa`.
   `cargo clippy --workspace --all-targets` limpo, `npm run build`/`check` limpos.
-  **A app não foi vista a correr** (nem o ecrã do estado «deixado no relay»), e o
-  código `cfg(android)` das chamadas a `despachar` **não foi compilado** (não há
-  alvo Android neste ambiente) — foi editado à mão, 3 chamadas mecânicas.
+  **Vista a correr só sob `xvfb`** (build debug por `tauri build --debug
+  --no-bundle`, captura de ecrã: a interface desenhou, e com o ficheiro `relay`
+  a app registou-se sozinha no relay — `dispositivos.json` ficou com ela). **Não**
+  se exercitou o cartão «deixado no relay» na interface, nem foi num ecrã real.
+  O código `cfg(android)` das chamadas a `despachar` **não foi compilado** (não
+  há alvo Android neste ambiente) — foi editado à mão, 3 chamadas mecânicas.
 
 **Decisões tomadas pelo caminho**
 
